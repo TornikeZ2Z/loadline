@@ -267,6 +267,34 @@ once volume justifies it; it lists the two SQL fragments in the query builder th
 
 ---
 
+## Deploying a shareable demo
+
+Locally the app needs nothing. **Hosting it does need a real Postgres**, because the
+embedded PGlite database writes to `./.pgdata` and serverless filesystems are ephemeral —
+every cold start would reset the board.
+
+The whole change is one environment variable:
+
+1. Create a free Postgres (Neon, Supabase and Railway all work) and copy its connection
+   string.
+2. Deploy the repo to Vercel, Fly or Render with:
+
+   ```
+   DATABASE_URL=postgres://…        # required in production
+   SESSION_SECRET=<32+ random bytes> # required in production; the app refuses to start without it
+   CRON_SECRET=<random>              # gates /api/cron/*
+   ```
+
+   The schema creates itself on first connection.
+3. Seed the demo corpus once, either by running `npm run seed` against the same
+   `DATABASE_URL`, or by signing in and pressing **Restore demo data** in the WhatsApp test
+   console.
+4. Optionally schedule `POST /api/cron/expire` daily and `POST /api/cron/process` every
+   minute (both take `Authorization: Bearer $CRON_SECRET`). Neither is needed for a
+   click-through demo — the test console processes synchronously.
+
+---
+
 ## Configuration
 
 Copy `.env.example` to `.env.local`. Everything has a working default except the WhatsApp
