@@ -89,8 +89,7 @@ async function main() {
     `\nloads table: ${summary?.total} rows, ${summary?.available} live and canonical, ` +
       `${summary?.review} flagged for review, ${summary?.states} pickup states`,
   );
-  console.log("
-open http://localhost:3000 and press \"Sign in as Carrier\" -- no password needed");
+  console.log("\nopen http://localhost:3000 and press 'Sign in as Carrier' -- no password needed");
 }
 
 main().then(
