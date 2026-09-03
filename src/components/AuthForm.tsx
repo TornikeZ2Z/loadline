@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { api } from "@/lib/basePath";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -16,7 +17,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     setError(null);
 
     const data = Object.fromEntries(new FormData(event.currentTarget));
-    const res = await fetch(`/api/auth/${mode}`, {
+    const res = await fetch(api(`/api/auth/${mode}`), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(data),

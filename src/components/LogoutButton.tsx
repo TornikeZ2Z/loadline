@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { api } from "@/lib/basePath";
 
 export function LogoutButton() {
   const router = useRouter();
@@ -13,7 +14,7 @@ export function LogoutButton() {
       disabled={busy}
       onClick={async () => {
         setBusy(true);
-        await fetch("/api/auth/logout", { method: "POST" });
+        await fetch(api("/api/auth/logout"), { method: "POST" });
         router.replace("/login");
         router.refresh();
       }}

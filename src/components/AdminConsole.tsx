@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Chip } from "./ui";
+import { api } from "@/lib/basePath";
 
 interface Group {
   id: number;
@@ -113,7 +114,7 @@ function TryMessage() {
     setBusy(true);
     setError(null);
     setResult(null);
-    const res = await fetch("/api/admin/ingest", {
+    const res = await fetch(api("/api/admin/ingest"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, group: "Manual entry" }),
@@ -226,7 +227,7 @@ function MessageFeed() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/admin/messages?${status ? `status=${status}` : ""}`);
+    const res = await fetch(api(`/api/admin/messages?${status ? `status=${status}` : ""}`));
     const json = await res.json();
     setMessages(json.messages ?? []);
     setLoading(false);
@@ -238,7 +239,7 @@ function MessageFeed() {
 
   async function reprocess(id: number) {
     setBusyId(id);
-    await fetch(`/api/admin/messages/${id}/reprocess`, { method: "POST" });
+    await fetch(api(`/api/admin/messages/${id}/reprocess`), { method: "POST" });
     setBusyId(null);
     load();
   }

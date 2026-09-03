@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { api } from "@/lib/basePath";
 
 /**
  * Direct load entry for brokers who would rather type than post in a group.
@@ -18,7 +19,7 @@ export function PostLoadForm() {
 
     const form = event.currentTarget;
     const data = Object.fromEntries(new FormData(form));
-    const res = await fetch("/api/loads", {
+    const res = await fetch(api("/api/loads"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(data),

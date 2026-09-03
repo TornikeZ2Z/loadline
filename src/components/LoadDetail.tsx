@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { LoadRow } from "@/lib/loads/types";
 import { formatMiles } from "@/lib/geo/math";
 import { Chip, PrecisionNote, StatusChip, formatPickupDate, formatTime, formatWeight } from "./ui";
+import { api } from "@/lib/basePath";
 
 interface DetailResponse {
   load: LoadRow;
@@ -33,7 +34,7 @@ export function LoadDetail({
   useEffect(() => {
     let alive = true;
     setData(null);
-    fetch(`/api/loads/${load.id}`)
+    fetch(api(`/api/loads/${load.id}`))
       .then((r) => r.json())
       .then((d: DetailResponse) => alive && setData(d))
       .catch(() => {});
@@ -55,7 +56,7 @@ export function LoadDetail({
 
   async function setStatus(status: string) {
     setBusy(true);
-    await fetch(`/api/loads/${current.id}/status`, {
+    await fetch(api(`/api/loads/${current.id}/status`), {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ status }),

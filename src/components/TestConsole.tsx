@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { ChatGroup, ChatLoad, ChatMessage } from "@/lib/demo/chats";
 import { Chip } from "./ui";
+import { api } from "@/lib/basePath";
 
 /**
  * The WhatsApp test console.
@@ -43,7 +44,7 @@ export function TestConsole({
     setGroupId(id);
     setSelectedId(null);
     setLoads([]);
-    const res = await fetch(`/api/test/messages${id ? `?groupId=${id}` : ""}`);
+    const res = await fetch(api(`/api/test/messages${id ? `?groupId=${id}` : ""}`));
     const json = await res.json();
     setMessages(json.messages ?? []);
   }, []);
@@ -52,7 +53,7 @@ export function TestConsole({
     setSelectedId(message.id);
     setDraft(message.body);
     setNote(null);
-    const res = await fetch(`/api/test/messages/${message.id}`);
+    const res = await fetch(api(`/api/test/messages/${message.id}`));
     const json = await res.json();
     setLoads(json.loads ?? []);
   }, []);
@@ -68,7 +69,7 @@ export function TestConsole({
   async function saveEdit() {
     if (!selected) return;
     setBusy("save");
-    const res = await fetch(`/api/test/messages/${selected.id}`, {
+    const res = await fetch(api(`/api/test/messages/${selected.id}`), {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: draft }),
@@ -89,7 +90,7 @@ export function TestConsole({
   async function remove() {
     if (!selected || !window.confirm("Delete this message and any loads from it?")) return;
     setBusy("delete");
-    const res = await fetch(`/api/test/messages/${selected.id}`, { method: "DELETE" });
+    const res = await fetch(api(`/api/test/messages/${selected.id}`), { method: "DELETE" });
     const json = await res.json();
     setBusy(null);
     if (res.ok) {
@@ -104,7 +105,7 @@ export function TestConsole({
   async function send() {
     if (!newText.trim()) return;
     setBusy("send");
-    const res = await fetch("/api/test/messages", {
+    const res = await fetch(api("/api/test/messages"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ groupId, text: newText, author: newAuthor }),
@@ -128,7 +129,7 @@ export function TestConsole({
   async function reset() {
     if (!window.confirm("Restore the original demo messages? Edits will be lost.")) return;
     setBusy("reset");
-    const res = await fetch("/api/test/reset", { method: "POST" });
+    const res = await fetch(api("/api/test/reset"), { method: "POST" });
     const json = await res.json();
     setBusy(null);
     if (res.ok) {

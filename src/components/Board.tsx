@@ -8,6 +8,7 @@ import { EMPTY_FILTERS, FilterPanel, filtersToQuery, type Filters } from "./Filt
 import { LoadList, LoadTable } from "./LoadViews";
 import { LoadDetail } from "./LoadDetail";
 import { EmptyState } from "./ui";
+import { api } from "@/lib/basePath";
 
 // MapLibre touches `window` on import, so it must never run on the server.
 const LoadMap = dynamic(() => import("./LoadMap").then((m) => m.LoadMap), {
@@ -49,7 +50,7 @@ export function Board({ user, initialQuery }: { user: SessionUser; initialQuery:
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/loads?${queryString}`);
+      const res = await fetch(api(`/api/loads?${queryString}`));
       if (!res.ok) throw new Error((await res.json()).error ?? "Search failed");
       const data = (await res.json()) as LoadSearchResult;
       // Ignore responses that arrived out of order behind a newer request.
@@ -68,13 +69,15 @@ export function Board({ user, initialQuery }: { user: SessionUser; initialQuery:
   }, [search]);
 
   useEffect(() => {
-    // Keep the URL in step so a search can be linked or reloaded.
-    const url = queryString ? `/loads?${queryString}` : "/loads";
+    // Keep the URL in step so a search can be linked or reloaded. This writes a
+    // real browser URL rather than a router path, so it needs the base path
+    // applied by hand -- Next only rewrites <Link> and router navigations.
+    const url = queryString ? api(`/loads?${queryString}`) : api("/loads");
     window.history.replaceState(null, "", url);
   }, [queryString]);
 
   useEffect(() => {
-    fetch("/api/saved-searches")
+    fetch(api("/api/saved-searches"))
       .then((r) => r.json())
       .then((d) => setSaved(d.searches ?? []))
       .catch(() => {});
@@ -112,13 +115,13 @@ export function Board({ user, initialQuery }: { user: SessionUser; initialQuery:
   async function saveSearch() {
     const name = window.prompt("Name this search", suggestName(filters));
     if (!name) return;
-    const res = await fetch("/api/saved-searches", {
+    const res = await fetch(api("/api/saved-searches"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name, query: queryString }),
     });
     if (res.ok) {
-      const list = await (await fetch("/api/saved-searches")).json();
+      const list = await (await fetch(api("/api/saved-searches"))).json();
       setSaved(list.searches ?? []);
     }
   }
