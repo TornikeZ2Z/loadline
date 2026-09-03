@@ -1,0 +1,4 @@
+# Normalize to LF in the repository; Git checks out native line endings.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
