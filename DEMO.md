@@ -9,13 +9,15 @@ npm run seed
 npm run dev
 ```
 
-Open <http://localhost:3000> and sign in:
+Open <http://localhost:3000> and press one of the three buttons — there is nothing to type:
 
-| Account | Password | What it can do |
-|---|---|---|
-| `carrier@example.com` | `demo1234` | Search loads — the driver's view |
-| `broker@example.com` | `demo1234` | Also post loads and mark them taken |
-| `admin@example.com` | `demo1234` | Also see the pipeline and data quality |
+| Button | What it shows you |
+|---|---|
+| **Sign in as Carrier** | The driver's view: search by route, radius and date |
+| **Sign in as Broker** | Also post loads and mark them taken |
+| **Sign in as Admin** | Also the pipeline, skip reasons and data quality |
+
+All three see the same sample data, so switching between them is just switching hats.
 
 > **This is test mode.** The WhatsApp messages are a simulated export, not a live
 > connection. Everything downstream of them — extraction, geocoding, deduplication,

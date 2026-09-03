@@ -10,6 +10,7 @@
  * which is why moving to managed Postgres is a config change and not a rewrite.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 // `object` rather than Record<string, unknown>: query result shapes are
@@ -54,9 +55,28 @@ async function createPgBackend(url: string): Promise<Backend> {
   };
 }
 
+/**
+ * Where the embedded database lives.
+ *
+ * Locally that is `./.pgdata`, so a demo survives restarts. On a serverless host
+ * the deployment directory is read-only and only the temp directory is
+ * writable, so fall back there -- the database is then rebuilt on each cold
+ * start, which for a demo deployment is acceptable and self-healing.
+ * `PGLITE_DIR=memory://` forces a purely in-memory database.
+ */
+function pgliteDataDir(): string {
+  const explicit = process.env.PGLITE_DIR;
+  if (explicit) return explicit;
+
+  const serverless = Boolean(
+    process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY,
+  );
+  return serverless ? path.join(os.tmpdir(), "loadline-pgdata") : path.join(process.cwd(), ".pgdata");
+}
+
 async function createPgliteBackend(): Promise<Backend> {
   const { PGlite } = await import("@electric-sql/pglite");
-  const dir = process.env.PGLITE_DIR ?? path.join(process.cwd(), ".pgdata");
+  const dir = pgliteDataDir();
   const client = await PGlite.create({
     dataDir: dir,
     parsers: {

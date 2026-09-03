@@ -21,8 +21,12 @@ npm run seed
 npm run dev
 ```
 
-Open http://localhost:3000 and sign in with **carrier@example.com / demo1234**
-(also `broker@example.com` and `admin@example.com`, same password).
+Open http://localhost:3000 and press **Sign in as Carrier** (or Broker, or Admin). No
+credentials to type. The email/password form is still there behind a link, and the demo
+accounts are `carrier@ / broker@ / admin@example.com` with password `demo1234`.
+
+The database **seeds itself when empty**, so a fresh deployment is usable on first visit
+without anyone running a script.
 
 **New here? Follow [DEMO.md](DEMO.md)** — a five-minute guided tour.
 
@@ -321,8 +325,11 @@ without rewriting the path away.
 Once live, the WhatsApp webhook URL becomes
 `https://ziptozip.systems/loadline/api/webhooks/whatsapp`.
 
-> **Change the demo passwords before this is publicly reachable.** `demo1234` ships in the
-> repo, and the `admin` account can edit messages and change load statuses.
+> **`DEMO_MODE=off` is the switch to throw the day real data goes in.** One-click sign-in
+> is an intentional authentication bypass: anyone who opens the URL can enter as admin and
+> edit messages or change load statuses. That is the right trade for a demo on sample data
+> and the wrong one for anything else. Turning it off leaves the ordinary email/password
+> form; change the demo passwords at the same time.
 
 ---
 
@@ -337,6 +344,8 @@ secrets; the app runs with none of it set.
 | `SESSION_SECRET` | dev fallback | Signs session cookies; **required in production** |
 | `LOAD_TZ` | `America/New_York` | Timezone relative dates resolve against |
 | `NEXT_PUBLIC_BASE_PATH` | *(unset)* | Serve under a sub-path, e.g. `/loadline`. Needed at **build** time. |
+| `DEMO_MODE` | `on` | One-click demo sign-in. Set to `off` for real data — see below. |
+| `PGLITE_DIR` | `./.pgdata`, or the temp dir on serverless | Where the embedded database lives |
 | `GEOCODER` | `local` | `local` \| `census` \| `mapbox` |
 | `WHATSAPP_VERIFY_TOKEN` | — | Webhook handshake |
 | `WHATSAPP_APP_SECRET` | — | Signature verification |

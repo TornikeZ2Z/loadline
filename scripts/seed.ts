@@ -9,61 +9,19 @@
  * expiry exactly as production would.
  */
 import { query, queryOne, dbKind } from "../src/lib/db";
-import { hashPassword } from "../src/lib/password";
 import { ingestMessage } from "../src/lib/pipeline/ingest";
 import { processPending } from "../src/lib/pipeline/process";
 import { expireStaleLoads } from "../src/lib/pipeline/expire";
+import { createDemoAccounts, DEMO_ACCOUNTS, DEMO_PASSWORD } from "../src/lib/demo/accounts";
 import { GROUPS, MESSAGES } from "./seed-data";
 
-const DEMO_USERS = [
-  {
-    email: "carrier@example.com",
-    password: "demo1234",
-    name: "Dan Carrier",
-    role: "carrier",
-    phone: "+19735550000",
-    company: "Kaz Trucking LLC",
-    home_label: "Newark, NJ",
-    home_lat: 40.7357,
-    home_lng: -74.1724,
-  },
-  {
-    email: "broker@example.com",
-    password: "demo1234",
-    name: "Rosa Broker",
-    role: "broker",
-    phone: "+19085557788",
-    company: "Rosa Logistics",
-    home_label: "Philadelphia, PA",
-    home_lat: 39.9526,
-    home_lng: -75.1652,
-  },
-  {
-    email: "admin@example.com",
-    password: "demo1234",
-    name: "Ops Admin",
-    role: "admin",
-    phone: null,
-    company: null,
-    home_label: "Newark, NJ",
-    home_lat: 40.7357,
-    home_lng: -74.1724,
-  },
-];
 
 async function main() {
   console.log(`database backend: ${await dbKind()}`);
   console.log("extractor: deterministic rules (no API, no cost)");
 
-  for (const u of DEMO_USERS) {
-    await query(
-      `INSERT INTO users (email, password_hash, name, role, phone, company, home_label, home_lat, home_lng)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (email) DO NOTHING`,
-      [u.email, hashPassword(u.password), u.name, u.role, u.phone, u.company, u.home_label, u.home_lat, u.home_lng],
-    );
-  }
-  console.log(`users: ${DEMO_USERS.length} demo accounts (password "demo1234")`);
+  await createDemoAccounts();
+  console.log(`users: ${DEMO_ACCOUNTS.length} demo accounts (one-click sign-in, or password "${DEMO_PASSWORD}")`);
 
   for (const g of GROUPS) {
     await query(
