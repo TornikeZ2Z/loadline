@@ -16,7 +16,8 @@
  * gazetteer and straight-line distance, exactly as before.
  */
 
-const AUTOSUGGEST = "https://autosuggest.search.hereapi.com/v1/autosuggest";
+const AUTOCOMPLETE = "https://autocomplete.search.hereapi.com/v1/autocomplete";
+const LOOKUP = "https://lookup.search.hereapi.com/v1/lookup";
 const GEOCODE = "https://geocode.search.hereapi.com/v1/geocode";
 const ROUTER = "https://router.hereapi.com/v8/routes";
 
@@ -108,20 +109,24 @@ function toPlace(item: HereItem): HerePlace | null {
 }
 
 /**
- * Type-ahead suggestions. `near` biases results toward the user, which is what
- * makes "newar" return Newark NJ for someone in New Jersey rather than Newark
- * in five other states.
+ * Type-ahead suggestions.
+ *
+ * Uses `/autocomplete`, not `/autosuggest`. Autosuggest is point-of-interest
+ * weighted: typing "newar" returns PATH-Newark Station, Newark City Hall and a
+ * phone shop, but never the city of Newark -- useless for "where are you" or
+ * "pick up near". Autocomplete returns localities and addresses, correctly
+ * ranked, and handles partials that geocoding fumbles ("phila" -> Philadelphia,
+ * where /geocode returns Phila St in Saratoga Springs).
+ *
+ * The trade is that autocomplete carries no coordinates. Rather than pay a
+ * lookup per keystroke, items come back with a `hereId` and are resolved only
+ * when the user actually picks one -- see `hereLookupPosition`.
  */
-export async function hereAutosuggest(
-  q: string,
-  near?: { lat: number; lng: number } | null,
-): Promise<HerePlace[]> {
+export async function hereAutocomplete(q: string): Promise<HerePlace[]> {
   if (!hereConfigured() || q.trim().length < 2) return [];
 
-  const url = new URL(AUTOSUGGEST);
+  const url = new URL(AUTOCOMPLETE);
   url.searchParams.set("q", q);
-  // `at` is required by autosuggest; fall back to the middle of the US.
-  url.searchParams.set("at", near ? `${near.lat},${near.lng}` : "39.5,-98.35");
   url.searchParams.set("in", "countryCode:USA");
   url.searchParams.set("limit", "8");
   url.searchParams.set("apiKey", key());
@@ -131,10 +136,49 @@ export async function hereAutosuggest(
 
   const json = (await res.json()) as { items?: HereItem[] };
   return (json.items ?? [])
-    .map(toPlace)
-    .filter((p): p is HerePlace => p !== null)
-    // Autosuggest also returns chains and categories; keep real locations.
-    .filter((p) => p.lat !== 0 || p.lng !== 0);
+    .map((item) => {
+      const a = item.address ?? {};
+      const state = a.stateCode ?? a.state ?? null;
+      const city = a.city ?? null;
+      const isAddress = item.resultType === "houseNumber" || item.resultType === "street";
+
+      // A city needs "City, ST"; a street address needs the street too.
+      const short = isAddress
+        ? (a.label ?? "").replace(/, United States$/, "")
+        : [city, state].filter(Boolean).join(", ") || (a.label ?? "").replace(/, United States$/, "");
+      if (!short) return null;
+
+      return {
+        id: item.id ?? short,
+        label: (a.label ?? short).replace(/, United States$/, ""),
+        short,
+        // Resolved on pick.
+        lat: 0,
+        lng: 0,
+        city,
+        state,
+        postalCode: a.postalCode ?? null,
+        precision: precisionOf(item.resultType, item.localityType),
+      } satisfies HerePlace;
+    })
+    .filter((p): p is HerePlace => p !== null);
+}
+
+/** Turn an autocomplete result id into coordinates. One call, on selection. */
+export async function hereLookupPosition(
+  id: string,
+): Promise<{ lat: number; lng: number } | null> {
+  if (!hereConfigured() || !id) return null;
+
+  const url = new URL(LOOKUP);
+  url.searchParams.set("id", id);
+  url.searchParams.set("apiKey", key());
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) return null;
+
+  const json = (await res.json()) as { position?: { lat: number; lng: number } };
+  return json.position ?? null;
 }
 
 /** Resolve a full place string to coordinates. */

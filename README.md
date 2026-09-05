@@ -178,9 +178,26 @@ nobody asked. Straight-line miles remain what ranking, filtering and corridor ma
 the road number is for the moment a driver is choosing one specific job. The lane result is
 cached on the row (`road_miles`, `road_minutes`) because it can never change.
 
-HERE also powers the location type-ahead and address-level geocoding. The key is
-server-side only -- the browser calls our `/api/places/suggest`, never HERE directly.
-Without a key everything falls back to the offline gazetteer and straight-line distance.
+### The location type-ahead
+
+Two things worth knowing, both learned the hard way against the live API:
+
+**It uses `/autocomplete`, not `/autosuggest`.** Autosuggest is point-of-interest weighted:
+typing "newar" returns PATH-Newark Station, Newark City Hall and a phone shop, but never
+the city of Newark. Autocomplete returns properly ranked localities and addresses, and
+handles partials that plain geocoding fumbles -- "phila" gives Philadelphia, where
+`/geocode` returns Phila St in Saratoga Springs.
+
+**Local matches come first.** The freight vocabulary is exactly what dispatchers type and
+exactly what a general geocoder is worst at: HERE turns "north jer" into North Jerico,
+Virginia, while our alias table knows it means the Tri-State Area. Those entries are also
+free and instant. HERE then supplies everything the curated list cannot -- every US city,
+ZIP and street address.
+
+Autocomplete carries no coordinates, so results are resolved with one `/lookup` call when a
+suggestion is actually **picked**, never per keystroke. The key is server-side only: the
+browser calls our `/api/places/suggest`, never HERE directly. Without a key everything
+falls back to the offline gazetteer and straight-line distance.
 
 ---
 

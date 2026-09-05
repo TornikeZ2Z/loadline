@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/basePath";
-import { LocationInput, type PlaceSuggestion } from "./LocationInput";
+import { LocationInput, type ResolvedPlace } from "./LocationInput";
 
 /**
  * "Where are you?" -- set once, used everywhere.
@@ -23,7 +23,7 @@ export function CurrentLocation({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(label ?? "");
-  const [picked, setPicked] = useState<PlaceSuggestion | null>(null);
+  const [picked, setPicked] = useState<ResolvedPlace | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);

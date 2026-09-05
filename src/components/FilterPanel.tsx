@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CORRIDOR_OPTIONS, LOAD_TYPES, RADIUS_OPTIONS } from "@/lib/loads/constants";
-import { LocationInput, type PlaceSuggestion } from "./LocationInput";
+import { LocationInput, type ResolvedPlace } from "./LocationInput";
 import { STATES } from "@/lib/geo/states";
 
 export interface Filters {
@@ -71,8 +71,8 @@ export function FilterPanel({
   onSave: () => void;
   resultCount: number;
   /** Fired when a suggestion is chosen, so coordinates skip a re-geocode. */
-  onPickOrigin?: (place: PlaceSuggestion) => void;
-  onPickDest?: (place: PlaceSuggestion) => void;
+  onPickOrigin?: (place: ResolvedPlace) => void;
+  onPickDest?: (place: ResolvedPlace) => void;
 }) {
   const [openSections, setOpenSections] = useState({ lane: true, detail: false });
   const set = <K extends keyof Filters>(key: K, v: Filters[K]) => onChange({ ...value, [key]: v });

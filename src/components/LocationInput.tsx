@@ -6,6 +6,16 @@ import { api } from "@/lib/basePath";
 export interface PlaceSuggestion {
   label: string;
   detail: string;
+  /** Null on HERE results until resolved. */
+  lat: number | null;
+  lng: number | null;
+  precision: string;
+  hereId?: string;
+}
+
+/** A suggestion once its coordinates are known. */
+export interface ResolvedPlace {
+  label: string;
   lat: number;
   lng: number;
   precision: string;
@@ -31,7 +41,7 @@ export function LocationInput({
 }: {
   value: string;
   onChange: (text: string) => void;
-  onPick?: (place: PlaceSuggestion) => void;
+  onPick?: (place: ResolvedPlace) => void;
   placeholder?: string;
   ariaLabel?: string;
 }) {
@@ -82,12 +92,33 @@ export function LocationInput({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  function pick(s: PlaceSuggestion) {
+  async function pick(s: PlaceSuggestion) {
     skipNextLookup.current = true;
     onChange(s.label);
-    onPick?.(s);
     setOpen(false);
     setSuggestions([]);
+    if (!onPick) return;
+
+    if (s.lat != null && s.lng != null) {
+      onPick({ label: s.label, lat: s.lat, lng: s.lng, precision: s.precision });
+      return;
+    }
+
+    // HERE results arrive without coordinates; resolve the chosen one.
+    setLoading(true);
+    try {
+      const res = await fetch(api("/api/places/resolve"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hereId: s.hereId, label: s.label }),
+      });
+      if (res.ok) {
+        const j = (await res.json()) as { lat: number; lng: number };
+        onPick({ label: s.label, lat: j.lat, lng: j.lng, precision: s.precision });
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
