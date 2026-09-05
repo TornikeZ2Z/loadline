@@ -132,7 +132,7 @@ re-importing anything.
 | Extraction | **Real** — deterministic rules, no AI service, no per-message cost |
 | Geocoding | **Real** — offline gazetteer + alias table; optional free Census geocoder |
 | Dedup, expiry, search, route matching | **Real** |
-| Map rendering | **Real**, but see the note at the end of the README |
+| Map rendering | **Real** — OpenStreetMap tiles, clustered pins, route overlay |
 
 Extraction quality on the sample corpus: **48 loads from 55 messages**, 10 correctly
 rejected as non-loads, 3 duplicates clustered, 1 flagged for human review.

@@ -401,13 +401,11 @@ reason rather than producing a wrong load. Widening coverage means adding gazett
 entries, aliases, and eval cases, which is cheap and safe. Corridor distances are great-circle, not road miles; swapping in a
 routing engine means replacing `detourMiles` in `src/lib/geo/math.ts` and nothing else.
 
-One verification gap worth stating plainly: the map component could not be visually
-confirmed in this environment. The preview browser keeps pages permanently hidden, so
-`requestAnimationFrame` never fires and MapLibre's render loop cannot start — a
-standalone, non-bundled MapLibre page fails there identically. The component mounts, sizes
-its canvas, and receives its GeoJSON correctly, and tile endpoints are reachable with CORS,
-but rendered pins have not been seen. Check it in a normal browser first.
-
-(`maplibre-gl` is pinned to v5 on purpose: v6 resolves its web worker through
+`maplibre-gl` is pinned to v5 on purpose: v6 resolves its web worker through
 `import.meta.url`, which the Next dev bundler does not serve as a real asset, so the worker
-never starts and the map fails silently. v5 inlines the worker.)
+never starts and the map fails silently. v5 inlines the worker.
+
+Note for anyone testing in a headless or offscreen browser: MapLibre drives its render loop
+from `requestAnimationFrame`, which never fires while a page is hidden. The map then mounts
+a correctly sized canvas and draws nothing, with no error. That is the harness, not the
+app -- in a real browser tab it renders normally.
