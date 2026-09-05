@@ -64,6 +64,11 @@ export interface GeoPoint {
   lat: number;
   lng: number;
   label?: string;
+  /**
+   * How precisely the place resolved. Carried through to the UI so a whole-state
+   * destination can be drawn as such instead of masquerading as a pinpoint.
+   */
+  precision?: string | null;
 }
 
 export interface BoundsInput {

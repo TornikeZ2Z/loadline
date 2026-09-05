@@ -167,3 +167,10 @@ CREATE TABLE IF NOT EXISTS saved_searches (
   created_at   timestamptz NOT NULL DEFAULT now(),
   UNIQUE (user_id, name)
 );
+
+-- Road distance and drive time for the load's own lane, from the HERE truck
+-- router. Cached because it never changes for a given pickup/delivery pair and
+-- each lookup is a billable API call. NULL means "not looked up yet" -- it is
+-- filled lazily the first time someone opens the load.
+ALTER TABLE loads ADD COLUMN IF NOT EXISTS road_miles   double precision;
+ALTER TABLE loads ADD COLUMN IF NOT EXISTS road_minutes integer;

@@ -3,6 +3,7 @@ import { handler, notFound } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { getDuplicates, getLoad } from "@/lib/loads/query";
+import { loadDistances } from "@/lib/loads/roadDistance";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -16,6 +17,14 @@ export const GET = handler(async (_req: Request, ctx: Ctx) => {
   if (!load) notFound("Load not found");
 
   const duplicates = await getDuplicates(load);
+
+  // Road distance is looked up here rather than in the list query: one billable
+  // routing call when a driver opens a load, none for the 50 they scrolled past.
+  const viewer =
+    user.home_lat != null && user.home_lng != null
+      ? { lat: user.home_lat, lng: user.home_lng }
+      : null;
+  const distances = await loadDistances(load.id, viewer);
 
   // The original WhatsApp text, so a driver can judge the extraction for
   // themselves rather than trusting a parsed summary.
@@ -40,5 +49,5 @@ export const GET = handler(async (_req: Request, ctx: Ctx) => {
     user.id,
   ]);
 
-  return NextResponse.json({ load, duplicates, source: source[0] ?? null });
+  return NextResponse.json({ load, duplicates, source: source[0] ?? null, distances });
 });

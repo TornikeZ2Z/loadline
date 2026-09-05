@@ -165,6 +165,25 @@ a load board loses a driver's trust.
 > After changing aliases or the gazetteer, run `npm run geocache:clear` — otherwise places
 > resolved badly before the fix stay resolved badly.
 
+### Road distance and drive time (HERE)
+
+With `HERE_API_KEY` set, opening a load shows the **truck** road distance and drive time
+for its lane, and the road distance from wherever the driver currently is to the pickup.
+`transportMode=truck` matters: it respects height, weight and hazmat restrictions, so the
+number matches what the driver's own navigation will say rather than a car's shortcut.
+
+Routing is only ever called when a **single load is opened**, never for a list. A board
+query returns 50 loads; routing all of them would be 50 billable calls to answer a question
+nobody asked. Straight-line miles remain what ranking, filtering and corridor matching use;
+the road number is for the moment a driver is choosing one specific job. The lane result is
+cached on the row (`road_miles`, `road_minutes`) because it can never change.
+
+HERE also powers the location type-ahead and address-level geocoding. The key is
+server-side only -- the browser calls our `/api/places/suggest`, never HERE directly.
+Without a key everything falls back to the offline gazetteer and straight-line distance.
+
+---
+
 ### Duplicate detection
 
 A cheap blocking pass (same pickup day, same state pair, last 7 days) followed by weighted

@@ -3,12 +3,23 @@
 import { useEffect, useState } from "react";
 import type { LoadRow } from "@/lib/loads/types";
 import { formatMiles } from "@/lib/geo/math";
+import { formatDuration } from "@/lib/geo/here";
 import { Chip, PrecisionNote, StatusChip, formatPickupDate, formatTime, formatWeight } from "./ui";
 import { api } from "@/lib/basePath";
+
+interface RoadLeg {
+  miles: number;
+  minutes: number;
+}
 
 interface DetailResponse {
   load: LoadRow;
   duplicates: LoadRow[];
+  distances?: {
+    trip: RoadLeg | null;
+    toPickup: RoadLeg | null;
+    unavailable: boolean;
+  };
   source: {
     body: string;
     author_name: string | null;
@@ -109,13 +120,36 @@ export function LoadDetail({
 
           {/* ------- facts ------- */}
           <section className="grid grid-cols-2 gap-3">
-            <Fact label="Trip distance" value={current.trip_miles != null ? `${Math.round(current.trip_miles)} mi` : "—"} />
+            <Fact
+              label="Trip distance"
+              value={
+                data?.distances?.trip
+                  ? `${data.distances.trip.miles.toLocaleString()} mi`
+                  : current.trip_miles != null
+                    ? `${Math.round(current.trip_miles)} mi`
+                    : "—"
+              }
+              note={
+                data?.distances?.trip
+                  ? `by road · ${formatDuration(data.distances.trip.minutes)} driving`
+                  : data === null
+                    ? "checking road distance…"
+                    : "straight line"
+              }
+            />
             <Fact
               label={current.detour_miles != null ? "Extra miles for you" : "Distance from you"}
               value={
                 current.detour_miles != null
                   ? `+${current.detour_miles} mi`
-                  : formatMiles(current.distance_miles)
+                  : data?.distances?.toPickup
+                    ? `${data.distances.toPickup.miles.toLocaleString()} mi`
+                    : formatMiles(current.distance_miles)
+              }
+              note={
+                data?.distances?.toPickup && current.detour_miles == null
+                  ? `to pickup by road · ${formatDuration(data.distances.toPickup.minutes)}`
+                  : "straight line"
               }
             />
             <Fact label="Freight" value={weight ?? "Not stated"} />
@@ -265,11 +299,12 @@ function Stop({
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
     <div className="card p-2.5">
       <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
       <div className="nums mt-0.5 text-[15px] font-semibold">{value}</div>
+      {note && <div className="mt-0.5 text-[11px] text-muted">{note}</div>}
     </div>
   );
 }

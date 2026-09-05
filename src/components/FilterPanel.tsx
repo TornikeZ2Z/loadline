@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CORRIDOR_OPTIONS, LOAD_TYPES, RADIUS_OPTIONS } from "@/lib/loads/constants";
+import { LocationInput, type PlaceSuggestion } from "./LocationInput";
 import { STATES } from "@/lib/geo/states";
 
 export interface Filters {
@@ -60,6 +61,8 @@ export function FilterPanel({
   locating,
   onSave,
   resultCount,
+  onPickOrigin,
+  onPickDest,
 }: {
   value: Filters;
   onChange: (next: Filters) => void;
@@ -67,6 +70,9 @@ export function FilterPanel({
   locating: boolean;
   onSave: () => void;
   resultCount: number;
+  /** Fired when a suggestion is chosen, so coordinates skip a re-geocode. */
+  onPickOrigin?: (place: PlaceSuggestion) => void;
+  onPickDest?: (place: PlaceSuggestion) => void;
 }) {
   const [openSections, setOpenSections] = useState({ lane: true, detail: false });
   const set = <K extends keyof Filters>(key: K, v: Filters[K]) => onChange({ ...value, [key]: v });
@@ -143,12 +149,15 @@ export function FilterPanel({
 
           <label className="label">Pick up near</label>
           <div className="flex gap-2">
-            <input
-              className="field"
-              placeholder="Newark NJ, 07102, philly…"
-              value={value.origin}
-              onChange={(e) => set("origin", e.target.value)}
-            />
+            <div className="min-w-0 flex-1">
+              <LocationInput
+                ariaLabel="Pick up near"
+                placeholder="Start typing a city, ZIP or address…"
+                value={value.origin}
+                onChange={(text) => set("origin", text)}
+                onPick={(p) => onPickOrigin?.(p)}
+              />
+            </div>
             <button
               className="btn shrink-0 px-2"
               onClick={onLocateMe}
@@ -177,11 +186,12 @@ export function FilterPanel({
           )}
 
           <label className="label mt-3">Deliver to</label>
-          <input
-            className="field"
-            placeholder="Florida, Atlanta GA, 33101…"
+          <LocationInput
+            ariaLabel="Deliver to"
+            placeholder="Atlanta GA, 33101, or a whole state…"
             value={value.dest}
-            onChange={(e) => set("dest", e.target.value)}
+            onChange={(text) => set("dest", text)}
+            onPick={(p) => onPickDest?.(p)}
           />
 
           {corridorOn ? (

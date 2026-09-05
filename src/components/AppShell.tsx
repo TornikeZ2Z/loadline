@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { SessionUser } from "@/lib/auth";
 import { LogoutButton } from "./LogoutButton";
+import { CurrentLocation } from "./CurrentLocation";
 
 export function AppShell({
   user,
@@ -55,10 +56,7 @@ export function AppShell({
           <div className="ml-auto flex items-center gap-3">
             <div className="text-right leading-tight">
               <div className="text-[13px] font-semibold">{user.name}</div>
-              <div className="text-[11px] capitalize text-muted">
-                {user.role}
-                {user.home_label ? ` · ${user.home_label}` : ""}
-              </div>
+              <CurrentLocation label={user.home_label} role={user.role} />
             </div>
             <LogoutButton />
           </div>

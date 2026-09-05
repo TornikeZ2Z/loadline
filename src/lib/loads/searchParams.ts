@@ -113,9 +113,11 @@ function pointFrom(
 
 async function resolveText(
   text: string,
-): Promise<{ lat: number; lng: number; label: string } | null> {
+): Promise<{ lat: number; lng: number; label: string; precision: string } | null> {
   const hit = await geocode(text);
-  return hit ? { lat: hit.lat, lng: hit.lng, label: hit.label } : null;
+  return hit
+    ? { lat: hit.lat, lng: hit.lng, label: hit.label, precision: hit.precision }
+    : null;
 }
 
 function asEnum<T extends string>(value: string | null, allowed: T[]): T | null {

@@ -27,8 +27,16 @@ export function LoadMap({
   loads: LoadRow[];
   onSelect: (l: LoadRow) => void;
   onSearchArea: (bounds: { minLat: number; maxLat: number; minLng: number; maxLng: number }) => void;
-  route?: { origin: [number, number]; destination: [number, number] } | null;
+  route?: {
+    origin: [number, number];
+    destination: [number, number];
+    originLabel?: string;
+    destinationLabel?: string;
+    /** "state" or "region" means the endpoint is a centroid, not a real place. */
+    destinationPrecision?: string | null;
+  } | null;
 }) {
+  const markers = useRef<maplibregl.Marker[]>([]);
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
@@ -162,6 +170,8 @@ export function LoadMap({
     });
 
     return () => {
+      for (const m of markers.current) m.remove();
+      markers.current = [];
       instance.remove();
       map.current = null;
       setReady(false);
@@ -208,6 +218,42 @@ export function LoadMap({
           }
         : { type: "FeatureCollection", features: [] },
     );
+
+    // Label the endpoints. Without this the dashed line just appears to run to
+    // a random point -- most confusingly when the destination is a whole state,
+    // where the line ends at the state's centroid (a "Florida" search stops in
+    // open country south of Orlando).
+    for (const m of markers.current) m.remove();
+    markers.current = [];
+
+    if (route) {
+      const vague = route.destinationPrecision === "state" || route.destinationPrecision === "region";
+      const ends: Array<[[number, number], string, string, boolean]> = [
+        [route.origin, route.originLabel ?? "Start", "#1d4ed8", false],
+        [
+          route.destination,
+          route.destinationLabel ?? "Destination",
+          vague ? "#b45309" : "#047857",
+          vague,
+        ],
+      ];
+
+      for (const [coords, label, colour, isVague] of ends) {
+        const el = document.createElement("div");
+        el.style.cssText =
+          "display:flex;align-items:center;gap:5px;white-space:nowrap;transform:translateY(-50%)";
+        el.innerHTML =
+          `<span style="width:11px;height:11px;border-radius:50%;background:${colour};` +
+          `border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25)"></span>` +
+          `<span style="background:#fff;border:1px solid #dfe3e9;border-radius:6px;` +
+          `padding:2px 6px;font:600 11px/1.4 system-ui;color:#16202e;box-shadow:0 1px 4px rgba(0,0,0,.15)">` +
+          `${escapeHtml(label)}${isVague ? " <span style=\"color:#b45309;font-weight:500\">· anywhere in state</span>" : ""}</span>`;
+
+        markers.current.push(
+          new maplibregl.Marker({ element: el, anchor: "left" }).setLngLat(coords).addTo(instance),
+        );
+      }
+    }
 
     if (route) {
       instance.fitBounds(
@@ -262,5 +308,12 @@ export function LoadMap({
         approximate
       </div>
     </div>
+  );
+}
+
+/** Labels come from user-typed place names, so escape before building markup. */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
   );
 }

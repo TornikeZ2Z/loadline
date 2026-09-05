@@ -34,6 +34,12 @@ export function Board({ user, initialQuery }: { user: SessionUser; initialQuery:
   const [locating, setLocating] = useState(false);
   const [saved, setSaved] = useState<SavedSearch[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Coordinates from a chosen suggestion. Cleared whenever the text is edited
+  // by hand, so a stale pin can never outlive the name it belonged to.
+  const [picked, setPicked] = useState<{
+    origin?: { lat: number; lng: number };
+    dest?: { lat: number; lng: number };
+  }>({});
 
   // Free-text places are resolved server-side; the map needs the coordinates
   // too, so we read them back off the response rather than geocoding twice.
@@ -41,9 +47,9 @@ export function Board({ user, initialQuery }: { user: SessionUser; initialQuery:
   const requestId = useRef(0);
 
   const queryString = useMemo(() => {
-    const qs = filtersToQuery(filters, {});
+    const qs = filtersToQuery(filters, picked);
     return bounds ? `${qs}&${bounds}` : qs;
-  }, [filters, bounds]);
+  }, [filters, bounds, picked]);
 
   const search = useCallback(async () => {
     const id = ++requestId.current;
@@ -132,8 +138,14 @@ export function Board({ user, initialQuery }: { user: SessionUser; initialQuery:
         value={filters}
         onChange={(next) => {
           setBounds(null); // a filter change supersedes a map-area search
+          setPicked((p) => ({
+            origin: next.origin === filters.origin ? p.origin : undefined,
+            dest: next.dest === filters.dest ? p.dest : undefined,
+          }));
           setFilters(next);
         }}
+        onPickOrigin={(p) => setPicked((prev) => ({ ...prev, origin: { lat: p.lat, lng: p.lng } }))}
+        onPickDest={(p) => setPicked((prev) => ({ ...prev, dest: { lat: p.lat, lng: p.lng } }))}
         onLocateMe={locateMe}
         locating={locating}
         onSave={saveSearch}
@@ -258,6 +270,9 @@ export function Board({ user, initialQuery }: { user: SessionUser; initialQuery:
                     ? {
                         origin: [applied.origin.lng, applied.origin.lat],
                         destination: [applied.destination.lng, applied.destination.lat],
+                        originLabel: applied.origin.label,
+                        destinationLabel: applied.destination.label,
+                        destinationPrecision: applied.destination.precision,
                       }
                     : null
                 }

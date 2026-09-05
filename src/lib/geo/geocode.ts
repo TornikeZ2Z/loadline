@@ -16,6 +16,7 @@ import { query, queryOne } from "@/lib/db";
 import { CITIES, CITY_BY_KEY, CITY_BY_NAME, nearestCity, type City } from "./cities";
 import { REGIONS, STATE_BY_ABBR, resolveState, stateForZip } from "./states";
 import { lookupAlias, normalizePlaceQuery } from "./aliases";
+import { hereConfigured, hereGeocode } from "./here";
 
 export type Precision = "address" | "zip" | "city" | "region" | "state";
 
@@ -240,8 +241,9 @@ function titleCase(s: string): string {
 // ---------------------------------------------------------------------------
 
 async function remoteGeocode(q: string): Promise<GeocodeResult | null> {
-  const provider = process.env.GEOCODER ?? "local";
+  const provider = process.env.GEOCODER ?? (hereConfigured() ? "here" : "local");
   try {
+    if (provider === "here") return await hereLookup(q);
     if (provider === "census") return await censusGeocode(q);
     if (provider === "mapbox") return await mapboxGeocode(q);
   } catch {
@@ -249,6 +251,21 @@ async function remoteGeocode(q: string): Promise<GeocodeResult | null> {
     return null;
   }
   return null;
+}
+
+async function hereLookup(q: string): Promise<GeocodeResult | null> {
+  const hit = await hereGeocode(q);
+  if (!hit) return null;
+  return {
+    label: hit.short || hit.label,
+    city: hit.city,
+    state: hit.state,
+    zip: hit.postalCode,
+    lat: hit.lat,
+    lng: hit.lng,
+    precision: hit.precision,
+    source: "here",
+  };
 }
 
 async function censusGeocode(q: string): Promise<GeocodeResult | null> {
