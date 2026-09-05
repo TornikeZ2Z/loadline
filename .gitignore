@@ -6,3 +6,6 @@ node_modules/
 *.tsbuildinfo
 next-env.d.ts
 .claude/
+
+# Design-pass artifacts (large, partly superseded drafts); durable but not published
+.design/
