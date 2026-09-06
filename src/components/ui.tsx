@@ -1,6 +1,8 @@
+"use client";
+
 /**
- * The three primitives every board screen is built from: a chip, a status chip
- * and an empty state.
+ * The primitives every board screen is built from: a chip, a status chip, an
+ * empty state and the popover the filter bar hangs off.
  *
  * Colour is applied only through the `.chip-*` classes in globals.css, never as
  * a literal in a component: the whole point of the token system is that a chip
@@ -8,6 +10,7 @@
  * the words come from `@/lib/loads/present`.
  */
 
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { LoadStatus } from "@/lib/loads/types";
 import type { Tone } from "@/lib/loads/present";
 
@@ -104,5 +107,149 @@ export function PrecisionNote({ precision }: { precision: string | null }) {
     <Chip tone="approx" title="The post did not give a specific city, so this location is approximate.">
       approximate location
     </Chip>
+  );
+}
+
+/* -------------------------------- popover -------------------------------- */
+
+/**
+ * A filter trigger and the panel it opens.
+ *
+ * Positioned by hand from the trigger's rect rather than with a positioning
+ * library: the whole filter bar is one row of pills near the top of the screen,
+ * so "under the trigger, nudged left to stay on screen" is the entire
+ * requirement, and package-lock.json is frozen.
+ *
+ * On a phone the panel becomes a full-screen sheet (`fullScreen`), because a
+ * 360 px popover anchored to a 48 px bar is unusable with a thumb.
+ */
+export function PopoverButton({
+  label,
+  active = false,
+  width = 320,
+  title,
+  ariaLabel,
+  fullScreen = false,
+  triggerClassName = "pill",
+  panelTitle,
+  children,
+}: {
+  label: React.ReactNode;
+  active?: boolean;
+  width?: number;
+  title?: string;
+  ariaLabel?: string;
+  fullScreen?: boolean;
+  triggerClassName?: string;
+  /** Shown as the sheet header in full-screen mode. */
+  panelTitle?: string;
+  children: (close: () => void) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+
+  const close = useCallback(() => {
+    setOpen(false);
+    trigger.current?.focus();
+  }, []);
+
+  // Measure after paint so the panel is placed against the trigger's real box,
+  // which on a wrapped two-row filter bar is not where it was a render ago.
+  useLayoutEffect(() => {
+    if (!open || fullScreen) return;
+    const rect = trigger.current?.getBoundingClientRect();
+    if (!rect) return;
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    const top = rect.bottom + 6;
+    setPos({ left, top, maxHeight: Math.max(200, window.innerHeight - top - 12) });
+  }, [open, fullScreen, width]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (panel.current?.contains(t) || trigger.current?.contains(t)) return;
+      setOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("mousedown", onDown);
+    };
+  }, [open, close]);
+
+  // Move focus into the panel so a keyboard user is not left behind on the pill.
+  useEffect(() => {
+    if (!open) return;
+    const first = panel.current?.querySelector<HTMLElement>(
+      "input, select, textarea, button, [tabindex]:not([tabindex='-1'])",
+    );
+    first?.focus();
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        className={triggerClassName}
+        data-active={active || undefined}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? panelId : undefined}
+        aria-label={ariaLabel}
+        title={title}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {label}
+      </button>
+
+      {open &&
+        (fullScreen ? (
+          <div
+            ref={panel}
+            id={panelId}
+            role="dialog"
+            aria-modal="true"
+            aria-label={panelTitle ?? ariaLabel}
+            className="fixed inset-0 z-50 flex flex-col overflow-y-auto p-[var(--sp-4)]"
+            style={{ background: "var(--surface)" }}
+          >
+            <div className="mb-[var(--sp-3)] flex items-center justify-between">
+              <span className="big text-[var(--fs-lg)]">{panelTitle ?? ariaLabel}</span>
+              <button type="button" className="btn btn-ghost" onClick={close}>
+                Done
+              </button>
+            </div>
+            {children(close)}
+          </div>
+        ) : (
+          <div
+            ref={panel}
+            id={panelId}
+            role="dialog"
+            aria-label={panelTitle ?? ariaLabel}
+            className="popover fixed z-50 overflow-y-auto"
+            style={{
+              left: pos?.left ?? -9999,
+              top: pos?.top ?? -9999,
+              width,
+              maxHeight: pos?.maxHeight,
+            }}
+          >
+            {children(close)}
+          </div>
+        ))}
+    </>
   );
 }
