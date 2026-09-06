@@ -305,7 +305,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
 
   const header = (
     <div>
-      <div className="big text-[var(--fs-lg)]">
+      <div className="big text-(length:--fs-lg)">
         {shown.count} {shown.count === 1 ? "job" : "jobs"}
         {shown.totalCf > 0 && ` · ${formatCf(shown.totalCf)}`}
         {shown.totalCf > 0 && (
@@ -315,7 +315,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
           </span>
         )}
       </div>
-      <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+      <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
         {shown.readyNow} ready now · {shown.priced} priced
         {truncated && " · showing first 500"}
       </div>
@@ -336,14 +336,14 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
             {place.label} · {place.ids.length} job{place.ids.length === 1 ? "" : "s"}
             <span aria-hidden>✕</span>
           </button>
-          <span className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+          <span className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
             of {(summary ?? summarize(rows)).count} on the map
           </span>
         </div>
       )}
       {notice && (
         <p
-          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
+          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
           style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
         >
           {notice}
@@ -351,7 +351,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       )}
       {error && (
         <p
-          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
+          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
           style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
         >
           {error}
@@ -359,7 +359,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       )}
 
       {loading && rows.length === 0 ? (
-        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           Loading jobs…
         </p>
       ) : rows.length === 0 && !error ? (
@@ -426,7 +426,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       {showNudge && (
         <div className="glass absolute bottom-[var(--sp-6)] left-1/2 w-[320px] -translate-x-1/2 p-[var(--sp-3)]">
           <div className="font-semibold">Where are you now?</div>
-          <p className="mt-[2px] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
             Jobs sort by distance to the pickup, and cards show how far each one is.
           </p>
           <div className="mt-[var(--sp-2)] flex gap-[var(--sp-2)]">
@@ -451,7 +451,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       {rows.length === 0 && !loading && !error && (
         <div className="glass absolute left-1/2 top-1/2 w-[320px] -translate-x-1/2 -translate-y-1/2 p-[var(--sp-4)] text-center">
           <div className="font-semibold">{emptyStateTitle(filters)}</div>
-          <p className="mt-[var(--sp-1)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
             {LIFECYCLE_NOTE}
           </p>
           {!isDefault(filters) && (

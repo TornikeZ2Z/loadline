@@ -190,7 +190,7 @@ function useAdminResource<T>(path: string | null): Fetched<T> & { reload(): void
 
 function Unavailable({ what }: { what: string }) {
   return (
-    <p className="text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+    <p className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
       {what} is not available yet.
     </p>
   );
@@ -210,8 +210,8 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
 
   return (
     <div className="mx-auto max-w-[1400px] p-[var(--sp-5)]">
-      <h1 className="big text-[var(--fs-xl)]">Extraction admin</h1>
-      <p className="mt-[var(--sp-1)] text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+      <h1 className="big text-(length:--fs-xl)">Extraction admin</h1>
+      <p className="mt-[var(--sp-1)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
         Everything on the board is derived from the raw messages, so a message can always be replayed
         after a rule changes — and a fix saved here survives a database reset.
       </p>
@@ -221,7 +221,7 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
           <button
             key={key}
             onClick={() => setTab(key)}
-            className="px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-base)] font-semibold"
+            className="px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-base) font-semibold"
             style={
               tab === key
                 ? { color: "var(--accent)", borderBottom: "2px solid var(--accent)" }
@@ -235,7 +235,7 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
 
       {toast && (
         <p
-          className="mt-[var(--sp-3)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-base)]"
+          className="mt-[var(--sp-3)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-base)"
           style={{ background: "var(--ok-soft)", color: "var(--ok)" }}
         >
           {toast}
@@ -316,11 +316,11 @@ function Attention({
                 <div className="flex flex-wrap items-center gap-[var(--sp-1)]">
                   <span className="font-semibold">{m.author_name ?? "Unknown"}</span>
                   {m.group_name && (
-                    <span className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                    <span className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
                       {m.group_name}
                     </span>
                   )}
-                  <span className="ml-auto text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                  <span className="ml-auto text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
                     {new Date(m.sent_at).toLocaleDateString()}
                   </span>
                 </div>
@@ -333,7 +333,7 @@ function Attention({
                   <Chip tone="muted">{m.load_count} jobs</Chip>
                 </div>
                 {m.format_signature && (
-                  <code className="mt-[var(--sp-1)] block text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                  <code className="mt-[var(--sp-1)] block text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
                     {m.format_signature}
                   </code>
                 )}
@@ -484,7 +484,7 @@ function MessageWorkbench({
 
       <div className="line-gutter mt-[var(--sp-3)] flex flex-col gap-[2px]">
         {lines.length === 0 ? (
-          <pre className="whitespace-pre-wrap text-[var(--fs-sm)]">{message.body}</pre>
+          <pre className="whitespace-pre-wrap text-(length:--fs-sm)">{message.body}</pre>
         ) : (
           lines.map((line) => (
             <div key={line.n} className={LINE_CLASS[line.class] ?? ""}>
@@ -780,7 +780,7 @@ function TryMessage() {
             Run the pipeline
           </button>
         </div>
-        <p className="mt-[var(--sp-2)] text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+        <p className="mt-[var(--sp-2)] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
           Preview extracts without writing anything. Run does what webhook traffic does, and the jobs
           land on the live board.
         </p>
@@ -790,7 +790,7 @@ function TryMessage() {
         <div className="label">Result</div>
         {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
         {!result && !error && (
-          <p className="text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+          <p className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
             Run a message to see the output.
           </p>
         )}
@@ -814,14 +814,14 @@ function TryMessage() {
             </div>
 
             {(result.loads?.length ?? 0) === 0 ? (
-              <p className="text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+              <p className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
                 No jobs produced — the correct outcome for chatter and for anything without both an
                 origin and a destination.
               </p>
             ) : (
               <div className="flex flex-col gap-[var(--sp-1)]">
                 {result.loads.map((l) => (
-                  <div key={l.id} className="text-[var(--fs-sm)]">
+                  <div key={l.id} className="text-(length:--fs-sm)">
                     <span className="font-semibold">
                       {l.pickup_label} → {l.delivery_label}
                     </span>
@@ -865,7 +865,7 @@ function MessageFeed() {
       </div>
 
       <div className="mt-[var(--sp-3)] overflow-x-auto">
-        <table className="w-full border-collapse text-[var(--fs-sm)]">
+        <table className="w-full border-collapse text-(length:--fs-sm)">
           <thead>
             <tr className="label border-b border-border text-left">
               <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Sender</th>
@@ -964,7 +964,7 @@ function Senders({ onToast }: { onToast(text: string): void }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[var(--fs-sm)]">
+      <table className="w-full border-collapse text-(length:--fs-sm)">
         <thead>
           <tr className="label border-b border-border text-left">
             <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Sender</th>
@@ -1061,12 +1061,12 @@ function Rules({ onToast }: { onToast(text: string): void }) {
 
   return (
     <div>
-      <p className="mb-[var(--sp-2)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+      <p className="mb-[var(--sp-2)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
         Run <code>npm run rules:export</code> to add these to the eval fixtures, so a fix made here
         cannot regress.
       </p>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[var(--fs-sm)]">
+        <table className="w-full border-collapse text-(length:--fs-sm)">
           <thead>
             <tr className="label border-b border-border text-left">
               <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Kind</th>
@@ -1149,14 +1149,14 @@ function Groups({ groups, onToast }: { groups: ChatGroup[]; onToast(text: string
 
   return (
     <div>
-      <p className="mb-[var(--sp-2)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+      <p className="mb-[var(--sp-2)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
         A group invite (<code>https://chat.whatsapp.com/…</code>) has to be generated inside WhatsApp
         by a group admin — it cannot be derived. A <code>wa.me</code> number works too, for a “group”
         that is really a dispatcher’s line. There is no link to a single message, so nothing here
         offers one.
       </p>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[var(--fs-sm)]">
+        <table className="w-full border-collapse text-(length:--fs-sm)">
           <thead>
             <tr className="label border-b border-border text-left">
               <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Group</th>

@@ -91,7 +91,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
 
   const errorFor = (field: string) =>
     fieldError?.field === field ? (
-      <p className="mt-[2px] text-[var(--fs-sm)]" style={{ color: "var(--danger)" }}>
+      <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--danger)" }}>
         {fieldError.message}
       </p>
     ) : null;
@@ -185,8 +185,8 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
 
   return (
     <div className="mx-auto max-w-[720px] p-[var(--sp-5)]">
-      <h1 className="big text-[var(--fs-xl)]">Post a job</h1>
-      <p className="mt-[var(--sp-1)] text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+      <h1 className="big text-(length:--fs-xl)">Post a job</h1>
+      <p className="mt-[var(--sp-1)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
         Same shape as a post in the group — origin, destination, cubic feet, price — but structured,
         so nothing has to be read out of it.
       </p>
@@ -207,7 +207,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
             ariaLabel="Pickup location"
           />
           {picked?.state && (
-            <p className="mt-[2px] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               {picked.state}
               {picked.zip ? ` · ${picked.zip}` : ""} recorded from the suggestion
             </p>
@@ -274,7 +274,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
             value={cubicFeet}
             onChange={(e) => setCubicFeet(e.target.value)}
           />
-          <p className="mt-[2px] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
             Cubic feet as you would post it in the group.
           </p>
           {errorFor("cubicFeet")}
@@ -332,7 +332,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
             />
           )}
           {preview && (
-            <p className="nums mt-[2px] text-[var(--fs-sm)]" style={{ color: "var(--ok)" }}>
+            <p className="nums mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--ok)" }}>
               {preview}
             </p>
           )}
@@ -431,7 +431,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
               value={contactPhone}
               onChange={(e) => setContactPhone(e.target.value)}
             />
-            <p className="mt-[2px] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               Drivers reach you through the Show contact button; without a number the job cannot be
               contacted.
             </p>
@@ -453,7 +453,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
 
         {fieldError && !fieldError.field && (
           <p
-            className="rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-base)]"
+            className="rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-base)"
             style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
           >
             {fieldError.message}
@@ -462,7 +462,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
 
         {posted != null && (
           <p
-            className="rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-base)]"
+            className="rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-base)"
             style={{ background: "var(--ok-soft)", color: "var(--ok)" }}
           >
             Job #{posted} is live on the board.{" "}

@@ -202,7 +202,7 @@ function Panel({
           ))}
         </div>
         {states.length === 0 && (
-          <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
             No state matches “{q}”.
           </p>
         )}

@@ -233,20 +233,20 @@ export function ContactGate({
     return (
       <section className={chrome}>
         {variant === "card" && <div className="label">Contact</div>}
-        <div className="text-[var(--fs-md)] font-semibold">{c.name ?? contactName ?? "Not named"}</div>
+        <div className="text-(length:--fs-md) font-semibold">{c.name ?? contactName ?? "Not named"}</div>
         {contactMode === "dm" && (
-          <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
             The sender asked to be messaged privately.
           </p>
         )}
 
         {c.display && (
           <>
-            <div className="nums text-[var(--fs-lg)] font-semibold">{c.display}</div>
+            <div className="nums text-(length:--fs-lg) font-semibold">{c.display}</div>
             {/* Which line the driver is about to call. Calling the wrong one
                 wastes a call, and "the sender's usual number" is a different
                 promise from "the number in this post". */}
-            <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               {c.source === "sender"
                 ? "This sender's usual number — this post did not carry one."
                 : "The number in this post."}
@@ -255,7 +255,7 @@ export function ContactGate({
         )}
 
         {c.incomplete && (
-          <p className="text-[var(--fs-sm)]" style={{ color: "var(--warn)" }}>
+          <p className="text-(length:--fs-sm)" style={{ color: "var(--warn)" }}>
             Area code missing in the post — check the original message.
           </p>
         )}
@@ -304,13 +304,13 @@ export function ContactGate({
         {unreachable && (
           <>
             {!c.display && (
-              <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+              <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
                 No phone number in this post, and none from this sender’s other posts
                 {contactMode === "dm" ? " — they asked to be messaged privately" : ""}.
               </p>
             )}
             {g.name && (
-              <p className="text-[var(--fs-base)]">
+              <p className="text-(length:--fs-base)">
                 Posted in <span className="font-semibold">{g.name}</span>
               </p>
             )}
@@ -335,7 +335,7 @@ export function ContactGate({
                 {copyLabel}
               </button>
             </div>
-            <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               WhatsApp cannot open one message from a link, so paste the job into the group
               {g.url ? "" : " and ask for it"}.
             </p>
@@ -360,8 +360,8 @@ export function ContactGate({
     return (
       <section className={chrome}>
         {variant === "card" && <div className="label">Contact</div>}
-        <h3 className="text-[var(--fs-md)] font-semibold">Sign in to see the contact</h3>
-        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        <h3 className="text-(length:--fs-md) font-semibold">Sign in to see the contact</h3>
+        <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           Free. Browsing never needs an account — only contact details do.
         </p>
 
@@ -413,12 +413,12 @@ export function ContactGate({
         )}
 
         {error && (
-          <p className="text-[var(--fs-sm)]" style={{ color: "var(--danger)" }}>
+          <p className="text-(length:--fs-sm)" style={{ color: "var(--danger)" }}>
             {error}
           </p>
         )}
 
-        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           New here?{" "}
           <Link
             href={registerHref("driver", currentPath())}
@@ -445,14 +445,14 @@ export function ContactGate({
   return (
     <section className={chrome}>
       {variant === "card" && <div className="label">Contact</div>}
-      <div className="text-[var(--fs-md)] font-semibold">{contactName ?? "Not named"}</div>
+      <div className="text-(length:--fs-md) font-semibold">{contactName ?? "Not named"}</div>
       {contactMode === "dm" && (
-        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           The sender asked to be messaged privately.
         </p>
       )}
       {!hasPhone && (
-        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           No phone number in this post — the sender wants to be messaged
           {groupName ? (
             <>
@@ -474,7 +474,7 @@ export function ContactGate({
         {state === "revealing" ? "One moment…" : "Show contact"}
       </button>
       {state === "error" && error && (
-        <p className="text-[var(--fs-sm)]" style={{ color: "var(--danger)" }}>
+        <p className="text-(length:--fs-sm)" style={{ color: "var(--danger)" }}>
           {error}{" "}
           <button
             type="button"

@@ -180,9 +180,9 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
       }}
     >
       <div className="flex items-baseline justify-between gap-[var(--sp-2)]">
-        <span className="big text-[var(--fs-lg)]">{laneLabel(job)}</span>
+        <span className="big text-(length:--fs-lg)">{laneLabel(job)}</span>
         <span
-          className="big text-[var(--fs-lg)]"
+          className="big text-(length:--fs-lg)"
           style={job.cubic_feet == null ? { color: "var(--approx)", fontSize: "var(--fs-sm)" } : undefined}
           title={
             job.cubic_feet != null && job.cubic_feet < 100
@@ -194,7 +194,7 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
         </span>
       </div>
 
-      <div className="mt-[2px] text-[var(--fs-base)]" style={{ color: "var(--text-2)" }}>
+      <div className="mt-[2px] text-(length:--fs-base)" style={{ color: "var(--text-2)" }}>
         {from.text} → {to.text}
       </div>
 
@@ -207,7 +207,7 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
           </Chip>
         )}
         <span
-          className="nums text-[var(--fs-base)] font-semibold"
+          className="nums text-(length:--fs-base) font-semibold"
           style={{ color: price.tone === "muted" ? "var(--muted)" : "var(--ok)" }}
         >
           {price.headline}
@@ -220,7 +220,7 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
         </span>
         {deliverBy && (
           <span
-            className="text-[var(--fs-sm)]"
+            className="text-(length:--fs-sm)"
             style={{ color: deliverBy.tone === "warn" ? "var(--warn)" : "var(--muted)" }}
           >
             {deliverBy.text}
@@ -236,7 +236,7 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
       )}
 
       <div
-        className="mt-[var(--sp-2)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)] text-[var(--fs-sm)]"
+        className="mt-[var(--sp-2)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)] text-(length:--fs-sm)"
         style={{ color: "var(--muted)" }}
       >
         <span

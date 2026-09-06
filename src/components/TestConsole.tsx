@@ -224,7 +224,7 @@ export function TestConsole({
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - var(--header-h))" }}>
       <div
-        className="flex flex-wrap items-center gap-[var(--sp-3)] border-b px-[var(--sp-4)] py-[var(--sp-2)] text-[var(--fs-sm)]"
+        className="flex flex-wrap items-center gap-[var(--sp-3)] border-b px-[var(--sp-4)] py-[var(--sp-2)] text-(length:--fs-sm)"
         style={{ background: "var(--warn-soft)", borderColor: "var(--border)", color: "var(--warn)" }}
       >
         <span className="chip chip-warn">TEST MODE</span>
@@ -243,7 +243,7 @@ export function TestConsole({
           <div className="label px-[var(--sp-3)] py-[var(--sp-2)]">Imported chats</div>
           <button
             onClick={() => openGroup(null)}
-            className="w-full px-[var(--sp-3)] py-[var(--sp-2)] text-left text-[var(--fs-base)] hover:bg-surface-2"
+            className="w-full px-[var(--sp-3)] py-[var(--sp-2)] text-left text-(length:--fs-base) hover:bg-surface-2"
             style={groupId === null ? { background: "var(--accent-soft)", color: "var(--accent)" } : undefined}
           >
             All chats
@@ -255,8 +255,8 @@ export function TestConsole({
               className="w-full border-t border-border px-[var(--sp-3)] py-[var(--sp-2)] text-left hover:bg-surface-2"
               style={groupId === g.id ? { background: "var(--accent-soft)" } : undefined}
             >
-              <div className="text-[var(--fs-base)] font-semibold">{g.name}</div>
-              <div className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+              <div className="text-(length:--fs-base) font-semibold">{g.name}</div>
+              <div className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
                 {g.message_count} messages · {g.load_count} jobs
                 {g.skipped_count > 0 && ` · ${g.skipped_count} skipped`}
               </div>
@@ -267,10 +267,10 @@ export function TestConsole({
         {/* ---------------- transcript ---------------- */}
         <section className="flex min-w-0 flex-1 flex-col" style={{ background: "var(--surface-3)" }}>
           <div className="flex items-center gap-[var(--sp-2)] border-b border-border bg-surface px-[var(--sp-4)] py-[var(--sp-2)]">
-            <div className="text-[var(--fs-base)] font-semibold">
+            <div className="text-(length:--fs-base) font-semibold">
               {groupId ? (groups.find((g) => g.id === groupId)?.name ?? "Chat") : "All chats"}
             </div>
-            <span className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               {messages.length} messages
             </span>
             <button className="btn ml-auto" onClick={() => setComposing((c) => !c)}>
@@ -288,7 +288,7 @@ export function TestConsole({
                   onChange={(e) => setNewAuthor(e.target.value)}
                   placeholder="Sender name"
                 />
-                <span className="self-center text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                <span className="self-center text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
                   posting to {groupId ? groups.find((g) => g.id === groupId)?.name : "Test messages"}
                 </span>
               </div>
@@ -322,7 +322,7 @@ export function TestConsole({
               />
             ))}
             {messages.length === 0 && (
-              <p className="py-[var(--sp-8)] text-center text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+              <p className="py-[var(--sp-8)] text-center text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
                 No messages in this chat yet.
               </p>
             )}
@@ -332,7 +332,7 @@ export function TestConsole({
         {/* ---------------- inspector ---------------- */}
         <aside className="w-[430px] shrink-0 overflow-y-auto border-l border-border bg-surface">
           {!selected ? (
-            <div className="p-[var(--sp-6)] text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+            <div className="p-[var(--sp-6)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
               Pick a message to see what the rules made of it, and to edit it.
             </div>
           ) : (
@@ -366,7 +366,7 @@ export function TestConsole({
                 </div>
                 {note && (
                   <p
-                    className="mt-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-2)] py-[var(--sp-1)] text-[var(--fs-sm)]"
+                    className="mt-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-2)] py-[var(--sp-1)] text-(length:--fs-sm)"
                     style={
                       note.kind === "ok"
                         ? { background: "var(--ok-soft)", color: "var(--ok)" }
@@ -393,7 +393,7 @@ export function TestConsole({
                 </div>
 
                 {loads.length === 0 ? (
-                  <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+                  <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
                     No jobs from this message. For chatter, status replies and driver-availability
                     posts that is the correct outcome — keeping them off the board is half the job.
                   </p>
@@ -411,7 +411,7 @@ export function TestConsole({
                 )}
               </div>
 
-              <div className="border-t border-border pt-[var(--sp-3)] text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+              <div className="border-t border-border pt-[var(--sp-3)] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
                 Sent {new Date(selected.sent_at).toLocaleString()} by{" "}
                 {selected.author_name ?? "unknown"}
                 {selected.group_name ? ` in ${selected.group_name}` : ""}.
@@ -465,15 +465,15 @@ function Bubble({
       }}
     >
       <div className="flex items-baseline gap-[var(--sp-2)]">
-        <span className="text-[var(--fs-sm)] font-semibold" style={{ color: "var(--accent)" }}>
+        <span className="text-(length:--fs-sm) font-semibold" style={{ color: "var(--accent)" }}>
           {message.author_name ?? "Unknown"}
         </span>
         {showGroup && message.group_name && (
-          <span className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+          <span className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
             {message.group_name}
           </span>
         )}
-        <span className="ml-auto text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+        <span className="ml-auto text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
           {new Date(message.sent_at).toLocaleString([], {
             month: "short",
             day: "numeric",
@@ -498,7 +498,7 @@ function Bubble({
           ))}
         </div>
       ) : (
-        <p className="mt-[var(--sp-1)] whitespace-pre-wrap text-[var(--fs-base)]">{message.body}</p>
+        <p className="mt-[var(--sp-1)] whitespace-pre-wrap text-(length:--fs-base)">{message.body}</p>
       )}
 
       <div className="mt-[var(--sp-2)] flex flex-wrap items-center gap-[var(--sp-1)]">
@@ -543,7 +543,7 @@ function JobRow({
       onMouseLeave={() => onHover(null)}
     >
       <div className="flex flex-wrap items-center gap-[var(--sp-2)]">
-        <span className="text-[var(--fs-base)] font-semibold">
+        <span className="text-(length:--fs-base) font-semibold">
           {job.pickup_label} → {job.delivery_label}
         </span>
         <span className="nums">{job.cubic_feet != null ? formatCf(job.cubic_feet) : "no size"}</span>
@@ -561,7 +561,7 @@ function JobRow({
 
       {job.line_text && (
         <div
-          className="mt-[var(--sp-1)] rounded-[var(--radius-sm)] px-[var(--sp-2)] py-[2px] text-[var(--fs-sm)]"
+          className="mt-[var(--sp-1)] rounded-[var(--radius-sm)] px-[var(--sp-2)] py-[2px] text-(length:--fs-sm)"
           style={{
             background: "var(--surface-3)",
             fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
@@ -572,7 +572,7 @@ function JobRow({
       )}
 
       <div
-        className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-2)] text-[var(--fs-xs)]"
+        className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-2)] text-(length:--fs-xs)"
         style={{ color: "var(--muted)" }}
       >
         <span>
@@ -587,7 +587,7 @@ function JobRow({
 
       <Link
         href={`/jobs/${job.id}`}
-        className="mt-[var(--sp-1)] inline-block text-[var(--fs-sm)] font-semibold"
+        className="mt-[var(--sp-1)] inline-block text-(length:--fs-sm) font-semibold"
         style={{ color: "var(--accent)" }}
       >
         See it on the board →

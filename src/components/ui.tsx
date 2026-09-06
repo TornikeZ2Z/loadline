@@ -85,7 +85,7 @@ export function EmptyState({
     <div className="card p-[var(--sp-6)] text-center">
       <div className="font-semibold">{title}</div>
       {hint && (
-        <div className="mt-[var(--sp-1)] text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+        <div className="mt-[var(--sp-1)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
           {hint}
         </div>
       )}
@@ -226,7 +226,7 @@ export function PopoverButton({
             style={{ background: "var(--surface)" }}
           >
             <div className="mb-[var(--sp-3)] flex items-center justify-between">
-              <span className="big text-[var(--fs-lg)]">{panelTitle ?? ariaLabel}</span>
+              <span className="big text-(length:--fs-lg)">{panelTitle ?? ariaLabel}</span>
               <button type="button" className="btn btn-ghost" onClick={close}>
                 Done
               </button>

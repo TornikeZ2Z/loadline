@@ -73,7 +73,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
         <div className="mx-auto flex h-full max-w-[1600px] items-center gap-[var(--sp-2)] px-[var(--sp-2)] lg:gap-[var(--sp-5)] lg:px-[var(--sp-4)]">
           <Link href="/" className="flex shrink-0 items-center gap-2 font-bold tracking-tight">
             <span
-              className="grid h-6 w-6 place-items-center rounded-md text-[var(--fs-base)] text-white"
+              className="grid h-6 w-6 place-items-center rounded-md text-(length:--fs-base) text-white"
               style={{ background: "var(--accent)" }}
             >
               L
@@ -112,7 +112,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 <Link
                   key={n.key}
                   href={n.href}
-                  className="whitespace-nowrap rounded-md px-2 py-1.5 text-[var(--fs-base)] font-semibold md:px-3"
+                  className="whitespace-nowrap rounded-md px-2 py-1.5 text-(length:--fs-base) font-semibold md:px-3"
                   style={
                     active === n.key
                       ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -148,7 +148,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 link leaves the menu closed behind it. */}
             <details key={currentPath ?? "/"} className="relative shrink-0">
               <summary
-                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-[var(--fs-base)] font-semibold md:h-[var(--control-h)] md:px-2 [&::-webkit-details-marker]:hidden"
+                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:px-2 [&::-webkit-details-marker]:hidden"
                 style={
                   active === "site"
                     ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -188,7 +188,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                       <Link
                         key={link.href}
                         href={link.href}
-                        className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-[var(--fs-base)] font-medium"
+                        className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                         style={{ color: "var(--text-2)" }}
                       >
                         {link.label}
@@ -209,7 +209,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                         <Link
                           key={n.key}
                           href={n.href}
-                          className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-[var(--fs-base)] font-medium"
+                          className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                           style={{ color: "var(--text-2)" }}
                         >
                           {n.label}
@@ -227,8 +227,8 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
             {user ? (
               <>
                 <div className="hidden text-right leading-tight sm:block">
-                  <div className="text-[var(--fs-base)] font-semibold">{user.name}</div>
-                  <div className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                  <div className="text-(length:--fs-base) font-semibold">{user.name}</div>
+                  <div className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
                     {ROLE_LABEL[user.role]}
                   </div>
                 </div>

@@ -901,24 +901,24 @@ export function LoadMap({
         className="glass absolute left-[var(--sp-3)] top-[var(--sp-3)] w-[250px] p-[var(--sp-3)]"
         title={`Jobs whose ${end} is on screen, and the cubic feet standing there. Hollow markers sit on a state centroid rather than a real address. Jobs without a stated size are counted but add nothing to the total.`}
       >
-        <div className="big text-[var(--fs-lg)]">
+        <div className="big text-(length:--fs-lg)">
           {inView == null
             ? "Loading…"
             : `${allShown ? "All " : ""}${inView.count} job${inView.count === 1 ? "" : "s"}${
                 allShown ? "" : " in view"
               } · ${totalCf.toLocaleString("en-US")} cf`}
         </div>
-        <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           {totalCf > 0 ? truckLine(totalCf, viewer?.truckCf ?? null) : "No stated sizes on screen"}
           {inView && inView.unsized > 0 && ` · ${inView.unsized} without size`}
         </div>
         {notPlotted > 0 && (
-          <div className="text-[var(--fs-xs)]" style={{ color: "var(--approx)" }}>
+          <div className="text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
             {notPlotted} job{notPlotted === 1 ? " has" : "s have"} no mappable {end}
           </div>
         )}
         {filteredSummary && inView && filteredSummary.count !== inView.count && (
-          <div className="text-[var(--fs-xs)]" style={{ color: "var(--muted-2)" }}>
+          <div className="text-(length:--fs-xs)" style={{ color: "var(--muted-2)" }}>
             of {filteredSummary.count} filtered
           </div>
         )}
@@ -926,7 +926,7 @@ export function LoadMap({
 
       {noRoad && (
         <div
-          className="glass absolute left-1/2 top-[var(--sp-3)] -translate-x-1/2 px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
+          className="glass absolute left-1/2 top-[var(--sp-3)] -translate-x-1/2 px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
           style={{ color: "var(--approx)" }}
         >
           Road route unavailable — showing a straight line.
@@ -934,7 +934,7 @@ export function LoadMap({
       )}
 
       <label
-        className="glass absolute right-[var(--sp-3)] top-[calc(var(--sp-3)+80px)] flex items-center gap-[var(--sp-2)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
+        className="glass absolute right-[var(--sp-3)] top-[calc(var(--sp-3)+80px)] flex items-center gap-[var(--sp-2)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
         style={{ cursor: "pointer" }}
       >
         <input
