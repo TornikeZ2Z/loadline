@@ -66,6 +66,9 @@
   --color-ok: var(--ok); --color-ok-soft: var(--ok-soft); --color-ready: var(--ready); --color-ready-soft: var(--ready-soft);
   --color-fresh: var(--fresh); --color-fresh-soft: var(--fresh-soft);
   --color-warn: var(--warn); --color-warn-soft: var(--warn-soft); --color-danger: var(--danger); --color-danger-soft: var(--danger-soft);
+  /* `inline` means Tailwind substitutes the value rather than redeclaring the
+     variable, so this reads B's next/font family instead of shadowing it. */
+  --font-sans: var(--font-sans);
 }
 
 html, body { background: var(--bg); color: var(--text); }

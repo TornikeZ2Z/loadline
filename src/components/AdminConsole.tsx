@@ -1,79 +1,227 @@
 "use client";
 
+/**
+ * The admin console, and it opens on the queue rather than on a dashboard.
+ *
+ * The premise of the extractor is that an unknown format is solved once and
+ * stays solved: a message the rules could not read lands in Needs attention
+ * with a per-line colour gutter, an admin fixes the one line that broke it, and
+ * the fix is stored as a rule, re-runs the message and every recent message
+ * from that sender, and is exported into the eval fixtures so it cannot
+ * regress. This screen is where that loop is closed, so it is the front door.
+ *
+ * Saving a rule does NOT call the reprocess endpoint: A's rules and formats
+ * routes already reprocess server-side and return the count, and calling both
+ * would double the work and race. The Reprocess button is the only caller.
+ */
+
 import { useCallback, useEffect, useState } from "react";
-import { Chip } from "./ui";
 import { api } from "@/lib/basePath";
+import type { ChatGroup, ChatLoad, ChatMessage } from "@/lib/demo/chats";
+import type { LineAudit, LineClass } from "@/lib/extract/schema";
+import type { IgnoreLineRule, KeywordAs } from "@/lib/extract/rules-store";
+import { formatCf } from "@/lib/loads/present";
+import { LocationInput, type ResolvedPlace } from "./LocationInput";
+import { Chip } from "./ui";
 
-interface Group {
-  id: number;
-  name: string;
-  active: boolean;
-  message_count: number;
-  load_count: number;
+export type AdminTab = "attention" | "try" | "messages" | "senders" | "rules" | "groups";
+
+export interface AdminConsoleProps {
+  groups: ChatGroup[];
+  initialTab?: AdminTab;
+  initialMessageId?: number | null;
 }
 
-interface Message {
-  id: number;
-  body: string;
-  author_name: string | null;
-  status: string;
-  skip_reason: string | null;
+const TABS: Array<[AdminTab, string]> = [
+  ["attention", "Needs attention"],
+  ["try", "Try a message"],
+  ["messages", "Messages"],
+  ["senders", "Senders"],
+  ["rules", "Rules"],
+  ["groups", "Groups"],
+];
+
+/** Exactly the attention codes the pipeline can set. */
+const ATTENTION_CODES = [
+  "unknown_format",
+  "no_origin",
+  "origin_unresolved",
+  "unknown_lines",
+  "new_format",
+  "truncated",
+  "state_header_ambiguous",
+  "needs_review",
+  "no_contact",
+] as const;
+
+const IGNORE_AS: IgnoreLineRule["as"][] = [
+  "chatter",
+  "requirement",
+  "title",
+  "decoration",
+  "contact",
+];
+
+const KEYWORD_AS: KeywordAs[] = ["CF_UNIT", "RFD", "TO", "FROM", "PERCF", "NOTE"];
+
+/** The nine placeholders a taught line may use. */
+const PLACEHOLDERS = ["{CF}", "{ST}", "{ZIP}", "{CITY}", "{PRICE}", "{DATE}", "{RFD}", "{NOTES}", "{WORD}"];
+
+const LINE_CLASS: Record<LineClass, string> = {
+  HEADER: "l-header",
+  TITLE: "l-header",
+  DESTINATION: "l-dest",
+  LANE: "l-dest",
+  CONTINUATION: "l-dest",
+  CONTACT: "l-contact",
+  CONTACT_NAME: "l-contact",
+  REQUIREMENT: "l-req",
+  CHATTER: "",
+  FOOTER_FLAG: "",
+  NOTE: "",
+  DECORATION: "",
+  BLANK: "",
+  READMORE: "",
+  UNKNOWN: "l-unknown",
+};
+
+/** The six real formats, trimmed to the smallest piece that still parses. */
+const EXAMPLES: Array<{ label: string; text: string }> = [
+  {
+    label: "A · header + bare numbers",
+    text: `🚚Ready for Delivery From California 🚚
+
+🏙FROM Los Angeles🏙
+
+NY 11217              200
+WV 25276      1000
+MI 48118            350`,
+  },
+  {
+    label: "B · From / To pairs",
+    text: `From Grand Junction
+To  FL 33435 350cf
+To  MA 02072 500cf
+
+From Cortez CO 81321
+To NM 87825 250cf
+
+All jobs are ready for delivery`,
+  },
+  {
+    label: "C · cf first, RFD",
+    text: `NEW JERSEY
+📍 Kearny
+400cf MI  48864 RFD
+200cf FL 33180 RFD
+500cf SC 29588 RFD
+
+✅ Must have active DOT & MC`,
+  },
+  {
+    label: "D · c/f-ZIP with dates",
+    text: `🇺🇸 💰 From:Woodburn ,OR 💰
+To:KY 400 c/f-40741 RFD 9/9
+To:NC 300 c/f-28463
+To:TN 800 c/f-37040 RFD 9/8`,
+  },
+  {
+    label: "E · cf. dest $per-cf",
+    text: `FROM AUBURN CA
+2000.    FL 32439 $3.75 Bulky URGET ranger
+300.      MS 39759 $3.5`,
+  },
+  {
+    label: "F · unknown format",
+    text: `33435/350, 33180/200`,
+  },
+];
+
+// --- a tiny fetch helper -----------------------------------------------------
+
+interface Fetched<T> {
+  data: T | null;
+  /** The route is not deployed yet (A's admin API lands in its own commit). */
+  unavailable: boolean;
   error: string | null;
-  extractor: string | null;
-  attempts: number;
-  sent_at: string;
-  processed_at: string | null;
-  group_name: string | null;
-  load_count: number;
+  loading: boolean;
 }
 
-interface TryResult {
-  status: string;
-  reason?: string;
-  loadsCreated: number;
-  duplicates: number;
-  extractor: string | null;
-  loads: Array<{
-    id: number;
-    pickup_label: string;
-    delivery_label: string;
-    pickup_date: string | null;
-    contact_name: string | null;
-    contact_phone: string | null;
-    load_type: string | null;
-    weight_lbs: number | null;
-    pallets: number | null;
-    confidence: number;
-    needs_review: boolean;
-    is_canonical: boolean;
-  }>;
+async function getJson<T>(path: string): Promise<Fetched<T>> {
+  try {
+    const res = await fetch(api(path));
+    if (res.status === 404) return { data: null, unavailable: true, error: null, loading: false };
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { data: null, unavailable: false, error: body?.error ?? res.statusText, loading: false };
+    }
+    return { data: body as T, unavailable: false, error: null, loading: false };
+  } catch (e) {
+    return {
+      data: null,
+      unavailable: false,
+      error: e instanceof Error ? e.message : "Request failed",
+      loading: false,
+    };
+  }
 }
 
-const STATUS_FILTERS = ["", "pending", "done", "skipped", "error"];
+function useAdminResource<T>(path: string | null): Fetched<T> & { reload(): void } {
+  const [state, setState] = useState<Fetched<T>>({
+    data: null,
+    unavailable: false,
+    error: null,
+    loading: true,
+  });
+  const [tick, setTick] = useState(0);
 
-export function AdminConsole({ groups }: { groups: Group[] }) {
-  const [tab, setTab] = useState<"messages" | "try" | "groups">("try");
+  useEffect(() => {
+    if (!path) return;
+    let alive = true;
+    setState((s) => ({ ...s, loading: true }));
+    void getJson<T>(path).then((r) => alive && setState(r));
+    return () => {
+      alive = false;
+    };
+  }, [path, tick]);
+
+  return { ...state, reload: () => setTick((t) => t + 1) };
+}
+
+function Unavailable({ what }: { what: string }) {
+  return (
+    <p className="text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+      {what} is not available yet.
+    </p>
+  );
+}
+
+// --- the console -------------------------------------------------------------
+
+export function AdminConsole({ groups, initialTab, initialMessageId }: AdminConsoleProps) {
+  const [tab, setTab] = useState<AdminTab>(initialTab ?? "attention");
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   return (
-    <div className="mx-auto max-w-[1400px] p-5">
-      <h1 className="text-[19px] font-bold tracking-tight">Pipeline admin</h1>
-      <p className="mt-1 text-[13px] text-muted">
-        Everything on the board is derived from <code>raw_messages</code>, so any message can be
-        replayed after a prompt or alias change without re-ingesting it.
+    <div className="mx-auto max-w-[1400px] p-[var(--sp-5)]">
+      <h1 className="big text-[var(--fs-xl)]">Extraction admin</h1>
+      <p className="mt-[var(--sp-1)] text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+        Everything on the board is derived from the raw messages, so a message can always be replayed
+        after a rule changes — and a fix saved here survives a database reset.
       </p>
 
-      <div className="mt-4 flex gap-1 border-b border-border">
-        {(
-          [
-            ["try", "Try a message"],
-            ["messages", "Message feed"],
-            ["groups", "WhatsApp groups"],
-          ] as const
-        ).map(([key, label]) => (
+      <div className="mt-[var(--sp-4)] flex gap-[var(--sp-1)] border-b border-border">
+        {TABS.map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className="px-3 py-2 text-[13px] font-semibold"
+            className="px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-base)] font-semibold"
             style={
               tab === key
                 ? { color: "var(--accent)", borderBottom: "2px solid var(--accent)" }
@@ -85,121 +233,609 @@ export function AdminConsole({ groups }: { groups: Group[] }) {
         ))}
       </div>
 
-      <div className="mt-4">
+      {toast && (
+        <p
+          className="mt-[var(--sp-3)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-base)]"
+          style={{ background: "var(--ok-soft)", color: "var(--ok)" }}
+        >
+          {toast}
+        </p>
+      )}
+
+      <div className="mt-[var(--sp-4)]">
+        {tab === "attention" && <Attention initialMessageId={initialMessageId} onToast={setToast} />}
         {tab === "try" && <TryMessage />}
         {tab === "messages" && <MessageFeed />}
+        {tab === "senders" && <Senders onToast={setToast} />}
+        {tab === "rules" && <Rules onToast={setToast} />}
         {tab === "groups" && <Groups groups={groups} />}
       </div>
     </div>
   );
 }
 
+/* ----------------------------- needs attention ---------------------------- */
+
+type QueueMessage = ChatMessage & { processed_at: string | null; attempts: number };
+
+function Attention({
+  initialMessageId,
+  onToast,
+}: {
+  initialMessageId?: number | null;
+  onToast(text: string): void;
+}) {
+  const [code, setCode] = useState<string>("");
+  const [sender, setSender] = useState("");
+  const [selectedId, setSelectedId] = useState<number | null>(initialMessageId ?? null);
+
+  const path = `/api/admin/messages?${new URLSearchParams({
+    ...(code ? { attention: code } : {}),
+    ...(sender ? { sender } : {}),
+    limit: "100",
+  })}`;
+  const queue = useAdminResource<{ messages: QueueMessage[] }>(path);
+
+  const messages = queue.data?.messages ?? [];
+
+  return (
+    <div className="grid gap-[var(--sp-4)] lg:grid-cols-[380px_1fr]">
+      <div>
+        <div className="flex flex-wrap gap-[var(--sp-1)]">
+          <FilterChip on={code === ""} onClick={() => setCode("")}>
+            any
+          </FilterChip>
+          {ATTENTION_CODES.map((c) => (
+            <FilterChip key={c} on={code === c} onClick={() => setCode(c)}>
+              {c}
+            </FilterChip>
+          ))}
+        </div>
+
+        <input
+          className="field mt-[var(--sp-2)]"
+          placeholder="Filter by sender key"
+          value={sender}
+          onChange={(e) => setSender(e.target.value)}
+        />
+
+        <div className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-2)]">
+          {queue.unavailable ? (
+            <Unavailable what="The attention queue" />
+          ) : queue.loading ? (
+            <p style={{ color: "var(--muted)" }}>Loading…</p>
+          ) : messages.length === 0 ? (
+            <p style={{ color: "var(--muted)" }}>Nothing needs attention.</p>
+          ) : (
+            messages.map((m) => (
+              <button
+                key={m.id}
+                className={`card p-[var(--sp-2)] text-left${selectedId === m.id ? " card-selected" : ""}`}
+                onClick={() => setSelectedId(m.id)}
+              >
+                <div className="flex flex-wrap items-center gap-[var(--sp-1)]">
+                  <span className="font-semibold">{m.author_name ?? "Unknown"}</span>
+                  {m.group_name && (
+                    <span className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                      {m.group_name}
+                    </span>
+                  )}
+                  <span className="ml-auto text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                    {new Date(m.sent_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
+                  {m.attention && <Chip tone="warn">{m.attention}</Chip>}
+                  {m.parse_status && (
+                    <Chip tone={m.parse_status === "clean" ? "ok" : "warn"}>{m.parse_status}</Chip>
+                  )}
+                  {m.snapshot_kind && <Chip tone="muted">{m.snapshot_kind}</Chip>}
+                  <Chip tone="muted">{m.load_count} jobs</Chip>
+                </div>
+                {m.format_signature && (
+                  <code className="mt-[var(--sp-1)] block text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                    {m.format_signature}
+                  </code>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {selectedId == null ? (
+        <p style={{ color: "var(--muted)" }}>Pick a message to see its lines and fix them.</p>
+      ) : (
+        <MessageWorkbench
+          messageId={selectedId}
+          onToast={(t) => {
+            onToast(t);
+            queue.reload();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface AdminMessageResponse {
+  message: ChatMessage & { extracted: { lines?: LineAudit[] } | null };
+  loads: ChatLoad[];
+}
+
+function MessageWorkbench({
+  messageId,
+  onToast,
+}: {
+  messageId: number;
+  onToast(text: string): void;
+}) {
+  const detail = useAdminResource<AdminMessageResponse>(`/api/admin/messages/${messageId}`);
+  const [openLine, setOpenLine] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const message = detail.data?.message ?? null;
+  const lines: LineAudit[] = message?.extracted?.lines ?? [];
+  const scope = message?.sender_key ? `sender:${message.sender_key}` : "global";
+
+  /**
+   * One save, one server-side reprocess. The rules route already replays the
+   * message and the sender's recent history and returns the count.
+   */
+  const saveRule = useCallback(
+    async (kind: string, key: string, value: unknown) => {
+      setBusy(true);
+      try {
+        const res = await fetch(api("/api/admin/rules"), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind, scope, key, value }),
+        });
+        if (res.status === 404) {
+          onToast("The rules endpoint is not available yet.");
+          return;
+        }
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          onToast(body?.error ?? "Could not save the rule");
+          return;
+        }
+        onToast(`Rule saved. Reprocessed ${body?.reprocessed ?? 0} messages.`);
+        setOpenLine(null);
+        detail.reload();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scope, onToast, detail],
+  );
+
+  async function confirmFormat() {
+    if (!message?.format_signature) return;
+    setBusy(true);
+    try {
+      const res = await fetch(
+        api(`/api/admin/formats/${encodeURIComponent(message.format_signature)}`),
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "known" }),
+        },
+      );
+      if (res.status === 404) {
+        onToast("The formats endpoint is not available yet.");
+        return;
+      }
+      const body = await res.json().catch(() => null);
+      onToast(`Format confirmed. Reprocessed ${body?.reprocessed ?? 0} messages.`);
+      detail.reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function accept() {
+    setBusy(true);
+    try {
+      const res = await fetch(api(`/api/admin/messages/${messageId}/accept`), { method: "POST" });
+      onToast(res.ok ? "Extraction accepted as a pattern case." : "Accept is not available yet.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reprocess() {
+    setBusy(true);
+    try {
+      const res = await fetch(api(`/api/admin/reprocess?message=${messageId}`), { method: "POST" });
+      if (res.status === 404) {
+        onToast("The reprocess endpoint is not available yet.");
+        return;
+      }
+      const body = await res.json().catch(() => null);
+      onToast(`Reprocessed ${body?.reprocessed ?? 1} message(s).`);
+      detail.reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (detail.unavailable) return <Unavailable what="The message endpoint" />;
+  if (detail.loading || !message) return <p style={{ color: "var(--muted)" }}>Loading message…</p>;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-[var(--sp-2)]">
+        <span className="font-semibold">{message.author_name ?? "Unknown"}</span>
+        {message.attention && <Chip tone="warn">{message.attention}</Chip>}
+        {message.parse_status && (
+          <Chip tone={message.parse_status === "clean" ? "ok" : "warn"}>{message.parse_status}</Chip>
+        )}
+        <button className="btn btn-sm" disabled={busy} onClick={confirmFormat}>
+          Confirm format
+        </button>
+        <button className="btn btn-sm" disabled={busy} onClick={accept}>
+          Accept extraction
+        </button>
+        <button className="btn btn-sm" disabled={busy} onClick={reprocess}>
+          Reprocess
+        </button>
+      </div>
+
+      <div className="line-gutter mt-[var(--sp-3)] flex flex-col gap-[2px]">
+        {lines.length === 0 ? (
+          <pre className="whitespace-pre-wrap text-[var(--fs-sm)]">{message.body}</pre>
+        ) : (
+          lines.map((line) => (
+            <div key={line.n} className={LINE_CLASS[line.class] ?? ""}>
+              <button
+                type="button"
+                className="block w-full text-left"
+                title={[line.class, line.reason, ...(line.flags ?? [])].filter(Boolean).join(" · ")}
+                onClick={() => setOpenLine(openLine === line.n ? null : line.n)}
+              >
+                {line.text || " "}
+              </button>
+              {openLine === line.n && (
+                <LineActions
+                  text={line.text}
+                  busy={busy}
+                  onSaveRule={saveRule}
+                  onClose={() => setOpenLine(null)}
+                />
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      <SenderFormatEditor scope={scope} busy={busy} onSaveRule={saveRule} />
+    </div>
+  );
+}
+
+/**
+ * The per-line fixes. Each one is a rule, and each rule is the last time this
+ * particular line has to be looked at.
+ */
+function LineActions({
+  text,
+  busy,
+  onSaveRule,
+  onClose,
+}: {
+  text: string;
+  busy: boolean;
+  onSaveRule(kind: string, key: string, value: unknown): Promise<void>;
+  onClose(): void;
+}) {
+  const [mode, setMode] = useState<"none" | "place" | "ignore" | "word" | "teach">("none");
+  const [placeText, setPlaceText] = useState(text);
+  const [word, setWord] = useState(text.trim().split(/\s+/)[0] ?? "");
+  const [wordAs, setWordAs] = useState<string>("CF_UNIT");
+  const [template, setTemplate] = useState(text);
+
+  return (
+    <div className="card mt-[var(--sp-1)] p-[var(--sp-2)]" style={{ fontFamily: "inherit" }}>
+      <div className="flex flex-wrap gap-[var(--sp-1)]">
+        <button className="btn btn-sm" onClick={() => setMode("place")}>
+          Resolve place
+        </button>
+        <button className="btn btn-sm" onClick={() => setMode("ignore")}>
+          Ignore line as …
+        </button>
+        <button className="btn btn-sm" onClick={() => setMode("word")}>
+          Add word
+        </button>
+        <button className="btn btn-sm" onClick={() => setMode("teach")}>
+          Teach line
+        </button>
+        <button className="btn btn-ghost btn-sm ml-auto" onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      {mode === "place" && (
+        <div className="mt-[var(--sp-2)]">
+          <div className="label">What place is this line?</div>
+          {/* The raw line text is the key; A normalizes it server-side so
+              "📍 KEARNY, NJ:" and "kearny nj" land on the same rule. */}
+          <LocationInput
+            value={placeText}
+            onChange={setPlaceText}
+            onPick={(place: ResolvedPlace) => void onSaveRule("place", text, place)}
+            placeholder="Kearny, NJ"
+            ariaLabel="Resolve this origin"
+          />
+        </div>
+      )}
+
+      {mode === "ignore" && (
+        <div className="mt-[var(--sp-2)] flex flex-wrap gap-[var(--sp-1)]">
+          {IGNORE_AS.map((as) => (
+            <button
+              key={as}
+              className="btn btn-sm"
+              disabled={busy}
+              onClick={() => void onSaveRule("ignore_line", text, { text, as })}
+            >
+              {as}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === "word" && (
+        <div className="mt-[var(--sp-2)] flex flex-wrap items-end gap-[var(--sp-2)]">
+          <div>
+            <div className="label">Word</div>
+            <input className="field" value={word} onChange={(e) => setWord(e.target.value)} />
+          </div>
+          <div>
+            <div className="label">Means</div>
+            <input
+              className="field"
+              list="keyword-as"
+              value={wordAs}
+              onChange={(e) => setWordAs(e.target.value)}
+            />
+            <datalist id="keyword-as">
+              {KEYWORD_AS.map((k) => (
+                <option key={k} value={k} />
+              ))}
+              <option value="TAG:bulky" />
+              <option value="CITY:Kearny, NJ" />
+            </datalist>
+          </div>
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={busy || !word.trim()}
+            onClick={() => void onSaveRule("keyword", word, { word, as: wordAs })}
+          >
+            Save word
+          </button>
+        </div>
+      )}
+
+      {mode === "teach" && (
+        <div className="mt-[var(--sp-2)]">
+          <div className="label">Mark the parts</div>
+          <div className="mb-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
+            {PLACEHOLDERS.map((p) => (
+              <button
+                key={p}
+                className="chip"
+                style={{ cursor: "pointer" }}
+                onClick={() => setTemplate((t) => `${t} ${p}`.trim())}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          <input
+            className="field font-mono"
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+          />
+          <button
+            className="btn btn-primary btn-sm mt-[var(--sp-2)]"
+            disabled={busy || !template.trim()}
+            onClick={() =>
+              void onSaveRule("line_template", text, {
+                id: `taught-${Date.now()}`,
+                template,
+                kind: "destination",
+              })
+            }
+          >
+            Save template
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SenderFormatEditor({
+  scope,
+  busy,
+  onSaveRule,
+}: {
+  scope: string;
+  busy: boolean;
+  onSaveRule(kind: string, key: string, value: unknown): Promise<void>;
+}) {
+  const [priceMode, setPriceMode] = useState("");
+  const [bareNumber, setBareNumber] = useState("");
+  const [stateFromZip, setStateFromZip] = useState(false);
+
+  return (
+    <details className="card mt-[var(--sp-4)] p-[var(--sp-3)]">
+      <summary className="cursor-pointer font-semibold">Sender format</summary>
+      <div className="mt-[var(--sp-2)] flex flex-wrap items-end gap-[var(--sp-3)]">
+        <div>
+          <div className="label">Price mode</div>
+          <select className="field" value={priceMode} onChange={(e) => setPriceMode(e.target.value)}>
+            <option value="">unset</option>
+            <option value="per_cf">per cf</option>
+            <option value="flat">flat</option>
+          </select>
+        </div>
+        <div>
+          <div className="label">A bare number is</div>
+          <select className="field" value={bareNumber} onChange={(e) => setBareNumber(e.target.value)}>
+            <option value="">unset</option>
+            <option value="cf">cubic feet</option>
+            <option value="note">a note</option>
+          </select>
+        </div>
+        <label className="flex items-center gap-[var(--sp-2)]">
+          <input
+            type="checkbox"
+            checked={stateFromZip}
+            onChange={(e) => setStateFromZip(e.target.checked)}
+          />
+          State from ZIP only
+        </label>
+        <button
+          className="btn btn-primary btn-sm"
+          disabled={busy}
+          onClick={() =>
+            void onSaveRule("sender_format", scope, {
+              price_mode: priceMode || null,
+              bare_number_is: bareNumber || null,
+              state_from_zip_only: stateFromZip,
+            })
+          }
+        >
+          Save format
+        </button>
+      </div>
+    </details>
+  );
+}
+
 /* ------------------------- paste-a-message harness ------------------------ */
 
-const EXAMPLES = [
-  "Tomorrow NJ → PA, pickup Newark, delivery Pittsburgh, 2 pallets, call Peter 973-555-1234",
-  "Need someone for Philly to Miami tomorrow. 44,000 lbs dry van. $3200. Rosa 908-555-7788",
-  "3 loads all tmrw, call me 267-555-8833:\nnewark -> boston 12 plts\nedison nj -> pitt 44k lbs\ncarteret -> richmond va reefer",
-  "north jersey to south florida, pickup mon, 22 pallets, reefer preferred. Tony 856-555-3311",
-  "empty in Newark, looking for loads to the midwest",
-];
+interface TryResult {
+  status: string;
+  reason?: string;
+  loadsCreated: number;
+  extractor: string | null;
+  parse_status: string | null;
+  attention: string | null;
+  format_signature: string | null;
+  flags: string[];
+  loads: ChatLoad[];
+}
 
 function TryMessage() {
-  const [text, setText] = useState(EXAMPLES[0]);
+  const [text, setText] = useState(EXAMPLES[0].text);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function run() {
+  async function run(dryRun: boolean) {
     setBusy(true);
     setError(null);
     setResult(null);
     const res = await fetch(api("/api/admin/ingest"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text, group: "Manual entry" }),
+      body: JSON.stringify({ text, group: "Manual entry", dryRun }),
     });
-    const json = await res.json();
+    const json = await res.json().catch(() => null);
     setBusy(false);
-    if (!res.ok) setError(json.error ?? "Failed");
+    if (!res.ok) setError(json?.error ?? "Failed");
     else setResult(json as TryResult);
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <div className="card p-4">
-        <label className="label">WhatsApp message</label>
+    <div className="grid gap-[var(--sp-4)] lg:grid-cols-2">
+      <div className="card p-[var(--sp-4)]">
+        <div className="label">WhatsApp message</div>
         <textarea
           className="field font-mono"
-          rows={7}
+          rows={12}
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {EXAMPLES.map((ex, i) => (
+        <div className="mt-[var(--sp-3)] flex flex-wrap gap-[var(--sp-1)]">
+          {EXAMPLES.map((ex) => (
             <button
-              key={i}
-              className="chip cursor-pointer"
-              style={{ background: "var(--surface-2)", color: "var(--muted)" }}
-              onClick={() => setText(ex)}
+              key={ex.label}
+              className="chip"
+              style={{ cursor: "pointer" }}
+              onClick={() => setText(ex.text)}
             >
-              example {i + 1}
+              {ex.label}
             </button>
           ))}
         </div>
-        <button className="btn btn-primary mt-3" onClick={run} disabled={busy || !text.trim()}>
-          {busy ? "Extracting…" : "Run the pipeline"}
-        </button>
-        <p className="mt-2 text-[11px] text-muted">
-          Runs extraction, location normalization, geocoding and duplicate detection exactly as
-          webhook traffic does — then writes the result to the live board.
+        <div className="mt-[var(--sp-3)] flex gap-[var(--sp-2)]">
+          <button className="btn" onClick={() => run(true)} disabled={busy || !text.trim()}>
+            {busy ? "Extracting…" : "Preview only"}
+          </button>
+          <button className="btn btn-primary" onClick={() => run(false)} disabled={busy || !text.trim()}>
+            Run the pipeline
+          </button>
+        </div>
+        <p className="mt-[var(--sp-2)] text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+          Preview extracts without writing anything. Run does what webhook traffic does, and the jobs
+          land on the live board.
         </p>
       </div>
 
-      <div className="card p-4">
-        <label className="label">Result</label>
+      <div className="card p-[var(--sp-4)]">
+        <div className="label">Result</div>
         {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
-        {!result && !error && <p className="text-[13px] text-muted">Run a message to see the output.</p>}
+        {!result && !error && (
+          <p className="text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+            Run a message to see the output.
+          </p>
+        )}
 
         {result && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Chip tone={result.status === "done" ? "ok" : result.status === "error" ? "warn" : "neutral"}>
+          <div className="flex flex-col gap-[var(--sp-3)]">
+            <div className="flex flex-wrap items-center gap-[var(--sp-1)]">
+              <Chip tone={result.status === "done" ? "ok" : result.status === "error" ? "danger" : "warn"}>
                 {result.status}
               </Chip>
-              {result.extractor && <Chip>{result.extractor}</Chip>}
-              {result.reason && <Chip tone="warn">{result.reason}</Chip>}
+              {result.parse_status && (
+                <Chip tone={result.parse_status === "clean" ? "ok" : "warn"}>{result.parse_status}</Chip>
+              )}
+              {result.attention && <Chip tone="warn">{result.attention}</Chip>}
+              {result.reason && <Chip tone="danger">{result.reason}</Chip>}
+              {result.format_signature && (
+                <Chip title="Format signature">
+                  <code>{result.format_signature}</code>
+                </Chip>
+              )}
             </div>
 
-            {result.loads.length === 0 ? (
-              <p className="text-[13px] text-muted">
-                No loads produced — this is the correct outcome for chatter, driver availability
-                posts, and anything without both an origin and a destination.
+            {(result.loads?.length ?? 0) === 0 ? (
+              <p className="text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+                No jobs produced — the correct outcome for chatter and for anything without both an
+                origin and a destination.
               </p>
             ) : (
-              result.loads.map((l) => (
-                <div key={l.id} className="card p-3" style={{ background: "var(--surface-2)" }}>
-                  <div className="flex items-center gap-2 font-semibold">
-                    {l.pickup_label} → {l.delivery_label}
-                    {!l.is_canonical && <Chip tone="warn">duplicate</Chip>}
-                    {l.needs_review && <Chip tone="warn">needs review</Chip>}
+              <div className="flex flex-col gap-[var(--sp-1)]">
+                {result.loads.map((l) => (
+                  <div key={l.id} className="text-[var(--fs-sm)]">
+                    <span className="font-semibold">
+                      {l.pickup_label} → {l.delivery_label}
+                    </span>
+                    {" · "}
+                    <span className="nums">{l.cubic_feet != null ? formatCf(l.cubic_feet) : "no size"}</span>
+                    {l.price_per_cf != null && <span className="nums"> · ${l.price_per_cf}/cf</span>}
+                    {" · "}
+                    {l.ready_now ? "ready now" : (l.ready_date ?? "not ready")}
+                    {(l.flags?.length ?? 0) > 0 && (
+                      <span style={{ color: "var(--warn)" }}> · {l.flags.join(", ")}</span>
+                    )}
                   </div>
-                  <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
-                    <Pair k="Pickup date" v={l.pickup_date ?? "—"} />
-                    <Pair k="Contact" v={[l.contact_name, l.contact_phone].filter(Boolean).join(" · ") || "—"} />
-                    <Pair k="Equipment" v={l.load_type ?? "—"} />
-                    <Pair
-                      k="Freight"
-                      v={
-                        [l.weight_lbs && `${l.weight_lbs.toLocaleString()} lbs`, l.pallets && `${l.pallets} plt`]
-                          .filter(Boolean)
-                          .join(" · ") || "—"
-                      }
-                    />
-                    <Pair k="Confidence" v={l.confidence.toFixed(2)} />
-                  </dl>
-                </div>
-              ))
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -208,135 +844,267 @@ function TryMessage() {
   );
 }
 
-function Pair({ k, v }: { k: string; v: string }) {
-  return (
-    <>
-      <dt className="text-muted">{k}</dt>
-      <dd className="nums">{v}</dd>
-    </>
-  );
-}
-
-/* ----------------------------- message feed ------------------------------ */
+/* -------------------------------- messages -------------------------------- */
 
 function MessageFeed() {
   const [status, setStatus] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const feed = useAdminResource<{ messages: QueueMessage[] }>(
+    `/api/admin/messages?${new URLSearchParams({ ...(status ? { status } : {}), limit: "100" })}`,
+  );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const res = await fetch(api(`/api/admin/messages?${status ? `status=${status}` : ""}`));
-    const json = await res.json();
-    setMessages(json.messages ?? []);
-    setLoading(false);
-  }, [status]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function reprocess(id: number) {
-    setBusyId(id);
-    await fetch(api(`/api/admin/messages/${id}/reprocess`), { method: "POST" });
-    setBusyId(null);
-    load();
-  }
+  if (feed.unavailable) return <Unavailable what="The message feed" />;
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2">
-        {STATUS_FILTERS.map((s) => (
-          <button
-            key={s || "all"}
-            onClick={() => setStatus(s)}
-            className="chip cursor-pointer"
-            style={
-              status === s
-                ? { background: "var(--accent)", color: "#fff" }
-                : { background: "var(--surface-2)", color: "var(--muted)" }
-            }
-          >
+      <div className="flex flex-wrap gap-[var(--sp-1)]">
+        {["", "pending", "done", "skipped", "error"].map((s) => (
+          <FilterChip key={s || "all"} on={status === s} onClick={() => setStatus(s)}>
             {s || "all"}
-          </button>
+          </FilterChip>
         ))}
-        <button className="btn ml-auto" onClick={load} disabled={loading}>
-          {loading ? "Loading…" : "Refresh"}
-        </button>
       </div>
 
-      <div className="card divide-y divide-[color:var(--border)]">
-        {messages.map((m) => (
-          <div key={m.id} className="flex gap-3 p-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <Chip
-                  tone={
-                    m.status === "done" ? "ok" : m.status === "error" ? "warn" : m.status === "pending" ? "accent" : "neutral"
-                  }
-                >
-                  {m.status}
-                </Chip>
-                {m.load_count > 0 && <Chip tone="ok">{m.load_count} load{m.load_count === 1 ? "" : "s"}</Chip>}
-                {m.skip_reason && <Chip tone="warn">{m.skip_reason}</Chip>}
-                <span className="text-[11px] text-muted">
-                  {m.author_name ?? "unknown"} · {m.group_name ?? "no group"} ·{" "}
-                  {new Date(m.sent_at).toLocaleString()}
-                </span>
-              </div>
-              <p className="mt-1 whitespace-pre-wrap text-[13px]">{m.body}</p>
-              {m.error && (
-                <p className="mt-1 text-[12px]" style={{ color: "var(--danger)" }}>
-                  {m.error} (attempt {m.attempts})
-                </p>
-              )}
-              {m.extractor && <p className="mt-1 text-[11px] text-muted">{m.extractor}</p>}
-            </div>
-            <button className="btn shrink-0" onClick={() => reprocess(m.id)} disabled={busyId === m.id}>
-              {busyId === m.id ? "…" : "Re-run"}
-            </button>
-          </div>
-        ))}
-        {!loading && messages.length === 0 && (
-          <p className="p-6 text-center text-[13px] text-muted">No messages with that status.</p>
-        )}
+      <div className="mt-[var(--sp-3)] overflow-x-auto">
+        <table className="w-full border-collapse text-[var(--fs-sm)]">
+          <thead>
+            <tr className="label border-b border-border text-left">
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Sender</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Group</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Sent</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Parse</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Attention</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Jobs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(feed.data?.messages ?? []).map((m) => (
+              <tr key={m.id} className="border-b border-border">
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{m.author_name ?? "Unknown"}</td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{m.group_name ?? "—"}</td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
+                  {new Date(m.sent_at).toLocaleDateString()}
+                </td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
+                  {m.parse_status ?? m.status}
+                  {m.skip_reason ? `: ${m.skip_reason}` : ""}
+                </td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{m.attention ?? "—"}</td>
+                <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{m.load_count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {feed.loading && <p style={{ color: "var(--muted)" }}>Loading…</p>}
       </div>
     </div>
   );
 }
 
-/* -------------------------------- groups --------------------------------- */
+/* --------------------------------- senders -------------------------------- */
 
-function Groups({ groups }: { groups: Group[] }) {
+interface SenderRow {
+  key: string;
+  display_name: string | null;
+  phones: string[];
+  groups: string[];
+  last_snapshot_at: string | null;
+  available: number;
+  delisted: number;
+  default_origin: { label?: string } | null;
+}
+
+function Senders({ onToast }: { onToast(text: string): void }) {
+  const senders = useAdminResource<{ senders: SenderRow[] }>("/api/admin/senders");
+  const [draft, setDraft] = useState<Record<string, string>>({});
+
+  if (senders.unavailable) return <Unavailable what="The senders list" />;
+
+  async function save(key: string) {
+    // A raw "+" in a path is a space to some clients, so the key is encoded.
+    const res = await fetch(api(`/api/admin/senders/${encodeURIComponent(key)}`), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ default_origin: draft[key] ?? "" }),
+    });
+    onToast(res.ok ? "Default origin saved." : "Could not save the default origin.");
+    senders.reload();
+  }
+
   return (
-    <div className="card overflow-hidden">
-      <table className="w-full text-[13px]">
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-[var(--fs-sm)]">
         <thead>
-          <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
-            <th className="px-3 py-2">Group</th>
-            <th className="px-3 py-2 text-right">Messages</th>
-            <th className="px-3 py-2 text-right">Loads</th>
-            <th className="px-3 py-2 text-right">Yield</th>
+          <tr className="label border-b border-border text-left">
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Sender</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Phones</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Groups</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Last post</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Jobs</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Default origin</th>
           </tr>
         </thead>
         <tbody>
-          {groups.map((g) => (
-            <tr key={g.id} className="border-b border-border">
-              <td className="px-3 py-2 font-medium">{g.name}</td>
-              <td className="nums px-3 py-2 text-right">{g.message_count}</td>
-              <td className="nums px-3 py-2 text-right">{g.load_count}</td>
-              <td className="nums px-3 py-2 text-right">
-                {g.message_count ? `${Math.round((g.load_count / g.message_count) * 100)}%` : "—"}
+          {(senders.data?.senders ?? []).map((s) => (
+            <tr key={s.key} className="border-b border-border">
+              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{s.display_name ?? s.key}</td>
+              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{s.phones?.join(", ") || "—"}</td>
+              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{s.groups?.join(", ") || "—"}</td>
+              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
+                {s.last_snapshot_at ? new Date(s.last_snapshot_at).toLocaleDateString() : "—"}
+              </td>
+              <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">
+                {s.available} available · {s.delisted} delisted
+              </td>
+              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
+                <div className="flex gap-[var(--sp-1)]">
+                  <input
+                    className="field"
+                    value={draft[s.key] ?? s.default_origin?.label ?? ""}
+                    onChange={(e) => setDraft({ ...draft, [s.key]: e.target.value })}
+                  />
+                  <button className="btn btn-sm" onClick={() => save(s.key)}>
+                    Save
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="border-t border-border p-3 text-[12px] text-muted">
-        Yield is loads per message. A group sitting near zero is either social chatter or is posting
-        in a format the extractor is missing — worth reading a few of its skipped messages.
-      </p>
+      {senders.loading && <p style={{ color: "var(--muted)" }}>Loading…</p>}
     </div>
+  );
+}
+
+/* ---------------------------------- rules --------------------------------- */
+
+interface RuleRow {
+  id: number;
+  kind: string;
+  scope: string;
+  key: string;
+  value: unknown;
+  note: string | null;
+  active: boolean;
+}
+
+function Rules({ onToast }: { onToast(text: string): void }) {
+  const rules = useAdminResource<{ rules: RuleRow[] }>("/api/admin/rules");
+  if (rules.unavailable) return <Unavailable what="The rules list" />;
+
+  async function toggle(rule: RuleRow) {
+    const res = await fetch(api(`/api/admin/rules/${rule.id}`), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ active: !rule.active }),
+    });
+    onToast(res.ok ? `Rule ${rule.active ? "deactivated" : "reactivated"}.` : "Could not update the rule.");
+    rules.reload();
+  }
+
+  return (
+    <div>
+      <p className="mb-[var(--sp-2)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        Run <code>npm run rules:export</code> to add these to the eval fixtures, so a fix made here
+        cannot regress.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[var(--fs-sm)]">
+          <thead>
+            <tr className="label border-b border-border text-left">
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Kind</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Scope</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Key</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Value</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Active</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(rules.data?.rules ?? []).map((r) => (
+              <tr key={r.id} className="border-b border-border">
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{r.kind}</td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{r.scope}</td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
+                  <code>{r.key}</code>
+                </td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]" title={r.note ?? undefined}>
+                  {summarizeValue(r.value)}
+                </td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
+                  <button className="btn btn-sm" onClick={() => toggle(r)}>
+                    {r.active ? "on" : "off"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rules.loading && <p style={{ color: "var(--muted)" }}>Loading…</p>}
+      </div>
+    </div>
+  );
+}
+
+function summarizeValue(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "string") return value;
+  const json = JSON.stringify(value);
+  return json.length > 80 ? `${json.slice(0, 77)}…` : json;
+}
+
+/* --------------------------------- groups --------------------------------- */
+
+function Groups({ groups }: { groups: ChatGroup[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-[var(--fs-sm)]">
+        <thead>
+          <tr className="label border-b border-border text-left">
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Group</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Description</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Messages</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Jobs</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Skipped</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g) => (
+            <tr key={g.id} className="border-b border-border">
+              <td className="px-[var(--sp-2)] py-[var(--sp-2)] font-semibold">{g.name}</td>
+              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{g.description ?? "—"}</td>
+              <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.message_count}</td>
+              <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.load_count}</td>
+              <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.skipped_count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FilterChip({
+  on,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  onClick(): void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="chip"
+      aria-pressed={on}
+      onClick={onClick}
+      style={{
+        cursor: "pointer",
+        background: on ? "var(--accent-soft)" : "var(--surface-2)",
+        color: on ? "var(--accent)" : "var(--text-2)",
+      }}
+    >
+      {children}
+    </button>
   );
 }
