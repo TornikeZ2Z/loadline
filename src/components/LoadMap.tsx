@@ -56,12 +56,18 @@ import { api } from "@/lib/basePath";
 import { formatCf, jobSummary, truckLine } from "@/lib/loads/present";
 import {
   buildGroups,
+  dominantLane,
   endLabelText,
   endPoint,
   groupSummary,
   idsOf,
+  pointRadius,
+  RADIUS_STOPS,
+  RADIUS_ZOOM,
+  type Lane,
   type PointGroup,
 } from "@/lib/geo/points";
+import { lanePoints } from "@/lib/geo/arc";
 
 export interface LoadMapProps {
   jobs: PublicLoadRow[];
@@ -148,6 +154,24 @@ const LABEL_SLOTS: Array<[number, number]> = [
   [52, 14],
 ];
 
+/**
+ * Where a COUNT may go: barely anywhere.
+ *
+ * A state total is a caption and survives being nudged half a label sideways;
+ * a count is bare type with nothing tying it to its dot but proximity, and at
+ * 390 px the general slot list threw "15" forty pixels clear of the pile it
+ * was counting, where it read as a number belonging to whatever was nearest.
+ * Two small steps up and one either shoulder, then nothing -- an unplaceable
+ * count is hidden, and the dot underneath keeps its size, its hover and its
+ * click.
+ */
+const COUNT_SLOTS: Array<[number, number]> = [
+  [0, 0],
+  [0, -11],
+  [13, -3],
+  [-13, -3],
+];
+
 /** Breathing room around a placed label, in px. */
 const LABEL_PAD = 3;
 
@@ -163,6 +187,14 @@ interface MapLabel {
   anchor: "center" | "bottom" | "left";
   /** The offset the marker was built with; slots are added to it. */
   base: [number, number];
+  /**
+   * Cubic feet of the marker this label has to sit clear of. Present only on
+   * the count badges: their vertical base offset is the dot's drawn radius,
+   * which changes with the zoom, so it is read per frame rather than baked in.
+   */
+  clearOf?: number;
+  /** Bare type with no box: it may only be placed touching its own mark. */
+  tight?: boolean;
   /** Higher wins a contested spot. */
   weight: number;
   /** Placed first and never moved or hidden: the route's own two ends. */
@@ -189,6 +221,13 @@ interface Palette {
   approx: string;
   you: string;
   home: string;
+  /** The wash the basemap tiles are blended into. */
+  paper: string;
+  /** The lane gradient's two ends, shared with the road route. */
+  routeStart: string;
+  routeEnd: string;
+  /** The ink every soft shadow on this map is made of. */
+  ink: string;
 }
 
 const FALLBACK: Palette = {
@@ -199,6 +238,10 @@ const FALLBACK: Palette = {
   approx: "#b45309",
   you: "#059669",
   home: "#0f172a",
+  paper: "#e6ebf2",
+  routeStart: "#2563eb",
+  routeEnd: "#0f172a",
+  ink: "#0f172a",
 };
 
 function readPalette(): Palette {
@@ -213,7 +256,27 @@ function readPalette(): Palette {
     approx: pick("--approx", FALLBACK.approx),
     you: pick("--you", FALLBACK.you),
     home: pick("--home", FALLBACK.home),
+    paper: pick("--map-paper", FALLBACK.paper),
+    routeStart: pick("--route-start", FALLBACK.routeStart),
+    routeEnd: pick("--route-end", FALLBACK.routeEnd),
+    ink: pick("--text", FALLBACK.ink),
   };
+}
+
+/**
+ * `#rrggbb` -> `rgba(r, g, b, a)`.
+ *
+ * MapLibre understands rgba() strings, and a line GRADIENT is the one place
+ * that needs one: the lane fades in from nothing at the pickup, and a gradient
+ * stop cannot carry its own opacity any other way. Anything that is not a
+ * six-digit hex is handed back untouched, which is the right answer for the
+ * `rgb(... / ...)` and named values a token could legally hold.
+ */
+function alpha(hex: string, a: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const n = parseInt(m[1]!, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
 /**
@@ -223,34 +286,73 @@ function readPalette(): Palette {
  * the radius of another reads as four times the freight, which is what the eye
  * actually compares. Interpolated with zoom as the arcs' widths were, so the
  * national view stays readable without the city view turning into blobs.
+ *
+ * The stops live in `points.ts` because the count badge has to sit clear of
+ * the circle, which means something outside the paint expression needs the
+ * same number. Two copies of this curve is one copy too many.
  */
 const RADIUS_BY_CF: maplibregl.ExpressionSpecification = [
   "interpolate",
   ["linear"],
   ["sqrt", ["max", 0, ["coalesce", ["get", "cf"], 0]]],
-  0,
-  5,
-  20,
-  8,
-  45,
-  11,
-  80,
-  15,
-  120,
-  19,
-];
+  ...RADIUS_STOPS.flat(),
+] as maplibregl.ExpressionSpecification;
 
 function zoomRadius(extra = 0): maplibregl.ExpressionSpecification {
   const at = (scale: number): maplibregl.ExpressionSpecification =>
     extra === 0 ? ["*", RADIUS_BY_CF, scale] : ["+", ["*", RADIUS_BY_CF, scale], extra];
-  return ["interpolate", ["linear"], ["zoom"], 3, at(0.85), 7, at(1.25)];
+  return [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
+    RADIUS_ZOOM[0]![0],
+    at(RADIUS_ZOOM[0]![1]),
+    RADIUS_ZOOM[1]![0],
+    at(RADIUS_ZOOM[1]![1]),
+  ];
 }
 
-const DIM_OPACITY: maplibregl.ExpressionSpecification = [
+/**
+ * How present a marker is: full when nothing is focused, faint when something
+ * else is.
+ *
+ * `weight` grades the top end by freight. A flat mid-blue disc at every size
+ * is a legend, not a picture -- 200 cf and 15,500 cf differ only in how big
+ * they are, and at the national view the small one is eight pixels across and
+ * the difference is gone. Grading opacity as well means the eye reads the big
+ * piles first and the small ones as the texture around them, which is the
+ * order a driver wants them in.
+ */
+function presence(weight: number): maplibregl.ExpressionSpecification {
+  return [
+    "case",
+    // Dimmed, not deleted. At 0.18 -- what the arcs-everywhere map used, where
+    // a dimmed line still had its own shape -- a whole screenful of dots went
+    // to ghosts the moment the pointer touched a card, and a board whose
+    // inventory vanishes while you read one row of it is worse than one that
+    // never highlighted anything.
+    ["boolean", ["feature-state", "dim"], false],
+    weight * 0.36,
+    [
+      "interpolate",
+      ["linear"],
+      ["sqrt", ["max", 0, ["coalesce", ["get", "cf"], 0]]],
+      0,
+      weight * 0.74,
+      30,
+      weight * 0.88,
+      90,
+      weight,
+    ],
+  ];
+}
+
+/** A guessed coordinate is drawn out of focus. See the approx note below. */
+const APPROX_BLUR: maplibregl.ExpressionSpecification = [
   "case",
-  ["boolean", ["feature-state", "dim"], false],
-  0.22,
-  0.92,
+  ["get", "approx"],
+  0.6,
+  0,
 ];
 
 /** A 12 px right-pointing triangle, registered as an SDF so icon-color works. */
@@ -434,6 +536,20 @@ export function LoadMap({
       }
     }
 
+    // The marks themselves are occupied ground too. Without this a state total
+    // is free to land squarely on the dot it is counting -- "CA · 15,500 cf"
+    // printed across the pile in Los Angeles -- which hides the one thing on
+    // the map that is not text. The boxes are the drawn discs plus a hairline
+    // of air; a count badge already clears its own dot, so what this really
+    // stops is a label covering somebody ELSE's.
+    const z = m.getZoom();
+    for (const group of groups.current) {
+      const at = m.project([group.lng, group.lat]);
+      if (at.x < -60 || at.y < -60 || at.x > vw + 60 || at.y > vh + 60) continue;
+      const r = pointRadius(group.cf, z) + 2;
+      taken.push([at.x - r, at.y - r, at.x + r, at.y + r]);
+    }
+
     const ordered = [...labels.current].sort((a, b) => b.weight - a.weight);
     for (const l of ordered) {
       // A marker group whose effect bailed before re-registering its labels can
@@ -450,10 +566,27 @@ export function LoadMap({
         continue;
       }
 
+      // A count badge hangs off the top of a dot whose radius is a function of
+      // freight and zoom, so its resting offset is read here rather than being
+      // fixed when the marker was made.
+      const base: [number, number] =
+        l.clearOf == null
+          ? l.base
+          // One pixel more than the air reserved around the disc above, so a
+          // badge does not read as colliding with its own dot and get bumped
+          // twenty pixels up the map for nothing.
+          : [l.base[0], -(pointRadius(l.clearOf, m.getZoom()) + 7)];
+
+      const slots = l.fixed
+        ? [[0, 0] as [number, number]]
+        : l.tight
+          ? COUNT_SLOTS
+          : LABEL_SLOTS;
+
       let placed = false;
-      for (const [dx, dy] of l.fixed ? [[0, 0] as [number, number]] : LABEL_SLOTS) {
-        const oy = l.base[1] + dy;
-        const cx = at.x + l.base[0] + dx;
+      for (const [dx, dy] of slots) {
+        const oy = base[1] + dy;
+        const cx = at.x + base[0] + dx;
         const cy = at.y + oy;
         const natural = l.anchor === "left" ? cx : cx - w / 2;
         const top = l.anchor === "bottom" ? cy - h : cy - h / 2;
@@ -468,7 +601,7 @@ export function LoadMap({
         let shift = 0;
         if (natural - LABEL_PAD < 2) shift = 2 - (natural - LABEL_PAD);
         else if (natural + w + LABEL_PAD > vw - 2) shift = vw - 2 - (natural + w + LABEL_PAD);
-        const ox = l.base[0] + dx + shift;
+        const ox = base[0] + dx + shift;
         const left = natural + shift;
         const box: Box = [left - LABEL_PAD, top - LABEL_PAD, left + w + LABEL_PAD, top + h + LABEL_PAD];
         if (!l.fixed) {
@@ -518,19 +651,41 @@ export function LoadMap({
         // The design calls for a pale basemap so the board's own marks are the
         // only saturated thing on screen. CARTO Positron is the usual way to
         // get that, but it now stamps "API KEY REQUIRED" across every
-        // unauthenticated tile, so the pale look is produced here instead:
-        // keyless OSM tiles desaturated and lightened by the raster paint
-        // properties, which touch this layer only.
+        // unauthenticated tile, so the pale look is produced here instead.
+        //
+        // The old recipe -- saturation -0.75 over nothing -- left a quarter of
+        // OSM's colour behind, and OSM's colour at this zoom is woodland
+        // green. The country came out olive, water came out the same olive one
+        // step darker, and the two things that actually matter at a national
+        // zoom (where the land stops and where the water starts) were the two
+        // things hardest to see.
+        //
+        // So: take 85% of the saturation out, remap the tile's range upward so
+        // nothing is darker than a third-grey, and blend the result into a
+        // cool paper (--map-paper) at 70%. The blend is what gives the country
+        // ONE cast instead of two.
+        //
+        // The 15% of saturation that stays is deliberate and was arrived at by
+        // sampling the painted canvas rather than by eye. Taken all the way to
+        // grey, OSM's woodland and OSM's water land on the same luminance --
+        // #add19e and #aad3df are 198 and 203 -- so a fully neutral map loses
+        // the coastline and keeps the forest, which is exactly backwards for a
+        // board about lanes. Measured as painted, land now sits at rgb(237,
+        // 238, 240), water at rgb(219, 223, 226) and woodland at rgb(218, 222,
+        // 222): water and woodland share a tone, but only water is blue, and
+        // that is the cue that survives. The tiles' black label text washes
+        // back to a quiet mid grey in the same move.
         layers: [
+          { id: "paper", type: "background", paint: { "background-color": colors.paper } },
           {
             id: "basemap",
             type: "raster",
             source: "basemap",
             paint: {
-              "raster-saturation": -0.75,
-              "raster-contrast": -0.12,
-              "raster-brightness-min": 0.12,
-              "raster-opacity": 0.9,
+              "raster-saturation": -0.85,
+              "raster-contrast": -0.06,
+              "raster-brightness-min": 0.34,
+              "raster-opacity": 0.7,
             },
           },
         ],
@@ -568,7 +723,11 @@ export function LoadMap({
       }
 
       instance.addSource("points", { type: "geojson", data: EMPTY, promoteId: "key" });
-      instance.addSource("road", { type: "geojson", data: EMPTY });
+      // `lineMetrics` is what makes `line-gradient` legal on these two: the
+      // lane fades in from the pickup and both darken toward the delivery, and
+      // a gradient needs to know how far along the line each pixel is.
+      instance.addSource("road", { type: "geojson", data: EMPTY, lineMetrics: true });
+      instance.addSource("lane", { type: "geojson", data: EMPTY, lineMetrics: true });
       instance.addSource("toward", { type: "geojson", data: EMPTY });
 
       // Toward-home corridor sits under everything: it is context, not content.
@@ -592,38 +751,189 @@ export function LoadMap({
         },
       });
 
-      // One circle layer, not two: an approximate point differs by being hollow,
-      // and keeping it in the same layer means the dim/highlight states have
-      // exactly one place to live.
+      // The lane the pointer is on, under the markers and over the basemap: it
+      // is an answer about ONE job, so it must not bury the inventory it was
+      // read out of. Two strokes -- a wide soft wash and a narrow bright one --
+      // because a single 3 px line on a pale map is a hair, and a 7 px one is
+      // a road route, which this is not.
+      instance.addLayer({
+        id: "lane-wash",
+        type: "line",
+        source: "lane",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-width": ["interpolate", ["linear"], ["zoom"], 3, 9, 8, 14],
+          "line-opacity": 0,
+          "line-opacity-transition": { duration: 180, delay: 0 },
+          "line-gradient": [
+            "interpolate",
+            ["linear"],
+            ["line-progress"],
+            0,
+            alpha(colors.routeStart, 0),
+            0.35,
+            alpha(colors.routeStart, 0.1),
+            1,
+            alpha(colors.routeStart, 0.16),
+          ],
+        },
+      });
+      // The stroke itself. It starts as nothing at the pickup and arrives
+      // solid at the delivery -- the taper and the direction in one gesture,
+      // which is what the old per-job arcs did with a gradient plus chevrons.
+      instance.addLayer({
+        id: "lane-line",
+        type: "line",
+        source: "lane",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-width": ["interpolate", ["linear"], ["zoom"], 3, 2.2, 8, 3.6],
+          "line-opacity": 0,
+          "line-opacity-transition": { duration: 180, delay: 0 },
+          "line-gradient": [
+            "interpolate",
+            ["linear"],
+            ["line-progress"],
+            0,
+            alpha(colors.routeStart, 0),
+            0.18,
+            alpha(colors.routeStart, 0.45),
+            0.62,
+            alpha(colors.routeStart, 0.95),
+            1,
+            alpha(colors.routeEnd, 1),
+          ],
+        },
+      });
+      // Where the lane lands. A 3 px ring is the whole of it: the far end is
+      // usually a place with no marker of its own (this is the other end of
+      // the board), and without a full stop the curve looks like it ran off.
+      instance.addLayer({
+        id: "lane-target",
+        type: "circle",
+        source: "lane",
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-radius": 4,
+          "circle-color": colors.routeEnd,
+          "circle-opacity": 0,
+          "circle-opacity-transition": { duration: 180, delay: 0 },
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": 0,
+          "circle-stroke-opacity-transition": { duration: 180, delay: 0 },
+        },
+      });
+
+      // The soft ground a marker sits on. Two jobs at once: it lifts the dot
+      // off the basemap the way a drop shadow lifts a card, and -- because its
+      // opacity is graded by freight -- it is the difference between a 200 cf
+      // dot and a 15,500 cf one at a glance, before the radius is even read.
+      instance.addLayer({
+        id: "points-lift",
+        type: "circle",
+        source: "points",
+        filter: ["!", ["get", "approx"]],
+        paint: {
+          "circle-radius": zoomRadius(4),
+          "circle-color": colors.pickup,
+          "circle-blur": 0.9,
+          "circle-opacity": [
+            "case",
+            ["boolean", ["feature-state", "dim"], false],
+            0.03,
+            [
+              "interpolate",
+              ["linear"],
+              ["sqrt", ["max", 0, ["coalesce", ["get", "cf"], 0]]],
+              0,
+              0.05,
+              40,
+              0.13,
+              110,
+              0.22,
+            ],
+          ],
+        },
+      });
+
+      // One circle layer, not two. An approximate point is the same mark, out
+      // of focus: no ring, lower opacity, and a soft edge.
+      //
+      // It used to be a hollow white disc inside a 2.5 px amber ring, and in
+      // Deliveries mode -- where most ends resolve only to a ZIP centroid or a
+      // state -- that turned the entire map into a field of orange rings
+      // shouting about our own uncertainty, louder than any of the freight.
+      // Keeping the amber as a thin ring on a blurred dot was tried next and
+      // was worse in a different way: a warm halo bleeding around a cool core
+      // reads as a rust stain, not as a caveat.
+      //
+      // So the amber is gone from the mark entirely and softness carries the
+      // meaning, which is the honest form of it -- this dot is literally not
+      // sharp because we do not know where it is. The WORD is not lost: it is
+      // on the hover card, in amber, at the moment somebody asks about that
+      // dot, and on the job's own card as a chip. A caveat every mark wears
+      // permanently is not a caveat, it is a texture.
       instance.addLayer({
         id: "points",
         type: "circle",
         source: "points",
         paint: {
-          "circle-color": ["case", ["get", "approx"], "#ffffff", colors.pickup],
+          "circle-color": colors.pickup,
           "circle-radius": zoomRadius(),
-          "circle-opacity": DIM_OPACITY,
-          "circle-stroke-width": ["case", ["get", "approx"], 2.5, 2],
-          "circle-stroke-color": ["case", ["get", "approx"], colors.approx, "#ffffff"],
-          "circle-stroke-opacity": DIM_OPACITY,
+          "circle-blur": APPROX_BLUR,
+          "circle-opacity": ["case", ["get", "approx"], presence(0.52), presence(0.94)],
+          // The zoom step has to be the OUTERMOST expression -- MapLibre will
+          // not take a ["zoom"] input nested inside a ["case"] -- so the
+          // approximate/exact choice is made once per stop instead.
+          "circle-stroke-width": [
+            "step",
+            ["zoom"],
+            ["case", ["get", "approx"], 0, 1.7],
+            5,
+            ["case", ["get", "approx"], 0, 2.1],
+          ],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": presence(1),
         },
       });
 
       // Feature-state cannot appear in a layer filter, so the highlight ring
-      // draws over every point and hides all but the active one in paint.
+      // draws over every point and hides all but the active one in paint. Two
+      // rings, not one: a white gap between the dot and the accent ring is
+      // what makes a selected marker read as lifted rather than as merely
+      // outlined, and on a busy northeast it is the only thing that survives a
+      // neighbour sitting four pixels away.
+      instance.addLayer({
+        id: "points-active-gap",
+        type: "circle",
+        source: "points",
+        paint: {
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-radius": zoomRadius(2.5),
+          "circle-stroke-width": 2.5,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": [
+            "case",
+            ["boolean", ["feature-state", "active"], false],
+            0.95,
+            0,
+          ],
+        },
+      });
       instance.addLayer({
         id: "points-active",
         type: "circle",
         source: "points",
         paint: {
           "circle-color": "rgba(0,0,0,0)",
-          "circle-radius": zoomRadius(3),
-          "circle-stroke-width": 2.5,
+          "circle-radius": zoomRadius(4.75),
+          "circle-stroke-width": 2,
           "circle-stroke-color": colors.accentHover,
           "circle-stroke-opacity": [
             "case",
             ["boolean", ["feature-state", "active"], false],
-            1,
+            0.9,
             0,
           ],
         },
@@ -631,24 +941,51 @@ export function LoadMap({
 
       // The selected job's road, drawn ON TOP of the points: it is the one
       // thing on screen that is about a decision rather than an inventory.
+      // A wide, very faint wash under the casing: without it the route is a
+      // hard white-edged ribbon dropped on the map, and with it the road has a
+      // shadow and belongs to the country it crosses.
+      instance.addLayer({
+        id: "route-glow",
+        type: "line",
+        source: "road",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": colors.ink, "line-width": 15, "line-opacity": 0.06, "line-blur": 6 },
+      });
       instance.addLayer({
         id: "route-casing",
         type: "line",
         source: "road",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.9 },
+        paint: { "line-color": "#ffffff", "line-width": 9.5, "line-opacity": 0.95 },
       });
       // Six pixels rather than four so the direction chevrons sit INSIDE the
       // stroke: a white arrow on a thin line bleeds into its own white casing
       // and the direction stops being readable, which is most of what the line
       // is for.
+      //
+      // Graded from --route-start to --route-end along its own length, the
+      // same gesture the hover lane makes, so opening a job reads as the lane
+      // firming up into a road rather than as a different kind of mark.
       instance.addLayer({
         id: "route-road",
         type: "line",
         source: "road",
         filter: ["get", "road"],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": colors.accent, "line-width": 6 },
+        paint: {
+          "line-width": 6,
+          "line-gradient": [
+            "interpolate",
+            ["linear"],
+            ["line-progress"],
+            0,
+            colors.routeStart,
+            0.7,
+            colors.accentHover,
+            1,
+            colors.routeEnd,
+          ],
+        },
       });
       // No road route to be had: a dashed chord, which reads as "we do not know
       // the way" rather than as a highway that does not exist.
@@ -775,12 +1112,10 @@ export function LoadMap({
     const m = map.current;
     if (!ready || !m || !m.getLayer("points")) return;
     const solid = end === "pickup" ? palette.current.pickup : palette.current.delivery;
-    m.setPaintProperty("points", "circle-color", [
-      "case",
-      ["get", "approx"],
-      "#ffffff",
-      solid,
-    ]);
+    // One colour for every marker, guessed or not: the approximate ones are
+    // told apart by being soft, not by being a different thing.
+    m.setPaintProperty("points", "circle-color", solid);
+    m.setPaintProperty("points-lift", "circle-color", solid);
   }, [end, ready]);
 
   // --- refit when the filter set changes -----------------------------------
@@ -860,26 +1195,198 @@ export function LoadMap({
     }
   }, [hoveredId, hoverKey, selectedId, built, ready]);
 
-  // --- hover popup ---------------------------------------------------------
+  /* ------------------------------ the hovered lane -------------------------
+   *
+   * The arc is back, and it is back for the opposite reason to the one that
+   * removed it: the curve was the best-looking thing this board ever drew, and
+   * what was wrong was ninety-eight of them at once. So exactly one is on
+   * screen at a time -- the lane under the pointer, from a card or from a dot.
+   *
+   * A dot, though, is a PLACE, and a place holds up to twenty-five jobs going
+   * to eleven different towns. Drawing all eleven is the rejected map in
+   * miniature, so a multi-job marker draws ONE curve: the heaviest lane out of
+   * that place, destinations grouped by coordinate exactly as the markers
+   * themselves are, and the hover card says in words that it is one of five
+   * rather than letting the single curve imply it is the whole story. Two
+   * alternatives were tried and dropped -- a fan capped at three (still a fan,
+   * and the cap is arbitrary), and a single curve to the group's weighted mean
+   * destination (a place nothing is actually going to, which is worse than
+   * showing less).
+   */
+  const hovered = useMemo(() => {
+    const key = hoverKey ?? (hoveredId != null ? built.keyByJob.get(hoveredId) : undefined);
+    const group = key ? built.byKey.get(key) : undefined;
+    if (!group) return null;
+    // A card hover names one job; a marker hover names a place, and only when
+    // that place holds exactly one job does it name a job too.
+    const single =
+      hoveredId != null && group.ids.includes(hoveredId)
+        ? (jobs.find((j) => j.id === hoveredId) ?? null)
+        : group.ids.length === 1
+          ? (jobs.find((j) => j.id === group.ids[0]) ?? null)
+          : null;
+    const lane: Lane | null = single
+      ? (() => {
+          const from = endPoint(single, end);
+          const to = endPoint(single, end === "pickup" ? "delivery" : "pickup");
+          if (!from || !to) return null;
+          return {
+            from,
+            to,
+            label: endLabelText(single, end === "pickup" ? "delivery" : "pickup"),
+            cf: single.cubic_feet ?? 0,
+            jobs: 1,
+            destinations: 1,
+          };
+        })()
+      : dominantLane(group, jobs, end);
+    return { key: group.key, group, single, lane };
+  }, [hoverKey, hoveredId, jobs, built, end]);
+
+  /**
+   * What the lane layers are drawing, which trails the pointer by a beat.
+   *
+   * Arriving is immediate; leaving waits. Without the wait, running the
+   * pointer down a list of forty cards fires forty hovers and forty
+   * un-hovers, and every gap between two cards -- the 8 px of column padding
+   * -- blanks the map. The delay is shorter than a deliberate look away and
+   * longer than any gap in a list, so the lane only ever leaves on purpose.
+   */
+  const [lane, setLane] = useState<{ key: string; lane: Lane } | null>(null);
+  const laneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The lane's identity, not its object: the memo above rebuilds on every
+  // `jobs` change, and re-setting identical state would restart the fade.
+  const wantLane =
+    hovered?.lane && hovered.key !== (selectedId != null ? built.keyByJob.get(selectedId) : null)
+      ? { key: hovered.key + "|" + (hovered.single?.id ?? "group"), lane: hovered.lane }
+      : null;
+  const wantKey = wantLane?.key ?? null;
+
+  useEffect(() => {
+    if (laneTimer.current) {
+      clearTimeout(laneTimer.current);
+      laneTimer.current = null;
+    }
+    if (wantLane) {
+      setLane(wantLane);
+      return;
+    }
+    laneTimer.current = setTimeout(() => setLane(null), 170);
+    return () => {
+      if (laneTimer.current) clearTimeout(laneTimer.current);
+      laneTimer.current = null;
+    };
+    // Keyed on the identity so a re-render with the same hover is a no-op.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantKey]);
+
+  // --- draw it -------------------------------------------------------------
+  useEffect(() => {
+    const m = map.current;
+    const source = m?.getSource("lane") as GeoJSONSource | undefined;
+    if (!ready || !m || !source || !m.getLayer("lane-line")) return;
+
+    const show = (on: boolean) => {
+      m.setPaintProperty("lane-wash", "line-opacity", on ? 1 : 0);
+      m.setPaintProperty("lane-line", "line-opacity", on ? 1 : 0);
+      m.setPaintProperty("lane-target", "circle-opacity", on ? 0.9 : 0);
+      m.setPaintProperty("lane-target", "circle-stroke-opacity", on ? 0.95 : 0);
+    };
+
+    if (!lane) {
+      show(false);
+      // Emptying the source at once would cut the fade off at the knees.
+      const t = setTimeout(() => source.setData(EMPTY), 240);
+      return () => clearTimeout(t);
+    }
+
+    // Always drawn pickup -> delivery, whichever end the map is plotting, so
+    // the taper and the darkening mean the same thing in both modes: this is
+    // the way the freight travels.
+    const a = end === "pickup" ? lane.lane.from : lane.lane.to;
+    const b = end === "pickup" ? lane.lane.to : lane.lane.from;
+    source.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "LineString", coordinates: lanePoints(a, b) },
+        },
+        // A full stop where the freight lands. The delivery end usually has no
+        // marker of its own -- it is the other end of the board -- and without
+        // it the curve looks like it ran off the edge.
+        {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Point", coordinates: [b.lng, b.lat] },
+        },
+      ],
+    });
+    show(true);
+  }, [lane, end, ready]);
+
+  // --- hover card ----------------------------------------------------------
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
     popup.current?.remove();
     popup.current = null;
+    if (!hovered) return;
+    const { group, single } = hovered;
 
-    const key = hoverKey ?? (hoveredId != null ? built.keyByJob.get(hoveredId) : undefined);
-    const group = key ? built.byKey.get(key) : undefined;
-    if (!group) return;
+    // Two lines, because the map is now saying two things: what is standing
+    // here, and where the curve it just drew is going.
+    const box = document.createElement("div");
+    box.className = "map-hover";
+    const title = document.createElement("div");
+    title.className = "t";
+    const caption = document.createElement("div");
+    caption.className = "s";
 
-    // One job gets its own line -- lane, size, price, readiness -- because that
-    // is what the viewer is about to decide on. A group gets the tally.
-    const single = group.ids.length === 1 ? jobs.find((j) => j.id === group.ids[0]) : null;
+    if (single) {
+      // `jobSummary` leads with "Kearny, NJ → FL 34957" and joins the rest
+      // with the same separator; a place label never contains one, so the
+      // first piece is the lane and everything after it is the detail.
+      const line = jobSummary(single);
+      const cut = line.indexOf(" · ");
+      title.textContent = cut < 0 ? line : line.slice(0, cut);
+      caption.textContent = cut < 0 ? "" : line.slice(cut + 3);
+    } else {
+      title.textContent = groupSummary(group);
+      const l = hovered.lane;
+      caption.textContent = l
+        ? l.destinations > 1
+          ? `Biggest of ${l.destinations} lanes → ${l.label}${l.cf > 0 ? ` · ${formatCf(l.cf)}` : ""}`
+          : `All of it → ${l.label}`
+        : "";
+    }
 
-    popup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14 })
+    box.append(title);
+    if (caption.textContent) box.append(caption);
+    // The soft dots do not wear their caveat; this is where it is worn.
+    if (group.approx) {
+      const q = document.createElement("div");
+      q.className = "q";
+      q.textContent =
+        group.ids.length === 1
+          ? "Approximate location — no street address posted"
+          : "Approximate locations — no street address posted";
+      box.append(q);
+    }
+
+    popup.current = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      // Clear of the dot rather than 14 px clear of its centre: a 15,500 cf
+      // marker is twenty pixels of radius, and a card pinned inside it covers
+      // the mark the card is about.
+      offset: Math.round(pointRadius(group.cf, m.getZoom())) + 9,
+    })
       .setLngLat([group.lng, group.lat])
-      .setText(single ? jobSummary(single) : groupSummary(group))
+      .setDOMContent(box)
       .addTo(m);
-  }, [hoverKey, hoveredId, jobs, built, ready]);
+  }, [hovered, ready]);
 
   // --- the selected job's road --------------------------------------------
   // One request per job, answered from `loads.road_path` after the first, so
@@ -1076,8 +1583,28 @@ export function LoadMap({
     for (const group of built.groups) {
       if (group.ids.length < 2) continue;
       const el = document.createElement("div");
-      el.className = "map-count nums";
-      el.textContent = detailed ? `${group.label} · ${group.ids.length}` : String(group.ids.length);
+      if (detailed) {
+        // Zoomed in the badge is carrying the place's NAME as well, so it is
+        // no longer a badge -- it joins the pill family, with the count in the
+        // dot's own colour so the two halves stay legible as two facts.
+        el.className = "map-pill map-place nums";
+        const k = document.createElement("span");
+        k.className = "k";
+        k.textContent = group.label;
+        const n = document.createElement("span");
+        n.className = "n";
+        n.textContent = String(group.ids.length);
+        el.append(k, n);
+      } else {
+        // Zoomed out it is a count and nothing else, so it is drawn as one:
+        // small, round, and in the colour of the dot it belongs to. As another
+        // white lozenge it competed with the state totals at the same weight,
+        // and two different kinds of fact looked like one kind.
+        el.className = "map-count nums";
+        el.textContent = String(group.ids.length);
+      }
+      el.dataset.end = end;
+      if (group.approx) el.dataset.approx = "";
       el.title = groupSummary(group);
       const marker = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -12] })
         .setLngLat([group.lng, group.lat])
@@ -1094,11 +1621,19 @@ export function LoadMap({
         lat: group.lat,
         anchor: "bottom",
         base: [0, -12],
+        // The dot this badge belongs to is between 4 and 24 px of radius
+        // depending on zoom and freight; a fixed 12 px lift meant every marker
+        // over 12 px swallowed its own count. The placer re-reads the radius
+        // each frame instead.
+        clearOf: group.cf,
+        // Only the bare numeral is held on a short leash; once it has a box
+        // and a place name it is a caption and can be nudged like one.
+        tight: !detailed,
         weight: 1_000_000 + group.cf,
       });
     }
     setLabels("count", next);
-  }, [built, detailed, ready, setLabels]);
+  }, [built, detailed, end, ready, setLabels]);
 
   // --- state-total pills ---------------------------------------------------
   useEffect(() => {
@@ -1132,11 +1667,21 @@ export function LoadMap({
       el.type = "button";
       el.className = "map-pill nums";
       const full = `${st} · ${t.jobs} job${t.jobs === 1 ? "" : "s"} · ${t.cf.toLocaleString("en-US")} cf`;
+      // Two spans, not one string: the state is the thing and the totals are
+      // its measurement, and setting them in one weight made every pill a wall
+      // of equal-value text. The separator between them is the gap.
+      const k = document.createElement("span");
+      k.className = "k";
+      k.textContent = st;
+      const v = document.createElement("span");
+      v.className = "v";
       // Zoomed all the way out the count is the least of the three: the dots
       // already show where the freight is and the badges already count the
       // piles, so the pill spends its width on the state and the volume.
-      el.textContent =
-        shortPills ? `${st} · ${t.cf.toLocaleString("en-US")} cf` : full;
+      v.textContent = shortPills
+        ? `${t.cf.toLocaleString("en-US")} cf`
+        : `${t.jobs} job${t.jobs === 1 ? "" : "s"} · ${t.cf.toLocaleString("en-US")} cf`;
+      el.append(k, v);
       el.title = `${full} — click to filter ${noun} to ${st}`;
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1314,6 +1859,11 @@ export function LoadMap({
         <b>
           <i className="approx" /> approximate
         </b>
+        {/* The hovered lane deliberately gets no entry. It is drawn only while
+            the pointer is on a job, it arrives with a card naming both its
+            ends, and a legend row that appeared and vanished on every hover
+            would resize this panel -- which the label placer treats as
+            occupied ground -- and set every pill on the map jumping. */}
         {selectedId != null && (
           <b>
             <i className="road" /> road route
@@ -1333,6 +1883,10 @@ function endMarker(
 ): { marker: maplibregl.Marker; el: HTMLElement } {
   const el = document.createElement("div");
   el.className = "map-pill nums";
+  // The one label on this map allowed to be opaque: while a job is open these
+  // two are what the map is asserting, and a veil over a road route reads as
+  // an accident.
+  el.dataset.endLabel = "";
   el.textContent = text;
   const marker = new maplibregl.Marker({ element: el, anchor: "left", offset: [10, 0] })
     .setLngLat(at)
