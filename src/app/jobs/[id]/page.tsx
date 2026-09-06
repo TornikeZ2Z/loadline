@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { jobIdFrom } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { demoModeEnabled, ensureDemoData } from "@/lib/demo/accounts";
 import { AppShell } from "@/components/AppShell";
@@ -29,8 +30,12 @@ export default async function JobPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
-  const jobId = Number(id);
-  if (!Number.isFinite(jobId)) notFound();
+  // The same reading of a path segment the API routes use: digits only, inside
+  // bigint range. `Number.isFinite` alone accepts "1.5", "0x10" and a 20-digit
+  // string, all of which reach the database and come back as a 500 rather than
+  // the 404 a made-up URL deserves.
+  const jobId = jobIdFrom(id);
+  if (jobId == null) notFound();
 
   const user = await getCurrentUser();
   if (demoModeEnabled()) await ensureDemoData();
