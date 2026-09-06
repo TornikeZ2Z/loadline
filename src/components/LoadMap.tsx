@@ -354,6 +354,8 @@ export function LoadMap({
   const popup = useRef<maplibregl.Popup | null>(null);
   const dimmed = useRef<number[]>([]);
   const priorBounds = useRef<maplibregl.LngLatBounds | null>(null);
+  /** The `fitKey` the current viewport was fitted for; null until the first fit. */
+  const lastFit = useRef<string | null>(null);
 
   const built = useMemo(() => buildFeatures(jobs), [jobs]);
 
@@ -626,6 +628,18 @@ export function LoadMap({
 
       instance.on("zoom", () => setZoom(instance.getZoom()));
 
+      // Re-measure whenever the routes themselves become queryable, and again
+      // whenever the map settles. `moveend` alone is not enough: the refit that
+      // follows a search fires it before the new features have been indexed, so
+      // it writes a 0 that nothing takes back. `idle` alone is not enough
+      // either -- MapLibre only calls the map loaded once every basemap raster
+      // tile in view has arrived, so on a slow tile host that 0 stays on screen
+      // over routes that are plainly drawn.
+      instance.on("sourcedata", (e) => {
+        if (e.sourceId === "jobs" && e.isSourceLoaded) measureInView();
+      });
+      instance.on("idle", measureInView);
+
       let boundsTimer: ReturnType<typeof setTimeout> | null = null;
       instance.on("moveend", () => {
         measureInView();
@@ -665,18 +679,25 @@ export function LoadMap({
     if (!ready || !m) return;
     (m.getSource("jobs") as GeoJSONSource | undefined)?.setData(built.routes);
     (m.getSource("ends") as GeoJSONSource | undefined)?.setData(built.ends);
-    // queryRenderedFeatures only sees what has actually been drawn, so measure
-    // on the next idle rather than immediately after setData.
-    m.once("idle", measureInView);
-  }, [built, ready, measureInView]);
+  }, [built, ready]);
 
   // --- refit when the filter set changes -----------------------------------
+  // Keyed on the DATA, not on `fitKey`: the key changes the instant a filter
+  // does, which is a whole round trip before that search's rows land, so
+  // fitting when the key changes frames the previous result set and the map
+  // ends up permanently one search behind. Fitting when the rows arrive, once
+  // per key, frames what is actually on screen.
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
+    if (fitKey === lastFit.current) return;
     const padding = { top: 40, right: 40, bottom: 40 + bottomPadding, left: 40 };
 
-    if (viewer && home) {
+    // The viewer/home box answers "between me and home", which is the question
+    // only while the corridor is on. With the toggle off the map has to frame
+    // the search, or an explicit pickup/delivery filter draws nothing on it.
+    if (towardHome && viewer && home) {
+      lastFit.current = fitKey;
       m.fitBounds(
         [
           [Math.min(viewer.lng, home.lng), Math.min(viewer.lat, home.lat)],
@@ -690,8 +711,13 @@ export function LoadMap({
     const all = built.routes.features.flatMap((f) => f.geometry.coordinates as [number, number][]);
     const box = bboxOf(all);
     m.fitBounds(box ?? CONUS, { padding, duration: 0 });
+    // Record the key only once there is something real to frame: before the
+    // first response lands `built` is empty because nothing has been fetched
+    // yet rather than because the search found nothing, and consuming the key
+    // there would leave the first result set unframed.
+    if (box || lastFit.current !== null) lastFit.current = fitKey;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey, ready]);
+  }, [built, ready]);
 
   // --- hover: highlight one route, dim the rest ----------------------------
   useEffect(() => {
