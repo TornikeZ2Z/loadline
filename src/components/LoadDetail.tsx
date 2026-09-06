@@ -205,9 +205,29 @@ export function LoadDetail({
   const revealedLines = revealedBody?.split("\n") ?? null;
   const sourceBody = revealedBody ?? data?.source?.body ?? null;
 
+  /**
+   * The gate. On a phone it is NOT rendered here — see the bar below the
+   * scroller — so this is the desktop copy and the mobile one is the same
+   * element in a different place.
+   */
+  const gate = (
+    <ContactGate
+      loadId={row.id}
+      contactName={row.contact_name}
+      hasPhone={row.has_phone}
+      groupName={row.group_name}
+      contactMode={row.contact_mode}
+      signedIn={signedIn}
+      demoMode={demoMode}
+      autoOpen={autoContact}
+      variant={mobile ? "sticky" : "card"}
+      onRevealed={setRevealed}
+    />
+  );
+
   return (
     <div className="drawer-enter flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {/* 1 — header.
             Sticky, because this drawer is ~1,200 px long and the lane is the
             one thing you need to still know when you are eight sections down
@@ -376,42 +396,18 @@ export function LoadDetail({
           </section>
         )}
 
-        {/* 6 — the only place a phone number reaches the page */}
-        {/* On a phone this is the sticky bar at the bottom of the sheet (C
-            §1.3): the sheet's half snap shows ~390 px of a ~1,200 px drawer,
-            so a contact block that scrolled with the rest would be two screens
-            below the tap that asked for it. */}
-        <section
-          ref={contactSection}
-          className="mt-[var(--sp-5)]"
-          style={
-            mobile
-              ? {
-                  position: "sticky",
-                  bottom: 0,
-                  marginLeft: "calc(var(--sp-4) * -1)",
-                  marginRight: "calc(var(--sp-4) * -1)",
-                  padding: "var(--sp-3) var(--sp-4)",
-                  background: "var(--surface-glass)",
-                  backdropFilter: "blur(6px)",
-                  borderTop: "1px solid var(--border)",
-                }
-              : undefined
-          }
-        >
-          <ContactGate
-            loadId={row.id}
-            contactName={row.contact_name}
-            hasPhone={row.has_phone}
-            groupName={row.group_name}
-            contactMode={row.contact_mode}
-            signedIn={signedIn}
-            demoMode={demoMode}
-            autoOpen={autoContact}
-            variant={mobile ? "sticky" : "card"}
-            onRevealed={setRevealed}
-          />
-        </section>
+        {/* 6 — the only place a phone number reaches the page.
+            On a phone it is not here at all: it is the bar under this scroller,
+            because `position: sticky` inside a 384 px scrollport could not hold
+            it once the sign-in step doubled its height, and the bottom 13 px of
+            it -- the Cancel button -- was clipped. A flex row outside the
+            scroller cannot be clipped by definition, and it is on screen from
+            the moment the job opens rather than six sections down. */}
+        {!mobile && (
+          <section ref={contactSection} className="mt-[var(--sp-5)]">
+            {gate}
+          </section>
+        )}
 
         {/* 7 — the post it came from */}
         {data?.source && (
@@ -513,6 +509,18 @@ export function LoadDetail({
         )}
         </div>
       </div>
+
+      {/* The phone's contact bar: outside the scroller, so it is always the
+          bottom of the sheet and never scrolls away or gets cut off. */}
+      {mobile && (
+        <section
+          ref={contactSection}
+          className="shrink-0 border-t border-border px-[var(--sp-4)] py-[var(--sp-3)]"
+          style={{ background: "var(--surface)" }}
+        >
+          {gate}
+        </section>
+      )}
     </div>
   );
 }
