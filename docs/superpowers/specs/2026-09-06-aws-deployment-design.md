@@ -1,7 +1,7 @@
 # loadline on AWS — deployment design
 
 **Date:** 2026-09-06
-**Status:** approved, not yet implemented
+**Status:** implemented 2026-09-06 — live at https://loadline.ziptozip.app
 **Target:** `https://loadline.ziptozip.app` — a public demo/showcase deployment
 
 ---
@@ -159,13 +159,13 @@ All in `loadline/infra/`, one environment, one state.
 
 | Layer | Resource |
 |---|---|
-| Registry | `aws_ecr_repository.loadline` (`loadline`), lifecycle policy expiring untagged after 14 days |
+| Registry | `aws_ecr_repository.app` (`loadline`), lifecycle policy expiring untagged after 14 days |
 | Network | `aws_security_group.tasks` (3000 ← ALB SG), `aws_security_group.rds` (5432 ← tasks SG) |
-| Data | `aws_db_subnet_group`, `aws_db_instance.loadline` — t4g.micro, PG 16, 20 GB gp3, `max_allocated_storage` 50, `manage_master_user_password`, `backup_retention_period` 1, `deletion_protection` false, `skip_final_snapshot` true |
+| Data | `aws_db_subnet_group`, `aws_db_instance.app` — t4g.micro, PG 16, 20 GB gp3, `max_allocated_storage` 50, `manage_master_user_password`, `backup_retention_period` 1, `deletion_protection` false, `skip_final_snapshot` true |
 | Secrets | `loadline/DATABASE_URL`, `loadline/SESSION_SECRET`, `loadline/CRON_SECRET` |
 | Edge | `aws_acm_certificate` + validation records + `aws_acm_certificate_validation`; `aws_lb_listener_certificate`; `aws_route53_record` A-alias; `aws_lb_target_group` (:3000); `aws_lb_listener_rule` priority **20** |
-| Compute | `aws_ecs_cluster.loadline`; `aws_cloudwatch_log_group` `/ecs/loadline` (14-day retention); `aws_ecs_task_definition` Fargate 256 CPU / 512 MB **ARM64/Graviton**; execution + task roles; `aws_ecs_service` desired_count 1, public subnets, `enable_execute_command` true |
-| CI | `aws_iam_role.loadline_deploy` + inline policy |
+| Compute | `aws_ecs_cluster.app`; `aws_cloudwatch_log_group` `/ecs/loadline` (14-day retention); `aws_ecs_task_definition` Fargate 256 CPU / 512 MB **ARM64/Graviton**; execution + task roles; `aws_ecs_service` desired_count 1, public subnets, `enable_execute_command` true |
+| CI | `aws_iam_role.deploy` + inline policy |
 
 ### Listener rule priority
 

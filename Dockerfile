@@ -3,7 +3,7 @@
 # Plain `next build` + `next start`. NOT output: "standalone" — see
 # docs/superpowers/plans/2026-09-06-aws-deployment.md Task 2 for why.
 #
-# Build (for ECR, from any machine):
+# Build (for ECR, on an arm64 machine — the image MUST be linux/arm64):
 #   docker build -t loadline .          # native arm64; see infra/README.md
 
 FROM node:22-slim AS deps

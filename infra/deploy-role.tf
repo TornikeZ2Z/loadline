@@ -18,11 +18,16 @@ data "aws_iam_policy_document" "deploy_assume_role" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # The trust boundary. Only workflows in this repository may assume it.
+    # The trust boundary. Only workflows in this repository, running on
+    # main, may assume it. workflow_dispatch on main still works — a
+    # manually-triggered run's token still carries ref:refs/heads/main.
+    # workflow_dispatch from a side branch deliberately stops working: the
+    # workflow force-deploys :latest regardless of ref, so dispatching from
+    # a branch would silently deploy main's image under that branch's name.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:*"]
+      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
     }
   }
 }

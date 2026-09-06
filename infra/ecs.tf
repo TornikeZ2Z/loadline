@@ -111,4 +111,14 @@ resource "aws_ecs_service" "app" {
   lifecycle {
     ignore_changes = [desired_count]
   }
+
+  # :latest + force-new-deployment has no automatic rollback on its own. The
+  # default minimumHealthyPercent of 100 already prevents an outage — a
+  # crash-looping image never displaces the healthy task — but without this
+  # the deploy simply hangs until `wait services-stable` times out. This turns
+  # that hang into an automatic revert to the last good task set.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 }

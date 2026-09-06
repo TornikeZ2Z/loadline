@@ -18,8 +18,8 @@ AWS_PROFILE=ziptozip tofu plan
 
 ## What this stack does and does not own
 
-It owns 27 declared resources (39 addresses in state, counting `for_each`
-expansions and policy attachments):
+It owns 27 declared resources (39 addresses in state — the 27 resources plus 12
+read-only data sources):
 
 | | |
 |---|---|
