@@ -337,8 +337,52 @@ targets the wrong client's infrastructure.
 
 ---
 
-## 9. Open questions
+## 9. Open questions and follow-ups
 
 None blocking. Deferred by choice: the `/api/cron/*` schedule, HERE geocoding,
 WhatsApp Cloud API wiring, and PostGIS — each is additive and none changes the
 shape above.
+
+### Hardening backlog
+
+Triaged at the final whole-branch review (2026-09-06): none of these block merge,
+and all are demo-appropriate as they stand. Ordered by what to do first if loadline
+stops being a demo.
+
+1. **RDS CA verification.** `DATABASE_URL` carries `?sslmode=no-verify` — the
+   connection is TLS-encrypted but RDS's CA is not verified. Doing it properly means
+   shipping the RDS CA bundle into the image, setting `NODE_EXTRA_CA_CERTS`, and
+   moving to `sslmode=verify-full`. Note that `sslmode=require` is NOT the fix: in
+   `pg-connection-string` 2.14.0 it maps to full CA verification and fails the same
+   way. That mapping is also deprecated — it changes in pg v9, so revisit on upgrade.
+
+2. **Tasks security-group egress** is `0.0.0.0/0` on all protocols. This cannot
+   simply be narrowed: the tasks run in public subnets and the VPC has no NAT
+   gateway, so ECR, Secrets Manager, CloudWatch and SSM are all reached over the
+   internet. Tightening it requires VPC endpoints first, not a rule edit.
+
+3. **Task-execution role uses `AmazonECSTaskExecutionRolePolicy`**, which grants
+   `ecr:BatchGetImage` / `GetDownloadUrlForLayer` on `*` — so loadline's execution
+   role can pull ziptozip's container images — and `logs:*` on `*`. Replacing it with
+   an inline policy scoped to `aws_ecr_repository.app.arn` and
+   `aws_cloudwatch_log_group.app.arn` would make the least-privilege story literally
+   true, as the secrets statement beside it already is.
+
+4. **ECS Exec has no audit trail.** The cluster sets no
+   `execute_command_configuration`, so exec sessions are not logged to CloudWatch or
+   S3. Fine here; matters the moment this pattern is copied somewhere auditable.
+
+5. **`aws_iam_role_policy.deploy`'s sid `EcrPushToLoadlineRepoOnly`** also grants two
+   pull actions. The resource scoping is what enforces; only the sid overstates.
+
+6. **`Dockerfile` startup goes through `npx`**, and the runner's `useradd` creates no
+   home directory, so npm cannot write `~/.npm/_logs` and crash logs are lost.
+   `CMD ["./node_modules/.bin/next", "start", …]` removes npm from the path entirely.
+
+7. **`aws_route53_record.cert_validation` sets `allow_overwrite = true`** — the only
+   write in this stack that can replace an existing record in the shared production
+   zone rather than failing. The record name is ACM-generated and prod cannot own it,
+   so the risk is theoretical, but it deserves a justifying comment.
+
+8. **RDS `apply_immediately = true`** applies changes outside a maintenance window.
+   Correct for a demo with no traffic to disrupt; wrong once there is.
