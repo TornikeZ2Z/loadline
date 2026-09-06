@@ -105,6 +105,12 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
 
   const [searchAsMove, setSearchAsMove] = useState(false);
   const [bounds, setBounds] = useState<BoundsInput | null>(null);
+  /**
+   * A marker holding several jobs was clicked. It narrows the LIST to that
+   * place -- not the search and not the map, which keep their context, because
+   * "what is at this warehouse" is a question about the list in front of you.
+   */
+  const [place, setPlace] = useState<{ ids: number[]; label: string } | null>(null);
 
   const [mobile, setMobile] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -256,10 +262,18 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     [selectedId],
   );
 
+  // The pill counts whichever end the map is plotting, so it has to filter the
+  // matching end: clicking "FL · 9 jobs" over Florida deliveries and getting
+  // Florida pickups would be a different search than the one shown.
   const onStateClick = useCallback((st: string) => {
-    setFilters((f) =>
-      f.pickupState.includes(st) ? f : { ...f, pickupState: [...f.pickupState, st] },
-    );
+    setFilters((f) => {
+      const key = f.mapEnd === "pickup" ? "pickupState" : "deliveryState";
+      return f[key].includes(st) ? f : { ...f, [key]: [...f[key], st] };
+    });
+  }, []);
+
+  const onGroupClick = useCallback((ids: number[], label: string) => {
+    setPlace({ ids, label });
   }, []);
 
   const dismissNudge = () => {
@@ -271,8 +285,19 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     }
   };
 
+  // A new search is a new set of places, so a pinned one cannot survive it.
+  useEffect(() => {
+    setPlace(null);
+  }, [visibleQuery]);
+
   const ordered = useMemo(() => partitionUnverified(rows), [rows]);
-  const shown = summary ?? summarize(rows);
+  // The map always draws the whole result; only the list narrows to one place,
+  // so the surrounding inventory stays visible while you read what is at it.
+  const listed = useMemo(
+    () => (place ? ordered.filter((j) => place.ids.includes(j.id)) : ordered),
+    [ordered, place],
+  );
+  const shown = place ? summarize(listed) : (summary ?? summarize(rows));
   const now = useMemo(() => new Date(), [rows]);
   const selectedJob = ordered.find((j) => j.id === selectedId) ?? null;
   const suggestions = emptyStateSuggestions(filters);
@@ -299,6 +324,23 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
 
   const listBody = (
     <>
+      {place && (
+        <div className="mb-[var(--sp-2)] flex items-center gap-[var(--sp-2)]">
+          <button
+            type="button"
+            className="chip chip-accent"
+            style={{ cursor: "pointer" }}
+            title="Show every job in this search again"
+            onClick={() => setPlace(null)}
+          >
+            {place.label} · {place.ids.length} job{place.ids.length === 1 ? "" : "s"}
+            <span aria-hidden>✕</span>
+          </button>
+          <span className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+            of {(summary ?? summarize(rows)).count} on the map
+          </span>
+        </div>
+      )}
       {notice && (
         <p
           className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
@@ -330,7 +372,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         </EmptyState>
       ) : (
         <JobList
-          jobs={ordered}
+          jobs={listed}
           selectedId={selectedId}
           hoveredId={hoveredId}
           now={now}
@@ -363,11 +405,13 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     <div className="relative h-full w-full">
       <LoadMap
         jobs={ordered}
+        end={filters.mapEnd}
         selectedId={selectedId}
         hoveredId={hoveredId}
         onSelect={selectFromMap}
         onHover={setHoveredId}
         onStateClick={onStateClick}
+        onGroupClick={onGroupClick}
         searchAsMove={searchAsMove}
         onSearchAsMoveChange={setSearchAsMove}
         onBoundsChange={setBounds}

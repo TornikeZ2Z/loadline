@@ -1,23 +1,40 @@
 "use client";
 
 /**
- * The board's map. Every job is a route, and nothing else is drawn.
+ * The board's map: one point per PLACE, and one road route at a time.
  *
- * A pin says "a job exists here". A mover already knows jobs exist near them --
- * what they need is direction: is anyone leaving my area for the state I want
- * to be in tonight? So each job is an arc from pickup to delivery with
- * direction chevrons, thickened by cubic feet so a 2,000 cf load is visibly
- * worth more than a 200 cf one, and fanned onto one of five deterministic sides
- * so eight jobs out of the same warehouse stay legible instead of collapsing
- * into a single stroke.
+ * This replaces an arc-per-job map. Arcs were right when the board held a dozen
+ * jobs and wrong the moment it held a hundred: real posts are batch
+ * inventories, one message is twenty-five jobs out of one warehouse, and a
+ * hundred overlapping curves is not a picture of anything. So the default view
+ * answers the question a mover with an empty truck actually asks -- "what is
+ * standing near me" -- and the route, which is still the point of the product,
+ * is drawn for the ONE job they open.
  *
  * Consequences worth knowing:
- *  - There is no clustering. Lines cannot be clustered without destroying the
- *    one thing they carry. Low-zoom legibility comes from the state-total
- *    pills, the zoom-interpolated widths and the fan-out instead.
- *  - A destination the geocoder could not pin down still draws, dashed and
- *    amber, to its state centroid. Dropping it would hide real inventory; a
- *    solid line to a centroid would be a lie.
+ *
+ *  - **Which end is a choice, not a guess.** `Pickups` / `Deliveries` lives in
+ *    the filter bar and in the URL (`map=delivery`). Everything downstream --
+ *    the plotted point, the state-total pills, the in-view totals -- reads the
+ *    selected end, so the map never mixes the two.
+ *
+ *  - **Aggregation is the whole point.** Jobs are grouped by their rounded
+ *    coordinate before anything is drawn. Twenty-five dots stacked on one
+ *    warehouse would be the same illegible pile in a different shape; one
+ *    marker reading "Rochester, MN · 11 jobs · 6,006 cf" is the answer. Size
+ *    comes from the group's total cubic feet, not from how many rows it holds:
+ *    a driver is filling a truck, not counting tickets.
+ *
+ *  - **A guessed coordinate looks guessed.** A job whose end resolved only to a
+ *    state centroid is drawn as a hollow amber ring and says so on hover.
+ *    Dropping it would hide real inventory; drawing it solid would be a lie.
+ *
+ *  - **The selected route is the real road**, from HERE's truck router, fetched
+ *    from `/api/loads/:id/route` and cached on the row. One routing call per
+ *    job, ever -- never for a list, a hover, or this points view. With no key
+ *    and nothing cached, selection falls back to a dashed straight line and the
+ *    map says the road route is unavailable rather than drawing nothing.
+ *
  *  - Colours are read once from the CSS custom properties through
  *    getComputedStyle: MapLibre paint expressions cannot take var(), and this
  *    is the only file in the components tree allowed a hex fallback.
@@ -30,22 +47,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Feature, FeatureCollection, LineString, Point as GeoPoint } from "geojson";
-import type { BoundsInput, LoadStatus, LoadSummary } from "@/lib/loads/types";
+import type { Feature, FeatureCollection, Point as GeoPoint } from "geojson";
+import type { BoundsInput, LoadSummary } from "@/lib/loads/types";
 import type { PublicLoadRow } from "@/lib/loads/publicView";
 import type { StoredLocation } from "@/lib/location";
 import { STATE_BY_ABBR } from "@/lib/geo/states";
-import { arcPoints } from "@/lib/geo/arc";
-import { formatCf, jobSummary, truckLine } from "@/lib/loads/present";
+import { api } from "@/lib/basePath";
+import { formatCf, jobSummary, placeLabel, truckLine } from "@/lib/loads/present";
+import type { MapEnd } from "./FilterBar";
 
 export interface LoadMapProps {
   jobs: PublicLoadRow[];
+  /** Which end of every lane is plotted. Also drives the state pills. */
+  end: MapEnd;
   selectedId: number | null;
   hoveredId: number | null;
   onSelect(id: number | null): void;
   onHover(id: number | null): void;
-  /** A state-total pill was clicked. */
+  /** A state-total pill was clicked; the caller applies it to `end`'s filter. */
   onStateClick(st: string): void;
+  /** A marker holding several jobs was clicked: narrow the list to exactly these. */
+  onGroupClick(ids: number[], label: string): void;
   searchAsMove: boolean;
   onSearchAsMoveChange(v: boolean): void;
   onBoundsChange(b: BoundsInput | null): void;
@@ -54,35 +76,43 @@ export interface LoadMapProps {
   towardHome: boolean;
   /** Changes only when the filter set changes, which is the only time we refit. */
   fitKey: string;
-  /** Height of the mobile sheet, so the arc is fitted into the visible half. */
+  /** Height of the mobile sheet, so the route is fitted into the visible half. */
   bottomPadding?: number;
   filteredSummary: LoadSummary | null;
 }
 
-interface RouteFeatureProps {
-  id: number;
-  cf: number | null;
-  pricePerCf: number | null;
-  rateUsd: number | null;
-  pickupState: string | null;
-  deliveryState: string | null;
-  pickupLabel: string;
-  deliveryLabel: string;
-  readyNow: boolean;
-  readyDate: string | null;
-  lastSeenAt: string | null;
-  approx: boolean;
-  review: boolean;
-  status: LoadStatus;
-  side: number;
+/** One drawn marker: every job whose selected end sits on the same spot. */
+interface PointGroup {
+  /** Rounded "lng,lat" -- the feature id, and the key everything syncs on. */
+  key: string;
+  lng: number;
+  lat: number;
+  ids: number[];
+  /** Total stated cubic feet standing here; drives the marker's size. */
+  cf: number;
+  /** Jobs here whose post never stated a size, so the total can be honest. */
+  unsized: number;
+  label: string;
+  state: string | null;
 }
 
-interface EndFeatureProps {
+interface PointProps {
   key: string;
-  id: number;
-  role: "pickup" | "delivery";
+  label: string;
+  count: number;
+  cf: number;
+  unsized: number;
   approx: boolean;
-  line: boolean;
+  /** Comma-joined ids: MapLibre feature properties survive round trips best flat. */
+  ids: string;
+}
+
+/** What `/api/loads/:id/route` answers with. */
+interface RoadRouteResponse {
+  path: [number, number][] | null;
+  miles: number | null;
+  minutes: number | null;
+  unavailable: boolean;
 }
 
 const CONUS: [[number, number], [number, number]] = [
@@ -90,7 +120,7 @@ const CONUS: [[number, number], [number, number]] = [
   [-66, 49],
 ];
 
-/** Above this zoom the state totals would sit on top of the routes they count. */
+/** Above this zoom the state totals would sit on top of the points they count. */
 const PILL_MAX_ZOOM = 5.4;
 
 /** Keyless raster tiles; the pale Positron look is applied in paint, below. */
@@ -100,25 +130,21 @@ const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 /** The palette, read from globals.css once the document exists. */
 interface Palette {
-  routeStart: string;
-  routeEnd: string;
+  accent: string;
   accentHover: string;
   pickup: string;
   delivery: string;
   approx: string;
-  warn: string;
   you: string;
   home: string;
 }
 
 const FALLBACK: Palette = {
-  routeStart: "#2563eb",
-  routeEnd: "#0f172a",
+  accent: "#2563eb",
   accentHover: "#1d4ed8",
   pickup: "#2563eb",
   delivery: "#0f172a",
   approx: "#b45309",
-  warn: "#d97706",
   you: "#059669",
   home: "#0f172a",
 };
@@ -128,157 +154,165 @@ function readPalette(): Palette {
   const css = getComputedStyle(document.documentElement);
   const pick = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   return {
-    routeStart: pick("--route-start", FALLBACK.routeStart),
-    routeEnd: pick("--route-end", FALLBACK.routeEnd),
+    accent: pick("--accent", FALLBACK.accent),
     accentHover: pick("--accent-hover", FALLBACK.accentHover),
     pickup: pick("--pickup", FALLBACK.pickup),
     delivery: pick("--delivery", FALLBACK.delivery),
     approx: pick("--approx", FALLBACK.approx),
-    warn: pick("--warn", FALLBACK.warn),
     you: pick("--you", FALLBACK.you),
     home: pick("--home", FALLBACK.home),
   };
 }
 
-/** Line width by cubic feet: a full truckload should read as one. */
-const WIDTH_BY_CF: maplibregl.ExpressionSpecification = [
-  "step",
-  ["coalesce", ["get", "cf"], 0],
-  1.5,
-  200,
-  2,
-  400,
-  2.75,
-  800,
-  3.5,
-  1200,
-  4.5,
+/**
+ * Marker radius from the group's total cubic feet.
+ *
+ * On the square root, so the AREA of the dot tracks the volume: a marker twice
+ * the radius of another reads as four times the freight, which is what the eye
+ * actually compares. Interpolated with zoom as the arcs' widths were, so the
+ * national view stays readable without the city view turning into blobs.
+ */
+const RADIUS_BY_CF: maplibregl.ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["sqrt", ["max", 0, ["coalesce", ["get", "cf"], 0]]],
+  0,
+  5,
+  20,
+  8,
+  45,
+  11,
+  80,
+  15,
+  120,
+  19,
 ];
 
-/**
- * Width by cubic feet, grown with zoom, optionally with `extra` px added (the
- * white casing, the active highlight).
- *
- * The zoom interpolation has to be the OUTERMOST expression -- MapLibre rejects
- * `["+", ["interpolate", ["zoom"], …], 3]` because a zoom curve may only be a
- * top-level step/interpolate -- so the addition is pushed into each stop.
- */
-function zoomWidth(extra = 0): maplibregl.ExpressionSpecification {
+function zoomRadius(extra = 0): maplibregl.ExpressionSpecification {
   const at = (scale: number): maplibregl.ExpressionSpecification =>
-    extra === 0
-      ? scale === 1
-        ? WIDTH_BY_CF
-        : ["*", WIDTH_BY_CF, scale]
-      : ["+", scale === 1 ? WIDTH_BY_CF : ["*", WIDTH_BY_CF, scale], extra];
-  return ["interpolate", ["linear"], ["zoom"], 4, at(1), 8, at(1.5)];
+    extra === 0 ? ["*", RADIUS_BY_CF, scale] : ["+", ["*", RADIUS_BY_CF, scale], extra];
+  return ["interpolate", ["linear"], ["zoom"], 3, at(0.85), 7, at(1.25)];
 }
-
-const ZOOM_WIDTH = zoomWidth();
 
 const DIM_OPACITY: maplibregl.ExpressionSpecification = [
   "case",
   ["boolean", ["feature-state", "dim"], false],
-  0.18,
-  0.85,
+  0.22,
+  0.92,
 ];
 
-/** Where a job's delivery end goes: its own point, or its state's centroid. */
-function deliveryPoint(job: PublicLoadRow): { lng: number; lat: number; approx: boolean } | null {
-  if (job.delivery_lat != null && job.delivery_lng != null) {
-    return {
-      lng: job.delivery_lng,
-      lat: job.delivery_lat,
-      approx: job.delivery_precision === "state" || job.delivery_precision === "region",
-    };
+/**
+ * Where a job's chosen end goes: its own coordinate, or its state's centroid.
+ *
+ * The centroid fallback is flagged approximate and drawn as such. It exists
+ * because a post that says "delivering to FL" is real inventory a driver may
+ * want, and hiding it would make the board quietly incomplete.
+ */
+function endPoint(
+  job: PublicLoadRow,
+  end: MapEnd,
+): { lng: number; lat: number; approx: boolean } | null {
+  const lat = end === "pickup" ? job.pickup_lat : job.delivery_lat;
+  const lng = end === "pickup" ? job.pickup_lng : job.delivery_lng;
+  const precision = end === "pickup" ? job.pickup_precision : job.delivery_precision;
+  if (lat != null && lng != null) {
+    return { lng, lat, approx: precision === "state" || precision === "region" };
   }
-  const st = job.delivery_state ? STATE_BY_ABBR.get(job.delivery_state) : null;
-  return st ? { lng: st.lng, lat: st.lat, approx: true } : null;
+  const st = end === "pickup" ? job.pickup_state : job.delivery_state;
+  const info = st ? STATE_BY_ABBR.get(st) : null;
+  return info ? { lng: info.lng, lat: info.lat, approx: true } : null;
+}
+
+/** "Rochester, MN" -- the place, not the post's raw wording. */
+function endLabelText(job: PublicLoadRow, end: MapEnd): string {
+  const city = end === "pickup" ? job.pickup_city : job.delivery_city;
+  const state = end === "pickup" ? job.pickup_state : job.delivery_state;
+  if (city && state) return `${city}, ${state}`;
+  if (city) return city;
+  return placeLabel(job, end).text;
 }
 
 /**
- * Jobs -> the two GeoJSON sources.
+ * Jobs -> markers.
  *
- * `side` is derived from the id rather than from the index so a job keeps the
- * same curve across refetches; otherwise every poll would reshuffle the fan.
+ * Grouped on three decimal places (~110 m): five decimals would split a city
+ * from its own ZIP centroid into two dots sitting on each other, which is the
+ * pile this view exists to remove.
  */
-function buildFeatures(jobs: PublicLoadRow[]): {
-  routes: FeatureCollection<LineString, RouteFeatureProps>;
-  ends: FeatureCollection<GeoPoint, EndFeatureProps>;
-  drawn: number;
+function buildGroups(
+  jobs: PublicLoadRow[],
+  end: MapEnd,
+): {
+  groups: PointGroup[];
+  features: FeatureCollection<GeoPoint, PointProps>;
+  keyByJob: Map<number, string>;
+  plotted: number;
 } {
-  const routes: Feature<LineString, RouteFeatureProps>[] = [];
-  const ends: Feature<GeoPoint, EndFeatureProps>[] = [];
+  const byKey = new Map<string, PointGroup & { approx: boolean }>();
+  const keyByJob = new Map<number, string>();
+  let plotted = 0;
 
   for (const job of jobs) {
-    if (job.pickup_lat == null || job.pickup_lng == null) continue;
-    const dest = deliveryPoint(job);
-    if (!dest) continue;
+    const at = endPoint(job, end);
+    if (!at) continue;
+    plotted += 1;
 
-    const pickupApprox = job.pickup_precision === "state" || job.pickup_precision === "region";
-    const approx = pickupApprox || dest.approx;
-    const side = (job.id % 5) - 2;
+    const key = `${at.lng.toFixed(3)},${at.lat.toFixed(3)}`;
+    keyByJob.set(job.id, key);
 
-    routes.push({
-      type: "Feature",
-      id: job.id,
-      geometry: {
-        type: "LineString",
-        coordinates: arcPoints(
-          { lat: job.pickup_lat, lng: job.pickup_lng },
-          { lat: dest.lat, lng: dest.lng },
-          side,
-        ),
-      },
-      properties: {
-        id: job.id,
-        cf: job.cubic_feet,
-        pricePerCf: job.price_per_cf,
-        rateUsd: job.rate_usd,
-        pickupState: job.pickup_state,
-        deliveryState: job.delivery_state,
-        pickupLabel: job.pickup_label,
-        deliveryLabel: job.delivery_label,
-        readyNow: job.ready_now,
-        readyDate: job.ready_date,
-        lastSeenAt: job.last_seen_at,
-        approx,
-        review: job.needs_review,
-        status: job.status,
-        side,
-      },
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.ids.push(job.id);
+      existing.cf += job.cubic_feet ?? 0;
+      if (job.cubic_feet == null) existing.unsized += 1;
+      // Only a group where EVERY member is a guess is drawn as one.
+      existing.approx &&= at.approx;
+      continue;
+    }
+
+    byKey.set(key, {
+      key,
+      lng: at.lng,
+      lat: at.lat,
+      ids: [job.id],
+      cf: job.cubic_feet ?? 0,
+      unsized: job.cubic_feet == null ? 1 : 0,
+      label: endLabelText(job, end),
+      state: end === "pickup" ? job.pickup_state : job.delivery_state,
+      approx: at.approx,
     });
-
-    ends.push(
-      {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [job.pickup_lng, job.pickup_lat] },
-        properties: {
-          key: `${job.id}:pickup`,
-          id: job.id,
-          role: "pickup",
-          approx: pickupApprox,
-          line: true,
-        },
-      },
-      {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [dest.lng, dest.lat] },
-        properties: {
-          key: `${job.id}:delivery`,
-          id: job.id,
-          role: "delivery",
-          approx: dest.approx,
-          line: true,
-        },
-      },
-    );
   }
 
+  const groups = [...byKey.values()];
+  const features: Feature<GeoPoint, PointProps>[] = groups.map((g) => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [g.lng, g.lat] },
+    properties: {
+      key: g.key,
+      label: g.label,
+      count: g.ids.length,
+      cf: g.cf,
+      unsized: g.unsized,
+      approx: g.approx,
+      ids: g.ids.join(","),
+    },
+  }));
+
   return {
-    routes: { type: "FeatureCollection", features: routes },
-    ends: { type: "FeatureCollection", features: ends },
-    drawn: routes.length,
+    groups,
+    features: { type: "FeatureCollection", features },
+    keyByJob,
+    plotted,
   };
+}
+
+/** "Rochester, MN · 11 jobs · 6,006 cf" */
+function groupSummary(g: PointGroup): string {
+  const jobs = `${g.ids.length} job${g.ids.length === 1 ? "" : "s"}`;
+  const size = g.cf > 0 ? formatCf(g.cf) : "size not stated";
+  const unsized =
+    g.unsized > 0 && g.cf > 0 ? ` (${g.unsized} without a size)` : "";
+  return `${g.label} · ${jobs} · ${size}${unsized}`;
 }
 
 /** A 12 px right-pointing triangle, registered as an SDF so icon-color works. */
@@ -321,11 +355,13 @@ function bboxOf(coords: [number, number][]): [[number, number], [number, number]
 
 export function LoadMap({
   jobs,
+  end,
   selectedId,
   hoveredId,
   onSelect,
   onHover,
   onStateClick,
+  onGroupClick,
   searchAsMove,
   onSearchAsMoveChange,
   onBoundsChange,
@@ -341,40 +377,59 @@ export function LoadMap({
   const [ready, setReady] = useState(false);
   const [inView, setInView] = useState<{ count: number; cf: number; unsized: number } | null>(null);
   const [zoom, setZoom] = useState(4);
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const [route, setRoute] = useState<{ id: number; road: RoadRouteResponse } | null>(null);
   const palette = useRef<Palette>(FALLBACK);
 
   // Callbacks are held in refs so the map is built once and never torn down by
   // a parent re-render; a remount would drop the viewport the user set.
-  const cb = useRef({ onSelect, onHover, onStateClick, onBoundsChange, searchAsMove });
-  cb.current = { onSelect, onHover, onStateClick, onBoundsChange, searchAsMove };
+  const cb = useRef({ onSelect, onHover, onStateClick, onGroupClick, onBoundsChange, searchAsMove });
+  cb.current = { onSelect, onHover, onStateClick, onGroupClick, onBoundsChange, searchAsMove };
 
   const stateMarkers = useRef<maplibregl.Marker[]>([]);
   const placeMarkers = useRef<maplibregl.Marker[]>([]);
+  const countMarkers = useRef<maplibregl.Marker[]>([]);
   const labelMarkers = useRef<maplibregl.Marker[]>([]);
   const popup = useRef<maplibregl.Popup | null>(null);
-  const dimmed = useRef<number[]>([]);
+  const stated = useRef<string[]>([]);
   const priorBounds = useRef<maplibregl.LngLatBounds | null>(null);
   /** The `fitKey` the current viewport was fitted for; null until the first fit. */
   const lastFit = useRef<string | null>(null);
+  /**
+   * One road geometry per job for the life of the page. The server caches it on
+   * the row as well, so even a reload costs no second HERE call -- this only
+   * saves the round trip.
+   */
+  const roadCache = useRef(new Map<number, RoadRouteResponse>());
 
-  const built = useMemo(() => buildFeatures(jobs), [jobs]);
+  const built = useMemo(() => buildGroups(jobs, end), [jobs, end]);
+  const groupByKey = useMemo(
+    () => new Map(built.groups.map((g) => [g.key, g])),
+    [built],
+  );
+
+  // A single boolean rather than the raw zoom: `zoom` ticks on every frame of
+  // every wheel gesture, and rebuilding a screenful of HTML markers per frame
+  // is the one thing that makes this map feel slow.
+  const detailed = zoom > PILL_MAX_ZOOM;
 
   /** Recompute the in-view totals from what is actually rendered. */
   const measureInView = useCallback(() => {
     const m = map.current;
-    if (!m || !m.getLayer("job-lines")) return;
-    const seen = new Set<number>();
+    if (!m || !m.getLayer("points")) return;
+    const seen = new Set<string>();
+    let count = 0;
     let cf = 0;
     let unsized = 0;
-    for (const f of m.queryRenderedFeatures({ layers: ["job-lines", "job-lines-approx"] })) {
-      const id = f.properties?.id as number | undefined;
-      if (id == null || seen.has(id)) continue;
-      seen.add(id);
-      const value = f.properties?.cf as number | null | undefined;
-      if (value == null) unsized += 1;
-      else cf += value;
+    for (const f of m.queryRenderedFeatures({ layers: ["points"] })) {
+      const key = f.properties?.key as string | undefined;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      count += Number(f.properties?.count ?? 0);
+      cf += Number(f.properties?.cf ?? 0);
+      unsized += Number(f.properties?.unsized ?? 0);
     }
-    setInView({ count: seen.size, cf, unsized });
+    setInView({ count, cf, unsized });
   }, []);
 
   // --- init ----------------------------------------------------------------
@@ -395,12 +450,12 @@ export function LoadMap({
             attribution: "© OpenStreetMap contributors",
           },
         },
-        // The design calls for a pale basemap so the routes are the only
-        // saturated thing on screen. CARTO Positron is the usual way to get
-        // that, but it now stamps "API KEY REQUIRED" across every
+        // The design calls for a pale basemap so the board's own marks are the
+        // only saturated thing on screen. CARTO Positron is the usual way to
+        // get that, but it now stamps "API KEY REQUIRED" across every
         // unauthenticated tile, so the pale look is produced here instead:
         // keyless OSM tiles desaturated and lightened by the raster paint
-        // properties, which touch this layer only and leave the routes alone.
+        // properties, which touch this layer only.
         layers: [
           {
             id: "basemap",
@@ -439,13 +494,7 @@ export function LoadMap({
         instance.addImage("chevron", image, { sdf: true });
       }
 
-      instance.addSource("jobs", {
-        type: "geojson",
-        data: EMPTY,
-        lineMetrics: true,
-        promoteId: "id",
-      });
-      instance.addSource("ends", { type: "geojson", data: EMPTY, promoteId: "key" });
+      instance.addSource("points", { type: "geojson", data: EMPTY, promoteId: "key" });
       instance.addSource("road", { type: "geojson", data: EMPTY });
       instance.addSource("toward", { type: "geojson", data: EMPTY });
 
@@ -470,173 +519,137 @@ export function LoadMap({
         },
       });
 
+      // One circle layer, not two: an approximate point differs by being hollow,
+      // and keeping it in the same layer means the dim/highlight states have
+      // exactly one place to live.
       instance.addLayer({
-        id: "job-casing",
-        type: "line",
-        source: "jobs",
-        layout: { "line-cap": "round", "line-join": "round" },
+        id: "points",
+        type: "circle",
+        source: "points",
         paint: {
-          "line-color": "#ffffff",
-          "line-width": zoomWidth(3),
-          "line-opacity": 0.9,
+          "circle-color": ["case", ["get", "approx"], "#ffffff", colors.pickup],
+          "circle-radius": zoomRadius(),
+          "circle-opacity": DIM_OPACITY,
+          "circle-stroke-width": ["case", ["get", "approx"], 2.5, 2],
+          "circle-stroke-color": ["case", ["get", "approx"], colors.approx, "#ffffff"],
+          "circle-stroke-opacity": DIM_OPACITY,
         },
       });
 
+      // Feature-state cannot appear in a layer filter, so the highlight ring
+      // draws over every point and hides all but the active one in paint.
       instance.addLayer({
-        id: "job-lines",
-        type: "line",
-        source: "jobs",
-        filter: ["!", ["get", "approx"]],
-        layout: { "line-cap": "round", "line-join": "round" },
+        id: "points-active",
+        type: "circle",
+        source: "points",
         paint: {
-          "line-gradient": [
-            "interpolate",
-            ["linear"],
-            ["line-progress"],
-            0,
-            colors.routeStart,
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-radius": zoomRadius(3),
+          "circle-stroke-width": 2.5,
+          "circle-stroke-color": colors.accentHover,
+          "circle-stroke-opacity": [
+            "case",
+            ["boolean", ["feature-state", "active"], false],
             1,
-            colors.routeEnd,
+            0,
           ],
-          "line-width": ZOOM_WIDTH,
-          "line-opacity": DIM_OPACITY,
         },
       });
 
+      // The selected job's road, drawn ON TOP of the points: it is the one
+      // thing on screen that is about a decision rather than an inventory.
       instance.addLayer({
-        id: "job-lines-approx",
+        id: "route-casing",
         type: "line",
-        source: "jobs",
-        filter: ["get", "approx"],
+        source: "road",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#ffffff", "line-width": 7, "line-opacity": 0.9 },
+      });
+      instance.addLayer({
+        id: "route-road",
+        type: "line",
+        source: "road",
+        filter: ["get", "road"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": colors.accent, "line-width": 4 },
+      });
+      // No road route to be had: a dashed chord, which reads as "we do not know
+      // the way" rather than as a highway that does not exist.
+      instance.addLayer({
+        id: "route-straight",
+        type: "line",
+        source: "road",
+        filter: ["!", ["get", "road"]],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": colors.approx,
-          "line-width": ZOOM_WIDTH,
+          "line-width": 3,
           "line-dasharray": [2, 2],
-          "line-opacity": DIM_OPACITY,
+          "line-opacity": 0.85,
         },
       });
-
-      // An unverified job reads as "stitched" rather than hidden: it is real
-      // inventory, it just has not been confirmed by a human yet.
       instance.addLayer({
-        id: "job-lines-review",
-        type: "line",
-        source: "jobs",
-        filter: ["get", "review"],
-        paint: {
-          "line-color": colors.warn,
-          "line-width": ZOOM_WIDTH,
-          "line-dasharray": [1, 1.5],
-          "line-opacity": 0.55,
-        },
-      });
-
-      // Feature-state cannot appear in a layer filter, so the highlight layer
-      // draws every route and hides all but the active one in paint.
-      instance.addLayer({
-        id: "job-lines-active",
-        type: "line",
-        source: "jobs",
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": colors.accentHover,
-          "line-width": zoomWidth(1.5),
-          "line-opacity": ["case", ["boolean", ["feature-state", "active"], false], 1, 0],
-        },
-      });
-
-      instance.addLayer({
-        id: "job-hit",
-        type: "line",
-        source: "jobs",
-        paint: { "line-color": "#000000", "line-width": 14, "line-opacity": 0 },
-      });
-
-      instance.addLayer({
-        id: "job-chevrons",
+        id: "route-arrows",
         type: "symbol",
-        source: "jobs",
-        minzoom: 4,
+        source: "road",
         layout: {
           "symbol-placement": "line",
-          "symbol-spacing": 90,
+          "symbol-spacing": 110,
           "icon-image": "chevron",
-          "icon-size": 1,
+          "icon-size": 0.9,
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
         },
-        paint: { "icon-color": colors.routeEnd, "icon-opacity": DIM_OPACITY },
+        paint: { "icon-color": "#ffffff", "icon-opacity": 0.95 },
       });
 
-      instance.addLayer({
-        id: "job-road",
-        type: "line",
-        source: "road",
-        paint: { "line-color": colors.routeEnd, "line-width": 4 },
+      instance.on("mousemove", "points", (e: MapLayerMouseEvent) => {
+        const props = e.features?.[0]?.properties;
+        instance.getCanvas().style.cursor = "pointer";
+        const key = props?.key as string | undefined;
+        setHoverKey(key ?? null);
+        // Only a marker that stands for exactly one job can highlight a card;
+        // scrolling the list to an arbitrary member of a group would be noise.
+        const ids = idsOf(props?.ids);
+        cb.current.onHover(ids.length === 1 ? ids[0]! : null);
+      });
+      instance.on("mouseleave", "points", () => {
+        instance.getCanvas().style.cursor = "";
+        setHoverKey(null);
+        cb.current.onHover(null);
       });
 
-      // A ring at the delivery end, a filled dot at the pickup: an empty end
-      // reads as "drop here", a full one as "load here", with no legend.
-      instance.addLayer({
-        id: "job-delivery",
-        type: "circle",
-        source: "ends",
-        filter: ["==", ["get", "role"], "delivery"],
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 3, 6, 5],
-          "circle-color": "#ffffff",
-          "circle-stroke-width": 2.5,
-          "circle-stroke-color": [
-            "case",
-            ["get", "approx"],
-            colors.approx,
-            colors.delivery,
-          ],
-        },
+      instance.on("click", "points", (e: MapLayerMouseEvent) => {
+        const feature = e.features?.[0];
+        const ids = idsOf(feature?.properties?.ids);
+        if (!ids.length) return;
+        if (ids.length === 1) {
+          cb.current.onSelect(ids[0]!);
+          return;
+        }
+        // A group is not a job. Clicking it says "show me these", and the map
+        // goes in far enough that the members stop being one dot.
+        cb.current.onGroupClick(ids, String(feature?.properties?.label ?? "this place"));
+        const at = (feature?.geometry as GeoPoint | undefined)?.coordinates as
+          | [number, number]
+          | undefined;
+        if (at) {
+          instance.easeTo({ center: at, zoom: Math.max(instance.getZoom() + 2.5, 9), duration: 600 });
+        }
       });
-      instance.addLayer({
-        id: "job-pickup",
-        type: "circle",
-        source: "ends",
-        filter: ["==", ["get", "role"], "pickup"],
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 3, 6, 5],
-          "circle-color": ["case", ["get", "approx"], colors.approx, colors.pickup],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-        },
-      });
-
-      const hitLayers = ["job-hit", "job-pickup", "job-delivery"];
-      for (const layer of hitLayers) {
-        instance.on("mousemove", layer, (e: MapLayerMouseEvent) => {
-          const id = e.features?.[0]?.properties?.id as number | undefined;
-          instance.getCanvas().style.cursor = "pointer";
-          if (id != null) cb.current.onHover(id);
-        });
-        instance.on("mouseleave", layer, () => {
-          instance.getCanvas().style.cursor = "";
-          cb.current.onHover(null);
-        });
-        instance.on("click", layer, (e: MapLayerMouseEvent) => {
-          const id = e.features?.[0]?.properties?.id as number | undefined;
-          if (id != null) cb.current.onSelect(id);
-        });
-      }
 
       instance.on("zoom", () => setZoom(instance.getZoom()));
 
-      // Re-measure whenever the routes themselves become queryable, and again
+      // Re-measure whenever the points themselves become queryable, and again
       // whenever the map settles. `moveend` alone is not enough: the refit that
       // follows a search fires it before the new features have been indexed, so
       // it writes a 0 that nothing takes back. `idle` alone is not enough
       // either -- MapLibre only calls the map loaded once every basemap raster
       // tile in view has arrived, so on a slow tile host that 0 stays on screen
-      // over routes that are plainly drawn.
+      // over points that are plainly drawn.
       instance.on("sourcedata", (e) => {
-        if (e.sourceId === "jobs" && e.isSourceLoaded) measureInView();
+        if (e.sourceId === "points" && e.isSourceLoaded) measureInView();
       });
       instance.on("idle", measureInView);
 
@@ -661,7 +674,7 @@ export function LoadMap({
     });
 
     return () => {
-      for (const list of [stateMarkers, placeMarkers, labelMarkers]) {
+      for (const list of [stateMarkers, placeMarkers, labelMarkers, countMarkers]) {
         for (const m of list.current) m.remove();
         list.current = [];
       }
@@ -677,9 +690,22 @@ export function LoadMap({
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
-    (m.getSource("jobs") as GeoJSONSource | undefined)?.setData(built.routes);
-    (m.getSource("ends") as GeoJSONSource | undefined)?.setData(built.ends);
+    (m.getSource("points") as GeoJSONSource | undefined)?.setData(built.features);
   }, [built, ready]);
+
+  // Pickups and deliveries are different colours because they are different
+  // questions; the layer is built once, so the colour is repainted here.
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m || !m.getLayer("points")) return;
+    const solid = end === "pickup" ? palette.current.pickup : palette.current.delivery;
+    m.setPaintProperty("points", "circle-color", [
+      "case",
+      ["get", "approx"],
+      "#ffffff",
+      solid,
+    ]);
+  }, [end, ready]);
 
   // --- refit when the filter set changes -----------------------------------
   // Keyed on the DATA, not on `fitKey`: the key changes the instant a filter
@@ -708,9 +734,8 @@ export function LoadMap({
       return;
     }
 
-    const all = built.routes.features.flatMap((f) => f.geometry.coordinates as [number, number][]);
-    const box = bboxOf(all);
-    m.fitBounds(box ?? CONUS, { padding, duration: 0 });
+    const box = bboxOf(built.groups.map((g) => [g.lng, g.lat] as [number, number]));
+    m.fitBounds(box ?? CONUS, { padding, duration: 0, maxZoom: 9 });
     // Record the key only once there is something real to frame: before the
     // first response lands `built` is empty because nothing has been fetched
     // yet rather than because the search found nothing, and consuming the key
@@ -719,22 +744,27 @@ export function LoadMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [built, ready]);
 
-  // --- hover: highlight one route, dim the rest ----------------------------
+  // --- hover/selection: highlight one marker, dim the rest -----------------
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
-    const focus = hoveredId ?? selectedId;
+    const focusId = hoveredId ?? selectedId;
+    const focusKey = hoverKey ?? (focusId != null ? built.keyByJob.get(focusId) : undefined);
 
-    for (const id of dimmed.current) m.setFeatureState({ source: "jobs", id }, { dim: false, active: false });
-    dimmed.current = [];
-
-    if (focus == null) return;
-    for (const f of built.routes.features) {
-      const id = f.properties.id;
-      m.setFeatureState({ source: "jobs", id }, { dim: id !== focus, active: id === focus });
-      dimmed.current.push(id);
+    for (const key of stated.current) {
+      m.setFeatureState({ source: "points", id: key }, { dim: false, active: false });
     }
-  }, [hoveredId, selectedId, built, ready]);
+    stated.current = [];
+
+    if (!focusKey) return;
+    for (const group of built.groups) {
+      m.setFeatureState(
+        { source: "points", id: group.key },
+        { dim: group.key !== focusKey, active: group.key === focusKey },
+      );
+      stated.current.push(group.key);
+    }
+  }, [hoveredId, hoverKey, selectedId, built, ready]);
 
   // --- hover popup ---------------------------------------------------------
   useEffect(() => {
@@ -742,61 +772,135 @@ export function LoadMap({
     if (!ready || !m) return;
     popup.current?.remove();
     popup.current = null;
-    if (hoveredId == null) return;
 
-    const job = jobs.find((j) => j.id === hoveredId);
-    const feature = built.routes.features.find((f) => f.properties.id === hoveredId);
-    if (!job || !feature) return;
+    const key = hoverKey ?? (hoveredId != null ? built.keyByJob.get(hoveredId) : undefined);
+    const group = key ? groupByKey.get(key) : undefined;
+    if (!group) return;
 
-    const coords = feature.geometry.coordinates as [number, number][];
-    const mid = coords[Math.floor(coords.length / 2)];
-    popup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 })
-      .setLngLat(mid)
-      .setText(jobSummary(job))
+    // One job gets its own line -- lane, size, price, readiness -- because that
+    // is what the viewer is about to decide on. A group gets the tally.
+    const single = group.ids.length === 1 ? jobs.find((j) => j.id === group.ids[0]) : null;
+
+    popup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14 })
+      .setLngLat([group.lng, group.lat])
+      .setText(single ? jobSummary(single) : groupSummary(group))
       .addTo(m);
-  }, [hoveredId, jobs, built, ready]);
+  }, [hoverKey, hoveredId, jobs, built, groupByKey, ready]);
 
-  // --- selection: fit the arc, and ease back when it closes ----------------
+  // --- the selected job's road --------------------------------------------
+  // One request per job, answered from `loads.road_path` after the first, so
+  // re-opening a job never reaches HERE again.
+  useEffect(() => {
+    if (selectedId == null) {
+      setRoute(null);
+      return;
+    }
+    const cached = roadCache.current.get(selectedId);
+    if (cached) {
+      setRoute({ id: selectedId, road: cached });
+      return;
+    }
+
+    let live = true;
+    setRoute(null);
+    void fetch(api(`/api/loads/${selectedId}/route`))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((body: RoadRouteResponse) => {
+        const road: RoadRouteResponse = {
+          path: Array.isArray(body?.path) && body.path.length > 1 ? body.path : null,
+          miles: body?.miles ?? null,
+          minutes: body?.minutes ?? null,
+          unavailable: Boolean(body?.unavailable),
+        };
+        // Only a real answer is remembered; a network blip should be retryable.
+        roadCache.current.set(selectedId, road);
+        if (live) setRoute({ id: selectedId, road });
+      })
+      .catch(() => {
+        if (live) {
+          setRoute({
+            id: selectedId,
+            road: { path: null, miles: null, minutes: null, unavailable: true },
+          });
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [selectedId]);
+
+  // --- draw it, and ease back when the selection closes --------------------
   useEffect(() => {
     const m = map.current;
-    if (!ready || !m) return;
+    const source = m?.getSource("road") as GeoJSONSource | undefined;
+    if (!ready || !m || !source) return;
+
+    for (const marker of labelMarkers.current) marker.remove();
+    labelMarkers.current = [];
 
     if (selectedId == null) {
+      source.setData(EMPTY);
       if (priorBounds.current) {
         m.fitBounds(priorBounds.current, { duration: 600 });
         priorBounds.current = null;
       }
-      for (const marker of labelMarkers.current) marker.remove();
-      labelMarkers.current = [];
       return;
     }
 
-    const feature = built.routes.features.find((f) => f.properties.id === selectedId);
-    if (!feature) return;
-    const coords = feature.geometry.coordinates as [number, number][];
-    const box = bboxOf(coords);
-    if (!box) return;
+    const job = jobs.find((j) => j.id === selectedId);
+    const from = job ? endPoint(job, "pickup") : null;
+    const to = job ? endPoint(job, "delivery") : null;
 
-    if (!priorBounds.current) priorBounds.current = m.getBounds();
-    m.fitBounds(box, {
-      padding: { top: 60, right: 60, bottom: 60 + bottomPadding, left: 60 },
-      duration: 600,
+    const road = route?.id === selectedId ? route.road.path : null;
+    const coords: [number, number][] | null = road
+      ? road
+      : from && to
+        ? [
+            [from.lng, from.lat],
+            [to.lng, to.lat],
+          ]
+        : null;
+
+    if (!job || !coords) {
+      source.setData(EMPTY);
+      return;
+    }
+
+    source.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: { road: Boolean(road) },
+          geometry: { type: "LineString", coordinates: coords },
+        },
+      ],
     });
 
-    for (const marker of labelMarkers.current) marker.remove();
-    labelMarkers.current = [
-      endLabel(m, coords[0], feature.properties.pickupLabel, "left"),
-      endLabel(
-        m,
-        coords[coords.length - 1],
-        feature.properties.cf != null
-          ? `${feature.properties.deliveryLabel} · ${formatCf(feature.properties.cf)}`
-          : feature.properties.deliveryLabel,
-        "left",
-      ),
-    ];
+    const box = bboxOf(coords);
+    if (box) {
+      if (!priorBounds.current) priorBounds.current = m.getBounds();
+      m.fitBounds(box, {
+        padding: { top: 60, right: 60, bottom: 60 + bottomPadding, left: 60 },
+        duration: 600,
+        maxZoom: 11,
+      });
+    }
+
+    if (from && to) {
+      labelMarkers.current = [
+        endMarker(m, [from.lng, from.lat], endLabelText(job, "pickup")),
+        endMarker(
+          m,
+          [to.lng, to.lat],
+          job.cubic_feet != null
+            ? `${endLabelText(job, "delivery")} · ${formatCf(job.cubic_feet)}`
+            : endLabelText(job, "delivery"),
+        ),
+      ];
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, built, ready]);
+  }, [route, selectedId, jobs, ready]);
 
   // --- you-are-here and home ----------------------------------------------
   useEffect(() => {
@@ -845,17 +949,42 @@ export function LoadMap({
     source.setData(corridorFeatures(viewer, home, 100));
   }, [towardHome, viewer, home, ready]);
 
+  // --- counts on the markers that hold more than one job -------------------
+  // Only the groups that need it: a singleton's name is on its card and in its
+  // hover, and a label per dot would bury the map in text.
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+    for (const marker of countMarkers.current) marker.remove();
+    countMarkers.current = [];
+
+    for (const group of built.groups) {
+      if (group.ids.length < 2) continue;
+      const el = document.createElement("div");
+      el.className = "map-count nums";
+      el.textContent = detailed ? `${group.label} · ${group.ids.length}` : String(group.ids.length);
+      el.title = groupSummary(group);
+      countMarkers.current.push(
+        new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -12] })
+          .setLngLat([group.lng, group.lat])
+          .addTo(m),
+      );
+    }
+  }, [built, detailed, ready]);
+
   // --- state-total pills ---------------------------------------------------
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
     for (const marker of stateMarkers.current) marker.remove();
     stateMarkers.current = [];
-    if (zoom > PILL_MAX_ZOOM) return;
+    if (detailed) return;
 
+    // Counted on the SELECTED end: in Deliveries mode "FL · 9 jobs" has to mean
+    // nine jobs arriving in Florida, or the pill contradicts the dots under it.
     const totals = new Map<string, { jobs: number; cf: number }>();
     for (const job of jobs) {
-      const st = job.pickup_state;
+      const st = end === "pickup" ? job.pickup_state : job.delivery_state;
       if (!st) continue;
       const t = totals.get(st) ?? { jobs: 0, cf: 0 };
       t.jobs += 1;
@@ -863,6 +992,7 @@ export function LoadMap({
       totals.set(st, t);
     }
 
+    const noun = end === "pickup" ? "pickups" : "deliveries";
     for (const [st, t] of totals) {
       const info = STATE_BY_ABBR.get(st);
       if (!info) continue;
@@ -872,7 +1002,7 @@ export function LoadMap({
       el.style.cssText =
         "padding:3px 8px;font:600 11px/1.3 system-ui;color:var(--text);cursor:pointer;white-space:nowrap";
       el.textContent = `${st} · ${t.jobs} job${t.jobs === 1 ? "" : "s"} · ${t.cf.toLocaleString("en-US")} cf`;
-      el.title = `Filter pickups to ${st}`;
+      el.title = `Filter ${noun} to ${st}`;
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         cb.current.onStateClick(st);
@@ -881,7 +1011,7 @@ export function LoadMap({
         new maplibregl.Marker({ element: el }).setLngLat([info.lng, info.lat]).addTo(m),
       );
     }
-  }, [jobs, zoom, ready]);
+  }, [jobs, end, detailed, ready]);
 
   // --- clearing the bounds when the toggle goes off ------------------------
   useEffect(() => {
@@ -890,16 +1020,17 @@ export function LoadMap({
   }, [searchAsMove]);
 
   const totalCf = inView?.cf ?? 0;
-  const allShown = inView != null && inView.count >= built.drawn;
-  const notDrawn = jobs.length - built.drawn;
+  const allShown = inView != null && inView.count >= jobs.length;
+  const notPlotted = jobs.length - built.plotted;
+  const noRoad = selectedId != null && route?.id === selectedId && route.road.path == null;
 
   return (
     <div className="relative h-full w-full">
       <div ref={container} className="h-full w-full" />
 
       <div
-        className="glass absolute left-[var(--sp-3)] top-[var(--sp-3)] w-[240px] p-[var(--sp-3)]"
-        title="Sum of stated cubic feet for routes on screen (dashed routes end at a state centroid). Jobs without a size, and jobs that could not be placed on the map, are not counted."
+        className="glass absolute left-[var(--sp-3)] top-[var(--sp-3)] w-[250px] p-[var(--sp-3)]"
+        title={`Jobs whose ${end} is on screen, and the cubic feet standing there. Hollow markers sit on a state centroid rather than a real address. Jobs without a stated size are counted but add nothing to the total.`}
       >
         <div className="big text-[var(--fs-lg)]">
           {inView == null
@@ -911,14 +1042,27 @@ export function LoadMap({
         <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
           {totalCf > 0 ? truckLine(totalCf, viewer?.truckCf ?? null) : "No stated sizes on screen"}
           {inView && inView.unsized > 0 && ` · ${inView.unsized} without size`}
-          {notDrawn > 0 && ` · ${notDrawn} not on map`}
         </div>
+        {notPlotted > 0 && (
+          <div className="text-[var(--fs-xs)]" style={{ color: "var(--approx)" }}>
+            {notPlotted} job{notPlotted === 1 ? " has" : "s have"} no mappable {end}
+          </div>
+        )}
         {filteredSummary && inView && filteredSummary.count !== inView.count && (
           <div className="text-[var(--fs-xs)]" style={{ color: "var(--muted-2)" }}>
             of {filteredSummary.count} filtered
           </div>
         )}
       </div>
+
+      {noRoad && (
+        <div
+          className="glass absolute left-1/2 top-[var(--sp-3)] -translate-x-1/2 px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
+          style={{ color: "var(--approx)" }}
+        >
+          Road route unavailable — showing a straight line.
+        </div>
+      )}
 
       <label
         className="glass absolute right-[var(--sp-3)] top-[calc(var(--sp-3)+80px)] flex items-center gap-[var(--sp-2)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
@@ -932,30 +1076,49 @@ export function LoadMap({
         Search as I move the map
       </label>
 
-      <div className="glass route-legend absolute bottom-[var(--sp-5)] left-[var(--sp-3)] px-[var(--sp-3)] py-[var(--sp-2)]">
-        <span>
-          <i /> route
-        </span>
-        <span>
+      <div
+        className="glass point-legend absolute bottom-[var(--sp-5)] left-[var(--sp-3)] px-[var(--sp-3)] py-[var(--sp-2)]"
+        style={
+          {
+            "--map-point": end === "pickup" ? "var(--pickup)" : "var(--delivery)",
+          } as React.CSSProperties
+        }
+      >
+        <b>
+          <i className="sm" />
+          <i className="lg" /> size = cubic feet
+        </b>
+        <b>
           <i className="approx" /> approximate
-        </span>
+        </b>
+        {selectedId != null && (
+          <b>
+            <i className="road" /> road route
+          </b>
+        )}
       </div>
     </div>
   );
 }
 
+/** "12,15,19" -> [12, 15, 19]; anything else -> []. */
+function idsOf(raw: unknown): number[] {
+  if (typeof raw !== "string" || !raw) return [];
+  return raw
+    .split(",")
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n));
+}
+
 /** A small white label pinned to one end of the selected route. */
-function endLabel(
-  m: maplibregl.Map,
-  at: [number, number],
-  text: string,
-  anchor: "left" | "right",
-): maplibregl.Marker {
+function endMarker(m: maplibregl.Map, at: [number, number], text: string): maplibregl.Marker {
   const el = document.createElement("div");
   el.className = "glass nums";
   el.style.cssText = "padding:2px 7px;font:600 11px/1.5 system-ui;white-space:nowrap";
   el.textContent = text;
-  return new maplibregl.Marker({ element: el, anchor, offset: [10, 0] }).setLngLat(at).addTo(m);
+  return new maplibregl.Marker({ element: el, anchor: "left", offset: [10, 0] })
+    .setLngLat(at)
+    .addTo(m);
 }
 
 /**
