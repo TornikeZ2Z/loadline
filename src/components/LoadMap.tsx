@@ -104,6 +104,73 @@ const CONUS: [[number, number], [number, number]] = [
 /** Above this zoom the state totals would sit on top of the points they count. */
 const PILL_MAX_ZOOM = 5.4;
 
+/**
+ * Below this zoom a state pill drops the job count and reads "FL · 4,900 cf".
+ *
+ * The tier is chosen by ZOOM and not by whether the long string happens to
+ * fit, because "fits" changes on every frame of a pan and a label whose words
+ * rewrite themselves while you drag is worse than one that is merely narrow.
+ * The full sentence is always on the pill's `title`.
+ */
+const PILL_SHORT_ZOOM = 4.6;
+
+/* --------------------------- label decluttering ---------------------------
+ *
+ * Every label on this map is an HTML `Marker`, and MapLibre places those where
+ * it is told and nowhere else -- there is no collision handling for them the
+ * way there is for a symbol layer's `text-field`. With sixteen state pills at
+ * the national view that meant the northeast rendered as a smudge: "NY · 1 job
+ * · 250 cf" printed straight through its neighbour, and a count badge sat on
+ * top of both. Two labels on top of each other are worth less than one label,
+ * which is the same failure this whole points view exists to fix, in miniature.
+ *
+ * So placement runs through a greedy screen-space pass, the way a cartographer
+ * (and MapLibre's own symbol placement) does it: walk the labels in order of
+ * importance, give each the first candidate position whose box is still free,
+ * and hide the ones that have nowhere to go. Nothing is lost by hiding -- the
+ * dot underneath keeps its size, its hover summary and its click.
+ */
+
+/** Where a label may go, relative to its natural position, in order of preference. */
+const LABEL_SLOTS: Array<[number, number]> = [
+  [0, 0],
+  [0, -20],
+  [0, 20],
+  [0, -40],
+  [0, 40],
+  [-52, -14],
+  [52, -14],
+  [-52, 14],
+  [52, 14],
+];
+
+/** Breathing room around a placed label, in px. */
+const LABEL_PAD = 3;
+
+type LabelKind = "route" | "count" | "state";
+
+interface MapLabel {
+  kind: LabelKind;
+  marker: maplibregl.Marker;
+  el: HTMLElement;
+  lng: number;
+  lat: number;
+  /** How the element hangs off its point, matching the Marker's own anchor. */
+  anchor: "center" | "bottom" | "left";
+  /** The offset the marker was built with; slots are added to it. */
+  base: [number, number];
+  /** Higher wins a contested spot. */
+  weight: number;
+  /** Placed first and never moved or hidden: the route's own two ends. */
+  fixed?: boolean;
+}
+
+type Box = [number, number, number, number];
+
+function overlaps(a: Box, b: Box): boolean {
+  return !(a[0] > b[2] || a[2] < b[0] || a[1] > b[3] || a[3] < b[1]);
+}
+
 /** Keyless raster tiles; the pale Positron look is applied in paint, below. */
 const BASEMAP_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
@@ -240,6 +307,8 @@ export function LoadMap({
   filteredSummary,
 }: LoadMapProps) {
   const container = useRef<HTMLDivElement>(null);
+  /** The canvas plus everything floating over it; the declutter frame. */
+  const shell = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
   const [inView, setInView] = useState<{ count: number; cf: number; unsized: number } | null>(null);
@@ -257,6 +326,10 @@ export function LoadMap({
   const placeMarkers = useRef<maplibregl.Marker[]>([]);
   const countMarkers = useRef<maplibregl.Marker[]>([]);
   const labelMarkers = useRef<maplibregl.Marker[]>([]);
+  /** Everything the declutter pass places, across all three marker groups. */
+  const labels = useRef<MapLabel[]>([]);
+  /** Rendered size per element class + text; a pan must not read layout. */
+  const labelSize = useRef(new Map<string, [number, number]>());
   const popup = useRef<maplibregl.Popup | null>(null);
   const stated = useRef<string[]>([]);
   const priorBounds = useRef<maplibregl.LngLatBounds | null>(null);
@@ -279,6 +352,9 @@ export function LoadMap({
   // every wheel gesture, and rebuilding a screenful of HTML markers per frame
   // is the one thing that makes this map feel slow.
   const detailed = zoom > PILL_MAX_ZOOM;
+  /** Same reasoning as `detailed`: a boolean, so a wheel gesture rebuilds the
+      pills at most twice instead of once a frame. */
+  const shortPills = zoom < PILL_SHORT_ZOOM;
 
   /**
    * The in-view totals, from the viewport box against the groups themselves.
@@ -306,6 +382,93 @@ export function LoadMap({
     }
     setInView({ count, cf, unsized });
   }, []);
+
+  // --- label placement -----------------------------------------------------
+
+  /**
+   * The rendered size of a label, cached by class + text.
+   *
+   * `offsetWidth` is a layout read, and doing one per label per frame of a pan
+   * is exactly the thrash that makes a map feel gluey. A label's box does not
+   * change while the viewport moves, so it is measured the first time its text
+   * is seen and never again.
+   */
+  const sizeOf = useCallback((l: MapLabel): [number, number] => {
+    const key = `${l.el.className}|${l.el.textContent ?? ""}`;
+    const hit = labelSize.current.get(key);
+    if (hit) return hit;
+    const size: [number, number] = [l.el.offsetWidth, l.el.offsetHeight];
+    labelSize.current.set(key, size);
+    return size;
+  }, []);
+
+  /** Greedy screen-space placement; see LABEL_SLOTS above for the why. */
+  const declutter = useCallback(() => {
+    const m = map.current;
+    if (!m) return;
+    const canvas = m.getCanvas();
+    const vw = canvas.clientWidth;
+    const vh = canvas.clientHeight;
+    const taken: Box[] = [];
+
+    // The map's own furniture -- the in-view panel, the legend, the zoom
+    // buttons -- is opaque, so a label placed under it is a label that is not
+    // there. Reserve those boxes first. Read in one go, before the loop starts
+    // writing, so this stays a single layout pass.
+    const frame = shell.current?.getBoundingClientRect();
+    if (frame) {
+      for (const el of shell.current!.querySelectorAll<HTMLElement>("[data-map-chrome]")) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0) continue;
+        taken.push([r.left - frame.left, r.top - frame.top, r.right - frame.left, r.bottom - frame.top]);
+      }
+    }
+
+    const ordered = [...labels.current].sort((a, b) => b.weight - a.weight);
+    for (const l of ordered) {
+      const at = m.project([l.lng, l.lat]);
+      const [w, h] = sizeOf(l);
+      // Off screen entirely: nothing to draw and nothing to reserve. Generous
+      // margin so a label whose point is just past the edge still keeps its
+      // neighbours honest.
+      if (at.x < -200 || at.y < -200 || at.x > vw + 200 || at.y > vh + 200) {
+        l.el.style.visibility = "hidden";
+        continue;
+      }
+
+      let placed = false;
+      for (const [dx, dy] of l.fixed ? [[0, 0] as [number, number]] : LABEL_SLOTS) {
+        const ox = l.base[0] + dx;
+        const oy = l.base[1] + dy;
+        const cx = at.x + ox;
+        const cy = at.y + oy;
+        const left = l.anchor === "left" ? cx : cx - w / 2;
+        const top = l.anchor === "bottom" ? cy - h : cy - h / 2;
+        const box: Box = [left - LABEL_PAD, top - LABEL_PAD, left + w + LABEL_PAD, top + h + LABEL_PAD];
+        if (!l.fixed) {
+          // The map column clips, so a label that runs off the edge reads as
+          // broken text rather than as a label. Try another slot, or none.
+          if (box[0] < 2 || box[1] < 2 || box[2] > vw - 2 || box[3] > vh - 2) continue;
+          if (taken.some((t) => overlaps(box, t))) continue;
+        }
+        l.marker.setOffset([ox, oy]);
+        l.el.style.visibility = "visible";
+        taken.push(box);
+        placed = true;
+        break;
+      }
+      if (!placed) l.el.style.visibility = "hidden";
+    }
+  }, [sizeOf]);
+
+  /** Replace one group's labels, keeping the other groups' entries. */
+  const setLabels = useCallback(
+    (kind: LabelKind, next: MapLabel[]) => {
+      labels.current = labels.current.filter((l) => l.kind !== kind).concat(next);
+      declutter();
+    },
+    [declutter],
+  );
 
   // --- init ----------------------------------------------------------------
   useEffect(() => {
@@ -350,6 +513,14 @@ export function LoadMap({
     });
     map.current = instance;
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    // MapLibre builds its own chrome, so it cannot carry the attribute in JSX.
+    // Marking it here keeps the declutter pass from placing a state total
+    // behind the zoom buttons or the attribution line.
+    for (const el of instance
+      .getContainer()
+      .querySelectorAll(".maplibregl-ctrl-group, .maplibregl-ctrl-attrib")) {
+      el.setAttribute("data-map-chrome", "");
+    }
 
     // A tile host that is blocked or down otherwise fails silently as a blank
     // canvas, so say so once rather than leaving an empty rectangle.
@@ -545,6 +716,8 @@ export function LoadMap({
         for (const m of list.current) m.remove();
         list.current = [];
       }
+      labels.current = [];
+      labelSize.current.clear();
       popup.current?.remove();
       popup.current = null;
       instance.remove();
@@ -706,6 +879,7 @@ export function LoadMap({
 
     for (const marker of labelMarkers.current) marker.remove();
     labelMarkers.current = [];
+    setLabels("route", []);
 
     if (selectedId == null) {
       source.setData(EMPTY);
@@ -757,16 +931,35 @@ export function LoadMap({
     }
 
     if (from && to) {
-      labelMarkers.current = [
-        endMarker(m, [from.lng, from.lat], endLabelText(job, "pickup")),
-        endMarker(
-          m,
-          [to.lng, to.lat],
-          job.cubic_feet != null
-            ? `${endLabelText(job, "delivery")} · ${formatCf(job.cubic_feet)}`
-            : endLabelText(job, "delivery"),
-        ),
+      const ends: Array<{ at: [number, number]; text: string }> = [
+        { at: [from.lng, from.lat], text: endLabelText(job, "pickup") },
+        {
+          at: [to.lng, to.lat],
+          text:
+            job.cubic_feet != null
+              ? `${endLabelText(job, "delivery")} · ${formatCf(job.cubic_feet)}`
+              : endLabelText(job, "delivery"),
+        },
       ];
+      const next: MapLabel[] = [];
+      for (const e of ends) {
+        const { marker, el } = endMarker(m, e.at, e.text);
+        labelMarkers.current.push(marker);
+        // The two ends of the job the viewer just opened: the one thing on
+        // this map that is never allowed to lose a fight for space.
+        next.push({
+          kind: "route",
+          marker,
+          el,
+          lng: e.at[0],
+          lat: e.at[1],
+          anchor: "center",
+          base: [10, 0],
+          weight: Number.MAX_SAFE_INTEGER,
+          fixed: true,
+        });
+      }
+      setLabels("route", next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, selectedId, jobs, ready]);
@@ -827,19 +1020,33 @@ export function LoadMap({
     for (const marker of countMarkers.current) marker.remove();
     countMarkers.current = [];
 
+    const next: MapLabel[] = [];
     for (const group of built.groups) {
       if (group.ids.length < 2) continue;
       const el = document.createElement("div");
       el.className = "map-count nums";
       el.textContent = detailed ? `${group.label} · ${group.ids.length}` : String(group.ids.length);
       el.title = groupSummary(group);
-      countMarkers.current.push(
-        new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -12] })
-          .setLngLat([group.lng, group.lat])
-          .addTo(m),
-      );
+      const marker = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -12] })
+        .setLngLat([group.lng, group.lat])
+        .addTo(m);
+      countMarkers.current.push(marker);
+      // A badge sits ON its dot, so it outranks a state total: losing it
+      // orphans a mark, while a hidden state total still has its dots.
+      // Between badges, the bigger pile of freight keeps its number.
+      next.push({
+        kind: "count",
+        marker,
+        el,
+        lng: group.lng,
+        lat: group.lat,
+        anchor: "bottom",
+        base: [0, -12],
+        weight: 1_000_000 + group.cf,
+      });
     }
-  }, [built, detailed, ready]);
+    setLabels("count", next);
+  }, [built, detailed, ready, setLabels]);
 
   // --- state-total pills ---------------------------------------------------
   useEffect(() => {
@@ -847,7 +1054,10 @@ export function LoadMap({
     if (!ready || !m) return;
     for (const marker of stateMarkers.current) marker.remove();
     stateMarkers.current = [];
-    if (detailed) return;
+    if (detailed) {
+      setLabels("state", []);
+      return;
+    }
 
     // Counted on the SELECTED end: in Deliveries mode "FL · 9 jobs" has to mean
     // nine jobs arriving in Florida, or the pill contradicts the dots under it.
@@ -862,25 +1072,65 @@ export function LoadMap({
     }
 
     const noun = end === "pickup" ? "pickups" : "deliveries";
+    const next: MapLabel[] = [];
     for (const [st, t] of totals) {
       const info = STATE_BY_ABBR.get(st);
       if (!info) continue;
       const el = document.createElement("button");
       el.type = "button";
-      el.className = "glass nums";
-      el.style.cssText =
-        "padding:3px 8px;font:600 11px/1.3 system-ui;color:var(--text);cursor:pointer;white-space:nowrap";
-      el.textContent = `${st} · ${t.jobs} job${t.jobs === 1 ? "" : "s"} · ${t.cf.toLocaleString("en-US")} cf`;
-      el.title = `Filter ${noun} to ${st}`;
+      el.className = "map-pill nums";
+      const full = `${st} · ${t.jobs} job${t.jobs === 1 ? "" : "s"} · ${t.cf.toLocaleString("en-US")} cf`;
+      // Zoomed all the way out the count is the least of the three: the dots
+      // already show where the freight is and the badges already count the
+      // piles, so the pill spends its width on the state and the volume.
+      el.textContent =
+        shortPills ? `${st} · ${t.cf.toLocaleString("en-US")} cf` : full;
+      el.title = `${full} — click to filter ${noun} to ${st}`;
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         cb.current.onStateClick(st);
       });
-      stateMarkers.current.push(
-        new maplibregl.Marker({ element: el }).setLngLat([info.lng, info.lat]).addTo(m),
-      );
+      const marker = new maplibregl.Marker({ element: el }).setLngLat([info.lng, info.lat]).addTo(m);
+      stateMarkers.current.push(marker);
+      next.push({
+        kind: "state",
+        marker,
+        el,
+        lng: info.lng,
+        lat: info.lat,
+        anchor: "center",
+        base: [0, 0],
+        // The state holding the most freight keeps its label when two collide.
+        weight: t.cf,
+      });
     }
-  }, [jobs, end, detailed, ready]);
+    setLabels("state", next);
+  }, [jobs, end, detailed, ready, shortPills, setLabels]);
+
+  // --- re-place the labels whenever the viewport moves ---------------------
+  // On `move`, not `moveend`: markers follow the camera every frame, so waiting
+  // for the gesture to finish would show the smudge for the whole of it. One
+  // rAF-throttled pass over ~30 cached boxes is pure arithmetic.
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        declutter();
+      });
+    };
+    m.on("move", schedule);
+    m.on("resize", schedule);
+    schedule();
+    return () => {
+      m.off("move", schedule);
+      m.off("resize", schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [ready, declutter]);
 
   // --- clearing the bounds when the toggle goes off ------------------------
   useEffect(() => {
@@ -894,26 +1144,31 @@ export function LoadMap({
   const noRoad = selectedId != null && route?.id === selectedId && route.road.path == null;
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={shell} className="relative h-full w-full">
       <div ref={container} className="h-full w-full" />
 
+      {/* Every floating panel carries data-map-chrome: it is opaque, so the
+          label placer has to treat it as occupied ground. */}
       <div
-        className="glass absolute left-[var(--sp-3)] top-[var(--sp-3)] w-[250px] p-[var(--sp-3)]"
+        data-map-chrome
+        className="glass absolute left-[var(--sp-3)] top-[var(--sp-3)] max-w-[260px] p-[var(--sp-3)]"
         title={`Jobs whose ${end} is on screen, and the cubic feet standing there. Hollow markers sit on a state centroid rather than a real address. Jobs without a stated size are counted but add nothing to the total.`}
       >
-        <div className="big text-(length:--fs-lg)">
+        {/* The list header counts the whole result; this counts the viewport.
+            Saying which is which costs one small line and stops the two
+            reading as the same number printed twice. */}
+        <div className="label">On screen</div>
+        <div className="big nums text-(length:--fs-lg)">
           {inView == null
             ? "Loading…"
-            : `${allShown ? "All " : ""}${inView.count} job${inView.count === 1 ? "" : "s"}${
-                allShown ? "" : " in view"
-              } · ${totalCf.toLocaleString("en-US")} cf`}
+            : `${allShown ? "All " : ""}${inView.count} job${inView.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
         </div>
         <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           {totalCf > 0 ? truckLine(totalCf, viewer?.truckCf ?? null) : "No stated sizes on screen"}
           {inView && inView.unsized > 0 && ` · ${inView.unsized} without size`}
         </div>
         {notPlotted > 0 && (
-          <div className="text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
+          <div className="mt-[2px] text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
             {notPlotted} job{notPlotted === 1 ? " has" : "s have"} no mappable {end}
           </div>
         )}
@@ -926,6 +1181,7 @@ export function LoadMap({
 
       {noRoad && (
         <div
+          data-map-chrome
           className="glass absolute left-1/2 top-[var(--sp-3)] -translate-x-1/2 px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
           style={{ color: "var(--approx)" }}
         >
@@ -934,11 +1190,13 @@ export function LoadMap({
       )}
 
       <label
-        className="glass absolute right-[var(--sp-3)] top-[calc(var(--sp-3)+80px)] flex items-center gap-[var(--sp-2)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
-        style={{ cursor: "pointer" }}
+        data-map-chrome
+        className="glass absolute right-[var(--sp-3)] top-[calc(var(--sp-3)+80px)] flex cursor-pointer items-center gap-[var(--sp-2)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm) font-medium"
       >
         <input
           type="checkbox"
+          className="h-[15px] w-[15px]"
+          style={{ accentColor: "var(--accent)" }}
           checked={searchAsMove}
           onChange={(e) => onSearchAsMoveChange(e.target.checked)}
         />
@@ -946,6 +1204,7 @@ export function LoadMap({
       </label>
 
       <div
+        data-map-chrome
         className="glass point-legend absolute bottom-[var(--sp-5)] left-[var(--sp-3)] px-[var(--sp-3)] py-[var(--sp-2)]"
         style={
           {
@@ -971,14 +1230,18 @@ export function LoadMap({
 }
 
 /** A small white label pinned to one end of the selected route. */
-function endMarker(m: maplibregl.Map, at: [number, number], text: string): maplibregl.Marker {
+function endMarker(
+  m: maplibregl.Map,
+  at: [number, number],
+  text: string,
+): { marker: maplibregl.Marker; el: HTMLElement } {
   const el = document.createElement("div");
-  el.className = "glass nums";
-  el.style.cssText = "padding:2px 7px;font:600 11px/1.5 system-ui;white-space:nowrap";
+  el.className = "map-pill nums";
   el.textContent = text;
-  return new maplibregl.Marker({ element: el, anchor: "left", offset: [10, 0] })
+  const marker = new maplibregl.Marker({ element: el, anchor: "left", offset: [10, 0] })
     .setLngLat(at)
     .addTo(m);
+  return { marker, el };
 }
 
 /**

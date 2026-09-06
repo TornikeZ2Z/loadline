@@ -40,7 +40,10 @@
   --shadow-1: 0 1px 2px rgb(15 23 42 / .06), 0 1px 1px rgb(15 23 42 / .04);
   --shadow-2: 0 4px 12px rgb(15 23 42 / .10), 0 1px 3px rgb(15 23 42 / .06);
   --shadow-3: 0 16px 40px rgb(15 23 42 / .16);
-  --focus: 0 0 0 3px var(--accent-soft);
+  /* A gap of surface then a solid accent ring. The old value was three pixels
+     of --accent-soft (#e8efff) which, on a white card, is very nearly white:
+     a focus indicator nobody can see is not one. */
+  --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
   /* type scale */
   --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-md: 14px; --fs-lg: 16px;
   --fs-xl: 20px; --fs-2xl: 24px; --fs-3xl: 32px; --lh-tight: 1.15; --lh-base: 1.45;
@@ -86,12 +89,22 @@ body {
 
 /* cards */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-1); }
-.card-hover:hover { box-shadow: var(--shadow-2); transform: translateY(-1px); transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); }
-.card-selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* The transition belongs on the base, not inside :hover -- declared only in the
+   hover rule, the lift animates in and snaps back. */
+.card-hover { transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.card-hover:hover { box-shadow: var(--shadow-2); border-color: var(--border-strong); transform: translateY(-1px); }
+.card-selected, .card-hover.card-selected:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* A job card is a div role="button" (it contains a real button), so it gets no
+   focus ring for free. Keyboard users walk the list with the arrow keys, which
+   means this is the ONLY thing telling them where they are. */
+[data-job-card] { outline: none; }
+[data-job-card]:focus-visible { border-color: var(--accent); box-shadow: var(--focus); }
 
 /* fields, labels, buttons */
-.field { width: 100%; height: var(--control-h); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 10px; font-size: var(--fs-base); color: var(--text); }
+.field { width: 100%; height: var(--control-h); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 10px; font-size: var(--fs-base); color: var(--text); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
 textarea.field { height: auto; padding: 8px 10px; }
+.field:hover:not(:focus) { border-color: var(--muted-2); }
 .field:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
 .field::placeholder { color: var(--placeholder); }
 .label { display: block; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
@@ -116,21 +129,52 @@ textarea.field { height: auto; padding: 8px 10px; }
 .seg-option:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /* filter triggers */
-.pill { display: inline-flex; align-items: center; gap: 6px; height: var(--control-h); padding: 0 12px; border-radius: var(--radius-pill); border: 1px solid var(--border-strong); background: var(--surface); font-size: var(--fs-base); font-weight: 500; color: var(--text); cursor: pointer; white-space: nowrap; }
-.pill:hover { background: var(--surface-2); }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: var(--control-h); padding: 0 12px; border-radius: var(--radius-pill); border: 1px solid var(--border-strong); background: var(--surface); font-size: var(--fs-base); font-weight: 500; color: var(--text); cursor: pointer; white-space: nowrap; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.pill:hover { background: var(--surface-2); border-color: var(--muted-2); }
+.pill:focus-visible { outline: none; box-shadow: var(--focus); }
+.pill[data-active="true"]:hover { background: var(--accent-soft); border-color: var(--accent); }
 .pill[data-active="true"] { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent); }
 .pill .pill-chip { height: 22px; padding: 0 8px; border-radius: var(--radius-pill); background: #fff; color: var(--accent); font-size: var(--fs-xs); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
 .pill .ghost { color: var(--placeholder); font-weight: 400; }
 
-/* chips */
-.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 600; line-height: 1; white-space: nowrap; background: var(--surface-2); color: var(--text-2); }
+/* chips
+ *
+ * One rule decides a chip's shape, and it is about who is speaking:
+ *
+ *   FILLED  -- the sender said this. Ready now, Urgent, COD, DOT & MC, Piano.
+ *              Colour then grades it: green ready, amber act-on-it, grey plain
+ *              fact, red cancelled.
+ *   OUTLINED-- LoadLine is saying it, about the listing rather than the load.
+ *              "approximate location" and "Unverified" are our uncertainty;
+ *              "Delisted", "Taken", "+2" are the listing's own state. None of
+ *              them is news from the sender, so none of them gets a filled
+ *              patch of colour competing with the one that is.
+ *
+ * Before this, `approximate` (a caveat about our geocoding) and `Urgent` (a
+ * fact from the post) were both amber-on-cream at the same weight, so a card
+ * carrying two caveats looked more alarming than one carrying a deadline.
+ */
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 600; line-height: 1; white-space: nowrap; background: var(--surface-2); color: var(--text-2); border: 1px solid transparent; }
 .chip-accent { background: var(--accent-soft); color: var(--accent); }
 .chip-ok, .chip-ready { background: var(--ready-soft); color: var(--ready); }
 .chip-fresh { background: var(--fresh-soft); color: var(--fresh); }
-.chip-warn, .chip-review { background: var(--warn-soft); color: var(--warn); }
-.chip-approx { background: var(--warn-soft); color: var(--approx); }
+.chip-warn { background: var(--warn-soft); color: var(--warn); }
 .chip-danger { background: var(--danger-soft); color: var(--danger); }
-.chip-muted { background: transparent; color: var(--muted-2); border: 1px dashed var(--border-strong); }
+/* Outlined: not the sender's word. The frame is neutral and the word carries
+   the grade -- amber for a caveat, grey for a quiet state. An amber DASHED
+   frame was tried first and was worse than the filled chip it replaced: a
+   dash pattern is high-frequency detail, so it pulled the eye harder than the
+   green "Ready now" it was meant to sit behind. */
+.chip-review { background: transparent; color: var(--warn); border-color: var(--warn); }
+.chip-approx { background: transparent; color: var(--approx); border-color: var(--border-strong); font-weight: 500; }
+.chip-muted { background: transparent; color: var(--muted); border-color: var(--border-strong); font-weight: 500; }
+
+/* Loading. A spinner says "wait"; a silhouette of the thing that is coming
+   says "wait, and here is the shape of it" -- and it stops the list column
+   from collapsing to a single line of grey text and then jumping. */
+.skeleton { display: block; border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: skeleton 1.4s ease-in-out infinite; }
+@keyframes skeleton { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; background: var(--surface-2); } }
 
 /* popovers, glass overlays, drawer, sheet */
 .popover { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-3); padding: var(--sp-4); }
@@ -159,11 +203,19 @@ textarea.field { height: auto; padding: 8px 10px; }
 .line-gutter > .l-unknown { border-color: var(--danger); background: var(--danger-soft); }
 .line-gutter > .l-hit { background: var(--accent-soft); }
 
-/* The count on a marker that stands for more than one job. Pointer events are
-   off so the click still lands on the circle underneath, which is the thing
-   that knows which jobs it holds. */
-.map-count { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: var(--radius-pill); background: var(--surface-glass); border: 1px solid var(--border); box-shadow: var(--shadow-1); color: var(--text); font: 600 11px/1.5 var(--font-sans, system-ui); white-space: nowrap; pointer-events: none; }
+/* Labels that sit ON the map: a state total, one end of the open route, and
+   the count on a marker holding more than one job. One family, because they
+   compete for the same pixels and are placed by one collision pass in LoadMap
+   -- a label that measured differently from its neighbour would be placed
+   against a box that is not its own. */
+.map-pill, .map-count { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--radius-pill); background: var(--surface-glass); backdrop-filter: blur(4px); border: 1px solid var(--border); box-shadow: var(--shadow-1); color: var(--text); white-space: nowrap; font-weight: 600; font-size: var(--fs-xs); line-height: 1.4; }
+.map-pill { padding: 3px 9px; }
+.map-count { padding: 1px 7px; pointer-events: none; }
 .map-count[data-approx] { color: var(--approx); }
+/* Only the state totals are buttons; the route's end labels are plain divs. */
+button.map-pill { cursor: pointer; transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+button.map-pill:hover { color: var(--accent); border-color: var(--accent); }
+button.map-pill:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /* MapLibre chrome */
 .maplibregl-ctrl-group { background: var(--surface); box-shadow: var(--shadow-2); border-radius: var(--radius-sm); }

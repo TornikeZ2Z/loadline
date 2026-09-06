@@ -34,7 +34,7 @@ import {
   LIFECYCLE_NOTE,
   type Filters,
 } from "./FilterBar";
-import { JobList, partitionUnverified } from "./LoadViews";
+import { JobList, JobListSkeleton, partitionUnverified } from "./LoadViews";
 import { LoadDetail } from "./LoadDetail";
 import { BottomSheet, SNAP_FRACTION, type SheetSnap } from "./BottomSheet";
 import { EmptyState } from "./ui";
@@ -303,19 +303,25 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   const suggestions = emptyStateSuggestions(filters);
   const showNudge = hydrated && !current && !nudged && !mobile;
 
+  /**
+   * The list's head, and the board's visual entry point: the one place that
+   * says how much freight is on screen before you read a single card. The
+   * count and the cubic feet carry the weight; the truckload equivalent and
+   * the ready/priced tally are the footnote to it, on one quiet line.
+   */
   const header = (
     <div>
-      <div className="big text-(length:--fs-lg)">
+      <div className="big nums text-(length:--fs-xl)">
         {shown.count} {shown.count === 1 ? "job" : "jobs"}
-        {shown.totalCf > 0 && ` · ${formatCf(shown.totalCf)}`}
         {shown.totalCf > 0 && (
-          <span className="font-normal" style={{ color: "var(--muted)" }}>
-            {" "}
-            {truckLine(shown.totalCf, current?.truckCf ?? null)}
-          </span>
+          <>
+            <span style={{ color: "var(--border-strong)" }}>{" · "}</span>
+            {formatCf(shown.totalCf)}
+          </>
         )}
       </div>
-      <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+      <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        {shown.totalCf > 0 && `${truckLine(shown.totalCf, current?.truckCf ?? null)} · `}
         {shown.readyNow} ready now · {shown.priced} priced
         {truncated && " · showing first 500"}
       </div>
@@ -359,9 +365,12 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       )}
 
       {loading && rows.length === 0 ? (
-        <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-          Loading jobs…
-        </p>
+        <>
+          <p className="sr-only" role="status">
+            Loading jobs…
+          </p>
+          <JobListSkeleton />
+        </>
       ) : rows.length === 0 && !error ? (
         <EmptyState title={emptyStateTitle(filters)} hint={LIFECYCLE_NOTE}>
           {suggestions.map((s) => (
