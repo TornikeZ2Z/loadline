@@ -253,16 +253,23 @@ export function PopoverButton({
             role="dialog"
             aria-modal="true"
             aria-label={panelTitle ?? ariaLabel}
-            className="fixed inset-0 z-50 flex flex-col overflow-y-auto p-[var(--sp-4)]"
+            className="fixed inset-0 z-50 flex flex-col overflow-y-auto overscroll-contain"
             style={{ background: "var(--surface)" }}
           >
-            <div className="mb-[var(--sp-3)] flex items-center justify-between">
+            {/* Sticky, and this is the whole reason the sheet has a header:
+                the filter list is taller than a phone, so a Done button that
+                scrolled with it left the only way out at the bottom of a
+                screen the viewer had scrolled away from. */}
+            <div
+              className="sticky top-0 z-10 mb-[var(--sp-3)] flex items-center justify-between gap-[var(--sp-2)] border-b border-border px-[var(--sp-4)] py-[var(--sp-2)]"
+              style={{ background: "var(--surface)" }}
+            >
               <span className="big text-(length:--fs-lg)">{panelTitle ?? ariaLabel}</span>
-              <button type="button" className="btn btn-ghost" onClick={close}>
+              <button type="button" className="btn btn-primary" onClick={close}>
                 Done
               </button>
             </div>
-            {children(close)}
+            <div className="px-[var(--sp-4)] pb-[var(--sp-6)]">{children(close)}</div>
           </div>
         ) : (
           <div

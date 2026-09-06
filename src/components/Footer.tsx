@@ -88,7 +88,7 @@ function FooterLink({ href, label }: SiteLink) {
   return (
     <Link
       href={href}
-      className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) hover:underline md:min-h-0 md:py-[3px]"
+      className="-mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) hover:underline md:min-h-0 md:py-[3px]"
       style={{ color: "var(--text-2)" }}
     >
       {label}

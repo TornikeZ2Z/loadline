@@ -84,7 +84,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
             back -- that 40 px is the difference between a header that fits and a
             page that scrolls sideways. */}
         <div className="mx-auto flex h-full max-w-[1600px] items-center gap-[var(--sp-2)] px-[var(--sp-2)] lg:gap-[var(--sp-5)] lg:px-[var(--sp-4)]">
-          <Link href="/" className="flex shrink-0 items-center gap-2 font-bold tracking-tight">
+          {/* Below `sm` the wordmark is hidden and this is a 24 px badge --
+              the board's only permanent way home, at a 24 x 24 target. The
+              padding grows it to 44 x 44 without moving the badge: the left
+              inset is pulled back by exactly the header's own 8 px padding, so
+              the mark still starts where it did, and the remaining 12 px is
+              taken on the right, where there is nothing to collide with. */}
+          <Link
+            href="/"
+            className="-ml-[var(--sp-2)] flex h-[var(--tap-min)] shrink-0 items-center gap-2 rounded-md pl-[var(--sp-2)] pr-[var(--sp-3)] font-bold tracking-tight sm:ml-0 sm:px-0"
+          >
             <span
               className="grid h-6 w-6 place-items-center rounded-md text-(length:--fs-base) text-white"
               style={{ background: "var(--accent)" }}
@@ -167,7 +176,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 <MenuAutoClose> adds as an enhancement -- see that file. */}
             <details key={currentPath ?? "/"} data-menu className="relative shrink-0">
               <summary
-                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:px-2 [&::-webkit-details-marker]:hidden"
+                className="flex h-[var(--tap-min)] min-w-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:min-w-0 md:px-2 [&::-webkit-details-marker]:hidden"
                 style={
                   active === "site"
                     ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -207,7 +216,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                       <Link
                         key={link.href}
                         href={link.href}
-                        className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
+                        className="-mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                         style={{ color: "var(--text-2)" }}
                       >
                         {link.label}
@@ -228,7 +237,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                         <Link
                           key={n.key}
                           href={n.href}
-                          className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
+                          className="-mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                           style={{ color: "var(--text-2)" }}
                         >
                           {n.label}
