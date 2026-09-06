@@ -69,4 +69,14 @@ variable "log_retention_days" {
 variable "here_secret_name" {
   type    = string
   default = ""
+
+  # This file's companion, terraform.tfvars, is committed to a PUBLIC
+  # repository, and the obvious mistake is to paste the API key here instead of
+  # the name of the secret that holds it. A HERE key is a ~43-character token
+  # with no separator, so anything that long without a "/" is almost certainly
+  # the key itself — fail the plan rather than publish it.
+  validation {
+    condition     = var.here_secret_name == "" || can(regex("/", var.here_secret_name))
+    error_message = "here_secret_name is the NAME of a Secrets Manager secret (e.g. \"loadline/HERE_API_KEY\"), not the API key. This value is committed to a public repo; if you pasted a key here, remove it and rotate the key."
+  }
 }
