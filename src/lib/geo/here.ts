@@ -16,6 +16,8 @@
  * gazetteer and straight-line distance, exactly as before.
  */
 
+import { decodeFlexiblePolyline, simplifyPath } from "./polyline";
+
 const AUTOCOMPLETE = "https://autocomplete.search.hereapi.com/v1/autocomplete";
 const LOOKUP = "https://lookup.search.hereapi.com/v1/lookup";
 const GEOCODE = "https://geocode.search.hereapi.com/v1/geocode";
@@ -41,6 +43,24 @@ export interface RoadDistance {
   miles: number;
   minutes: number;
 }
+
+/** A `RoadDistance` plus the road itself, when the caller asked for geometry. */
+export interface RoadRoute extends RoadDistance {
+  /**
+   * The road, simplified, in GeoJSON order (`[lng, lat]`). Null when geometry
+   * was not requested, or when HERE returned a summary it could not draw.
+   */
+  path: [number, number][] | null;
+}
+
+/**
+ * How many points a cached road geometry keeps.
+ *
+ * A 1,281-mile Miami → Kearny truck route decodes to 13,531 points; at 500 it
+ * is 417 points and 8.7 KB of JSON, within 0.18 miles of the full geometry at
+ * every point — far below one screen pixel at any zoom the board offers.
+ */
+const ROAD_PATH_POINTS = 500;
 
 /**
  * A daily ceiling on billable HERE calls.
@@ -306,32 +326,43 @@ export async function hereReverseGeocode(
 }
 
 /**
- * Road distance and drive time for a truck.
+ * Road distance, drive time and — on request — the road itself, for a truck.
  *
  * `transportMode=truck` matters: it respects height, weight and hazmat
  * restrictions and avoids roads a tractor-trailer cannot legally use, so the
  * answer is the one a driver would get from their own navigation rather than a
  * car's shortcut.
+ *
+ * `withPath` adds `polyline` to the SAME `return` list, so the geometry costs
+ * zero extra calls — only a bigger response. It is off by default because the
+ * driver-to-pickup leg is a number on a card, not a line on the map, and there
+ * is no reason to move 67 KB to compute it.
+ *
+ * A geometry that fails to decode is dropped, never thrown: losing the drawn
+ * route is a smaller failure than losing "1,281 mi by road" with it.
  */
 export async function hereRoute(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number },
-): Promise<RoadDistance | null> {
+  opts: { withPath?: boolean } = {},
+): Promise<RoadRoute | null> {
   if (!hereConfigured()) return null;
 
   const url = new URL(ROUTER);
   url.searchParams.set("transportMode", "truck");
   url.searchParams.set("origin", `${origin.lat},${origin.lng}`);
   url.searchParams.set("destination", `${destination.lat},${destination.lng}`);
-  url.searchParams.set("return", "summary");
+  url.searchParams.set("return", opts.withPath ? "summary,polyline" : "summary");
   url.searchParams.set("apiKey", key());
 
   spend();
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
   if (!res.ok) return null;
 
   const json = (await res.json()) as {
-    routes?: Array<{ sections?: Array<{ summary?: { length?: number; duration?: number } }> }>;
+    routes?: Array<{
+      sections?: Array<{ polyline?: string; summary?: { length?: number; duration?: number } }>;
+    }>;
   };
 
   // A route can come back in several sections; the trip is their sum.
@@ -345,7 +376,37 @@ export async function hereRoute(
   return {
     miles: Math.round(meters / 1609.344),
     minutes: Math.round(seconds / 60),
+    path: opts.withPath ? pathOf(sections) : null,
   };
+}
+
+/** Every section's polyline, joined end to end and thinned to one map's worth. */
+function pathOf(sections: Array<{ polyline?: string }>): [number, number][] | null {
+  const joined: [number, number][] = [];
+  try {
+    for (const section of sections) {
+      if (!section.polyline) continue;
+      const points = decodeFlexiblePolyline(section.polyline);
+      // Consecutive sections repeat the junction point; drawing it twice is
+      // harmless but it is one more point in every cached row.
+      const start = joined.length && points.length && samePoint(joined[joined.length - 1]!, points[0]!) ? 1 : 0;
+      for (let i = start; i < points.length; i += 1) joined.push(points[i]!);
+    }
+  } catch (err) {
+    console.error("[here] could not decode the route polyline:", err);
+    return null;
+  }
+
+  if (joined.length < 2) return null;
+  // Five decimals is about a metre -- more than a truck route needs, and it
+  // halves the bytes of the cached row against raw float output.
+  return simplifyPath(joined, ROAD_PATH_POINTS).map(
+    ([lng, lat]) => [Number(lng.toFixed(5)), Number(lat.toFixed(5))] as [number, number],
+  );
+}
+
+function samePoint(a: [number, number], b: [number, number]): boolean {
+  return Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
 }
 
 /** "6h 20m" */

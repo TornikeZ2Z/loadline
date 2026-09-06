@@ -188,6 +188,15 @@ CREATE TABLE IF NOT EXISTS saved_searches (
 ALTER TABLE loads ADD COLUMN IF NOT EXISTS road_miles   double precision;
 ALTER TABLE loads ADD COLUMN IF NOT EXISTS road_minutes integer;
 
+-- The road itself, from the SAME billable call that filled road_miles: adding
+-- `polyline` to the router's `return` list costs nothing but response size. The
+-- geometry arrives as HERE's flexible polyline (~67 KB for a cross-country
+-- truck route), is decoded and thinned to ~500 points server-side, and is
+-- stored here as a JSON array of [lng, lat] pairs -- roughly 9 KB, and the same
+-- line at every zoom the board offers. NULL means "never routed"; the map fills
+-- it the first time somebody opens the job.
+ALTER TABLE loads ADD COLUMN IF NOT EXISTS road_path jsonb;
+
 -- ---------------------------------------------------------------------------
 -- Moving-industry pivot v2: sender inventories, supersession, unknown-pattern
 -- queue. Additive only; safe to replay on every boot.

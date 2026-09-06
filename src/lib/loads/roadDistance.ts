@@ -1,15 +1,22 @@
 /**
- * Road distance for a load, via the HERE truck router.
+ * Road distance -- and the road itself -- for a load, via the HERE truck router.
  *
  * Deliberately computed **only when a load is opened**, never for a list. A
- * board query returns 50 loads; routing all of them would be 50 billable calls
+ * board query returns 500 jobs; routing all of them would be 500 billable calls
  * to answer a question nobody asked yet. Straight-line miles are fine for
  * ranking and filtering -- the road number matters once a driver is deciding on
  * one specific job.
  *
- * The load's own lane is cached on the row, because it can never change. The
- * driver-to-pickup leg cannot be cached that way (it depends who is asking), so
- * it is memoized in process on a coarse coordinate key.
+ * One call per job, ever. The lane's summary and its geometry come back on the
+ * same request (`return=summary,polyline`) and are cached together on the row,
+ * because neither can change for a given pickup/delivery pair. That is why
+ * `tripDistance` asks for geometry whenever the row has none, even though the
+ * job detail only wants the numbers: the map will want the line seconds later,
+ * and a second request for it would be a second invoice line.
+ *
+ * The driver-to-pickup leg cannot be cached on the row (it depends who is
+ * asking), so it is memoized in process on a coarse coordinate key -- and it
+ * never asks for geometry, because nothing draws it.
  */
 import { query, queryOne } from "@/lib/db";
 import { hereConfigured, hereRoute, type RoadDistance } from "@/lib/geo/here";
@@ -23,6 +30,19 @@ export interface LoadDistances {
   unavailable: boolean;
 }
 
+/** What the map needs to draw one selected job's lane. */
+export interface LoadRoadRoute {
+  /** The real road, `[lng, lat]`, simplified. Null when there is none to draw. */
+  path: [number, number][] | null;
+  miles: number | null;
+  minutes: number | null;
+  /**
+   * No road route could be produced -- no key, quota spent, or the router said
+   * no. The caller draws its straight dashed line and says so.
+   */
+  unavailable: boolean;
+}
+
 interface LoadPoints {
   pickup_lat: number | null;
   pickup_lng: number | null;
@@ -30,7 +50,11 @@ interface LoadPoints {
   delivery_lng: number | null;
   road_miles: number | null;
   road_minutes: number | null;
+  road_path: unknown;
 }
+
+const POINT_COLUMNS = `pickup_lat, pickup_lng, delivery_lat, delivery_lng,
+                       road_miles, road_minutes, road_path`;
 
 export async function loadDistances(
   loadId: number,
@@ -39,24 +63,81 @@ export async function loadDistances(
   if (!hereConfigured()) return { trip: null, toPickup: null, unavailable: true };
 
   const row = await queryOne<LoadPoints>(
-    `SELECT pickup_lat, pickup_lng, delivery_lat, delivery_lng, road_miles, road_minutes
-       FROM loads WHERE id = $1`,
+    `SELECT ${POINT_COLUMNS} FROM loads WHERE id = $1`,
     [loadId],
   );
   if (!row) return { trip: null, toPickup: null, unavailable: false };
 
-  const trip = await tripDistance(loadId, row);
+  const trip = await tripRoute(loadId, row);
   const toPickup =
     viewer && row.pickup_lat != null && row.pickup_lng != null
       ? await legDistance(viewer, { lat: row.pickup_lat, lng: row.pickup_lng })
       : null;
 
-  return { trip, toPickup, unavailable: false };
+  // Only the numbers cross the wire here: the detail drawer shows "1,281 mi by
+  // road", and shipping 9 KB of geometry to draw nothing would be waste.
+  return {
+    trip: trip ? { miles: trip.miles, minutes: trip.minutes } : null,
+    toPickup: toPickup ? { miles: toPickup.miles, minutes: toPickup.minutes } : null,
+    unavailable: false,
+  };
 }
 
-async function tripDistance(loadId: number, row: LoadPoints): Promise<RoadDistance | null> {
-  if (row.road_miles != null && row.road_minutes != null) {
-    return { miles: row.road_miles, minutes: row.road_minutes };
+/**
+ * The lane a selected job draws on the map.
+ *
+ * Returns null only when the job does not exist. A cached `road_path` is served
+ * whether or not HERE is configured today -- the geometry was already paid for,
+ * and refusing to draw it because a key was later removed would be theatre.
+ */
+export async function loadRoadRoute(loadId: number): Promise<LoadRoadRoute | null> {
+  const row = await queryOne<LoadPoints>(
+    `SELECT ${POINT_COLUMNS} FROM loads WHERE id = $1`,
+    [loadId],
+  );
+  if (!row) return null;
+
+  const cached = parsePath(row.road_path);
+  if (cached) {
+    return { path: cached, miles: row.road_miles, minutes: row.road_minutes, unavailable: false };
+  }
+
+  const fetched = await tripRoute(loadId, row);
+  if (!fetched?.path) {
+    return {
+      path: null,
+      miles: fetched?.miles ?? row.road_miles,
+      minutes: fetched?.minutes ?? row.road_minutes,
+      unavailable: true,
+    };
+  }
+  return {
+    path: fetched.path,
+    miles: fetched.miles,
+    minutes: fetched.minutes,
+    unavailable: false,
+  };
+}
+
+interface CachedTrip extends RoadDistance {
+  path: [number, number][] | null;
+}
+
+/**
+ * The job's own lane, from the row when it is there and from HERE when it is
+ * not. Geometry is requested whenever the row has none, so the numbers and the
+ * line are always bought together.
+ */
+async function tripRoute(loadId: number, row: LoadPoints): Promise<CachedTrip | null> {
+  const cachedPath = parsePath(row.road_path);
+  if (row.road_miles != null && row.road_minutes != null && cachedPath) {
+    return { miles: row.road_miles, minutes: row.road_minutes, path: cachedPath };
+  }
+
+  if (!hereConfigured()) {
+    return row.road_miles != null && row.road_minutes != null
+      ? { miles: row.road_miles, minutes: row.road_minutes, path: cachedPath }
+      : null;
   }
   if (row.pickup_lat == null || row.pickup_lng == null) return null;
   if (row.delivery_lat == null || row.delivery_lng == null) return null;
@@ -64,15 +145,51 @@ async function tripDistance(loadId: number, row: LoadPoints): Promise<RoadDistan
   const result = await hereRoute(
     { lat: row.pickup_lat, lng: row.pickup_lng },
     { lat: row.delivery_lat, lng: row.delivery_lng },
+    { withPath: true },
   );
-  if (!result) return null;
+  if (!result) {
+    return row.road_miles != null && row.road_minutes != null
+      ? { miles: row.road_miles, minutes: row.road_minutes, path: cachedPath }
+      : null;
+  }
 
-  await query(`UPDATE loads SET road_miles = $1, road_minutes = $2 WHERE id = $3`, [
+  await query(`UPDATE loads SET road_miles = $1, road_minutes = $2, road_path = $3 WHERE id = $4`, [
     result.miles,
     result.minutes,
+    result.path ? JSON.stringify(result.path) : null,
     loadId,
   ]);
-  return result;
+  return { miles: result.miles, minutes: result.minutes, path: result.path };
+}
+
+/**
+ * `road_path` back into coordinates.
+ *
+ * jsonb comes back parsed from `pg` and from PGlite, but a text column or a
+ * driver change would hand back a string, and a half-written row would hand
+ * back something else entirely. Anything that is not a list of pairs is treated
+ * as "not routed yet" rather than crashing a public endpoint.
+ */
+function parsePath(value: unknown): [number, number][] | null {
+  let raw = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(raw) || raw.length < 2) return null;
+
+  const out: [number, number][] = [];
+  for (const point of raw) {
+    if (!Array.isArray(point) || point.length < 2) return null;
+    const lng = Number(point[0]);
+    const lat = Number(point[1]);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+    out.push([lng, lat]);
+  }
+  return out;
 }
 
 // Rounded to ~1km so a driver moving slightly does not re-bill the same leg.
@@ -87,7 +204,8 @@ async function legDistance(
   const hit = legCache.get(key);
   if (hit && Date.now() - hit.at < LEG_TTL_MS) return hit.value;
 
-  const value = await hereRoute(from, to);
+  const result = await hereRoute(from, to);
+  const value = result ? { miles: result.miles, minutes: result.minutes } : null;
   legCache.set(key, { value, at: Date.now() });
   if (legCache.size > 500) legCache.delete(legCache.keys().next().value!);
   return value;
