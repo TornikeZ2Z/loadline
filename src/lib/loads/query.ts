@@ -536,12 +536,15 @@ function clamp(n: number, lo: number, hi: number): number {
  * a ceiling: `?limit=1.5` and `?offset=1e21` are both finite, and both make the
  * driver reject the statement -- a 500 with a raw database message where the
  * caller should simply have got the nearest sensible page.
+ *
+ * Exported because every paged query has the same problem: the admin message
+ * feed pages its own table and needs the same rounding with a smaller ceiling.
  */
-function pageLimit(limit: number | undefined): number {
-  return Number.isFinite(limit) ? clamp(Math.round(limit!), 1, 500) : 50;
+export function pageLimit(limit: number | undefined, max = 500): number {
+  return Number.isFinite(limit) ? clamp(Math.round(limit!), 1, max) : Math.min(50, max);
 }
 
-function pageOffset(offset: number | undefined): number {
+export function pageOffset(offset: number | undefined): number {
   return Number.isFinite(offset) ? clamp(Math.round(offset!), 0, 100_000) : 0;
 }
 

@@ -10,6 +10,7 @@
  */
 import { query, queryOne } from "@/lib/db";
 import type { ExtractionOutcome } from "@/lib/extract/schema";
+import { pageLimit } from "@/lib/loads/query";
 
 export interface ChatGroup {
   id: number;
@@ -194,7 +195,9 @@ export interface MessageFilters {
 
 /** The admin queue: every row is a true ChatMessage plus processing metadata. */
 export async function queryMessages(f: MessageFilters): Promise<Array<ChatMessage & { processed_at: string | null; attempts: number }>> {
-  const limit = Math.min(Math.max(Number(f.limit ?? 50) || 50, 1), 200);
+  // Same rounding the board's pages use: clamping alone leaves `?limit=1.5`
+  // intact, and a non-integer bound to a bigint LIMIT is a 500.
+  const limit = pageLimit(f.limit, 200);
   return query<ChatMessage & { processed_at: string | null; attempts: number }>(
     `SELECT ${MESSAGE_COLUMNS}, m.processed_at::text AS processed_at, m.attempts
        ${MESSAGE_FROM}
