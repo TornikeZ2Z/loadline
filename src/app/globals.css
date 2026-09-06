@@ -335,7 +335,13 @@ button.map-pill:focus-visible { outline: none; box-shadow: var(--focus); }
      by the component and Next emits it after this file, so an equally specific
      rule here loses on source order. */
   .maplibregl-ctrl-group button { width: var(--tap-min) !important; height: var(--tap-min) !important; }
-  .maplibregl-ctrl-attrib-button { width: var(--tap-min) !important; height: var(--tap-min) !important; }
+  /* Its icon is a 24 px background-image with no size or position set, so a
+     44 px button tiles it four times. */
+  .maplibregl-ctrl-attrib-button {
+    width: var(--tap-min) !important; height: var(--tap-min) !important;
+    border-radius: var(--radius-pill) !important;
+    background-repeat: no-repeat !important; background-position: center !important;
+  }
   /* The two attribution links are the licence, so they have to be reachable. */
   .maplibregl-ctrl-attrib a { display: inline-block; padding: 5px 0; }
 

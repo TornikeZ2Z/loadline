@@ -335,7 +335,9 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   const now = useMemo(() => new Date(), [rows]);
   const selectedJob = ordered.find((j) => j.id === selectedId) ?? null;
   const suggestions = emptyStateSuggestions(filters);
-  const showNudge = hydrated && !current && !nudged && !mobile;
+  // Not on a phone, and not on a landscape phone either: it is a 320 px card
+  // over a 544 x 267 map, which is most of the map.
+  const showNudge = hydrated && !current && !nudged && !mobile && !shortScreen;
 
   /**
    * The list's head, and the board's visual entry point: the one place that
@@ -477,6 +479,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
            snap, never mid-drag, and never after the viewer has panned the map
            themselves. */
         bottomPadding={mobile ? snapHeightPx(viewportHeight, snap, topInset) : 0}
+        compact={mobile || shortScreen}
         filteredSummary={summary}
         loading={firstLoad}
       />

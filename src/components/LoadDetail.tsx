@@ -232,16 +232,21 @@ export function LoadDetail({
             Sticky, because this drawer is ~1,200 px long and the lane is the
             one thing you need to still know when you are eight sections down
             reading the original post. The way back out travels with it. */}
+        {/* On a phone this header and the contact bar together are 361 px of a
+            464 px sheet, so the drawer's own body gets a hundred. It keeps
+            everything it says and one size step less of saying it. */}
         <section
-          className="sticky top-0 z-10 border-b border-border px-[var(--sp-4)] pb-[var(--sp-3)] pt-[var(--sp-3)]"
+          className="sticky top-0 z-10 border-b border-border px-[var(--sp-4)] pb-[var(--sp-2)] pt-[var(--sp-2)] md:pb-[var(--sp-3)] md:pt-[var(--sp-3)]"
           style={{ background: "var(--surface-glass)", backdropFilter: "blur(8px)" }}
         >
           <BackButton total={totalInList} onClose={onClose} />
-          <h1 className="big mt-[var(--sp-2)] text-(length:--fs-2xl)">{laneLabel(row)}</h1>
-          <p className="text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
+          <h1 className="big mt-[var(--sp-1)] text-(length:--fs-xl) md:mt-[var(--sp-2)] md:text-(length:--fs-2xl)">
+            {laneLabel(row)}
+          </h1>
+          <p className="text-(length:--fs-base) md:text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
             {from.text} → {to.text}
           </p>
-          <div className="mt-[var(--sp-2)] flex flex-wrap gap-[var(--sp-1)]">
+          <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)] md:mt-[var(--sp-2)]">
             <Chip tone={fresh.tone} title={fresh.detail ?? undefined}>
               {fresh.text}
             </Chip>

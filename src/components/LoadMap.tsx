@@ -85,6 +85,8 @@ export interface LoadMapProps {
   fitKey: string;
   /** Height of the mobile sheet, so the route is fitted into the visible half. */
   bottomPadding?: number;
+  /** The phone layout: the map band is a fraction of its usual height. */
+  compact?: boolean;
   filteredSummary: LoadSummary | null;
   /** The first search has not answered yet; the panel must not report a 0. */
   loading?: boolean;
@@ -306,6 +308,7 @@ export function LoadMap({
   towardHome,
   fitKey,
   bottomPadding = 0,
+  compact = false,
   filteredSummary,
   loading = false,
 }: LoadMapProps) {
@@ -1198,41 +1201,44 @@ export function LoadMap({
           label placer has to treat it as occupied ground. */}
       <div
         data-map-chrome
-        /* Below `md` this panel is on a map band 261 px tall at the sheet's
-           default snap, so it drops to one line and its own title: everything
-           hidden here is printed again in the sheet's handle a thumb's width
-           below, and a phone cannot afford to say it twice. */
-        className="glass absolute left-[var(--sp-3)] top-[var(--sp-3)] max-w-[260px] p-[var(--sp-2)] md:p-[var(--sp-3)]"
+        /* On a phone this panel is on a map band 261 px tall at the sheet's
+           default snap, and in landscape the whole board is 267 px, so it drops
+           to one line and its own title: everything hidden here is printed
+           again in the list header a thumb's width away, and neither screen
+           can afford to say it twice. */
+        className={`glass absolute left-[var(--sp-3)] top-[var(--sp-3)] max-w-[260px] ${compact ? "p-[var(--sp-2)]" : "p-[var(--sp-3)]"}`}
         title={`Jobs whose ${end} is on screen, and the cubic feet standing there. Hollow markers sit on a state centroid rather than a real address. Jobs without a stated size are counted but add nothing to the total.`}
       >
         {/* The list header counts the whole result; this counts the viewport.
             Saying which is which costs one small line and stops the two
             reading as the same number printed twice. */}
-        <div className="hidden md:block">
-          <div className="label">On screen</div>
-        </div>
+        {compact ? null : <div className="label">On screen</div>}
         {/* The map is ready long before the first search answers, so `inView`
             is a truthful 0 over an empty map -- and a confident "All 0 jobs"
             is the wrong thing to say to someone who is waiting. */}
         {inView == null || loading ? (
           <>
             <span className="skeleton h-[16px] w-[150px]" />
-            <span className="skeleton mt-[4px] hidden h-[12px] w-[110px] md:block" />
+            {compact ? null : <span className="skeleton mt-[4px] h-[12px] w-[110px]" />}
           </>
         ) : (
           <>
-            <div className="big nums text-(length:--fs-md) md:text-(length:--fs-lg)">
+            <div className={compact ? "big nums text-(length:--fs-md)" : "big nums text-(length:--fs-lg)"}>
               {`${allShown ? "All " : ""}${inView.count} job${inView.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
-              <span className="font-normal md:hidden" style={{ color: "var(--muted)" }}>
-                {" on screen"}
-              </span>
+              {compact && (
+                <span className="font-normal" style={{ color: "var(--muted)" }}>
+                  {" on screen"}
+                </span>
+              )}
             </div>
-            <div className="hidden text-(length:--fs-sm) md:block" style={{ color: "var(--muted)" }}>
-              {totalCf > 0
-                ? truckLine(totalCf, viewer?.truckCf ?? null)
-                : "No stated sizes on screen"}
-              {inView.unsized > 0 && ` · ${inView.unsized} without size`}
-            </div>
+            {compact ? null : (
+              <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                {totalCf > 0
+                  ? truckLine(totalCf, viewer?.truckCf ?? null)
+                  : "No stated sizes on screen"}
+                {inView.unsized > 0 && ` · ${inView.unsized} without size`}
+              </div>
+            )}
           </>
         )}
         {notPlotted > 0 && (
@@ -1251,13 +1257,15 @@ export function LoadMap({
             many, and the one it belongs with is this one. The panel answers
             "what is on screen"; the toggle says "and keep the search tied to
             it". */}
-        <label className="check-row mt-[var(--sp-1)] border-t border-border pt-[var(--sp-1)] text-(length:--fs-sm) font-medium md:mt-[var(--sp-2)] md:pt-[var(--sp-2)]">
+        <label
+          className={`check-row border-t border-border text-(length:--fs-sm) font-medium ${compact ? "mt-[var(--sp-1)] pt-[var(--sp-1)]" : "mt-[var(--sp-2)] pt-[var(--sp-2)]"}`}
+        >
           <input
             type="checkbox"
             checked={searchAsMove}
             onChange={(e) => onSearchAsMoveChange(e.target.checked)}
           />
-          Search as I move<span className="hidden md:inline">&nbsp;the map</span>
+          Search as I move{compact ? "" : " the map"}
         </label>
       </div>
 
@@ -1271,6 +1279,12 @@ export function LoadMap({
         </div>
       )}
 
+      {/* Hidden on a phone while a job is open, and only then. The visible map
+          band is 261 px at the sheet's default snap, and the two labels naming
+          the route's ends are placed near their points -- so they and this
+          legend both want the bottom-left corner. The labels win: they are what
+          the map is saying right now, and this is reference material. */}
+      {compact && selectedId != null ? null : (
       <div
         data-map-chrome
         className="glass point-legend px-[var(--sp-3)] py-[var(--sp-2)]"
@@ -1293,6 +1307,7 @@ export function LoadMap({
           </b>
         )}
       </div>
+      )}
     </div>
   );
 }
