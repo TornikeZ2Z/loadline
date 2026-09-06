@@ -116,38 +116,40 @@ on host-header and cannot capture `ziptozip.app` traffic.
    fired: gotcha 6's broken database showed as a healthy target serving 500s.
    When diagnosing, curl `/login`, not `/api/health`.
 
-## Turning the HERE features on
+## HERE — on, and what that took
 
-Without a HERE key the board still works, but three things are quietly missing:
-every destination draws as an **approximate** marker (the ZIP is placed by an
-offline in-state guess), a job shows **no road miles or drive time**, and opening
-one draws **no vehicle route**. The map's whole point is the last of those.
+HERE **is** configured in production as of 2026-09-07: `loadline/HERE_API_KEY` in Secrets
+Manager, injected into the task, with `GEOCODER=here`. Road routes, road miles and drive
+time, exact ZIP coordinates and place autocomplete all work on the live board.
 
-The key is NOT created by this stack — a task definition referencing a secret
-with no version is a hard startup failure, so it is looked up, never made. To
-turn it on:
+Three things have to be true together, and the third is the one that looks optional and
+is not:
 
-1. Put the key in Secrets Manager if it is not there already:
+1. the task gets `HERE_API_KEY` from the secret,
+2. the **execution** role may read that specific secret ARN — miss this and the task will
+   not start at all (`ResourceInitializationError: unable to pull secrets`), and ECS keeps
+   the old task running, so the site stays up and looks unchanged,
+3. `GEOCODER` leaves `"local"`. `src/lib/geo/geocode.ts` reads that variable *before* it
+   checks whether a key exists, so a correctly wired key with `GEOCODER=local` gives you
+   road routes and still draws every destination as an approximate marker.
 
-   ```bash
-   aws secretsmanager create-secret --name loadline/HERE_API_KEY      --secret-string 'YOUR-KEY'
-   ```
+`here_secret_name` in `terraform.tfvars` is the secret's NAME, never the key: that file is
+committed to a public repository, and `variables.tf` rejects a value with no `/` in it for
+exactly that reason.
 
-2. Name that secret in `terraform.tfvars`:
+### If you ever move to a fresh database
 
-   ```hcl
-   here_secret_name = "loadline/HERE_API_KEY"
-   ```
+Rows keep the coordinates they were created with, so a restored or re-seeded board starts
+approximate even with HERE configured. Sign in as admin and use **Admin → Map precision**,
+or `POST /api/admin/geocode` in batches. It is idempotent and costs one HERE call per
+distinct ZIP, ever. On 2026-09-07 that took three batches to move 109 ZIPs from 0 precise
+to 107, and 98 board deliveries from 97 approximate to 95 exact.
 
-3. `tofu apply`. This injects `HERE_API_KEY` into the task, grants the execution
-   role permission to read that one secret, and flips `GEOCODER` from `local` to
-   `here` — all three are needed, and the third is easy to miss: the app reads
-   `GEOCODER` *before* it checks whether a key exists, so a key alone changes
-   nothing about the map's precision.
+### Doing it by hand, when OpenTofu is not to hand
 
-4. Existing rows keep the coordinates they were created with. Sign in as admin,
-   open **Admin → Map precision**, and run the warm: it walks the distinct ZIPs,
-   asks HERE for each one's real point, caches the answers and upgrades the rows.
-   It is idempotent and costs one call per distinct ZIP, ever.
+It was first turned on through the console — create the secret, add the ARN to the
+`loadline-task-execution-secrets` inline policy, create a task-definition revision carrying
+`HERE_API_KEY` (type `valueFrom`) and `GEOCODER=here`, then update the service onto that
+revision. That works, but it drifts from this stack: the next `tofu apply` reconciles it,
+which is why `here_secret_name` is set above.
 
-Leaving `here_secret_name` empty keeps today's behaviour exactly.

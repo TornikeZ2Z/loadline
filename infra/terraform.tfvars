@@ -13,4 +13,4 @@ log_retention_days     = 14
 # The NAME of an existing Secrets Manager secret that HOLDS the HERE key --
 # never the key itself. This file is committed to a public repository.
 # e.g. here_secret_name = "loadline/HERE_API_KEY"
-here_secret_name       = ""
+here_secret_name       = "loadline/HERE_API_KEY"
