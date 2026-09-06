@@ -220,8 +220,9 @@ export function resolveTimePhrase(
 }
 
 /**
- * When a load stops being useful. Pickup date end-of-day plus a grace window,
- * so a "pickup today" posted at 4pm does not vanish while it is still live.
+ * When a website post stops being useful: the ready day's end plus a grace
+ * window, or 72 hours when undated. Batch posts never use this -- their
+ * expiry is the sender's silence (src/lib/pipeline/reconcile.ts).
  */
 export function computeExpiry(
   pickupDateIso: string | null,
@@ -229,8 +230,7 @@ export function computeExpiry(
   graceHours = 12,
 ): Date {
   if (!pickupDateIso) {
-    // Undated posts are stale fast -- they are almost always "right now" work.
-    return new Date(sentAt.getTime() + 48 * 3600_000);
+    return new Date(sentAt.getTime() + 72 * 3600_000);
   }
   const [y, m, d] = pickupDateIso.split("-").map(Number);
   // End of the pickup day, interpreted generously in US Eastern (UTC-4/5).

@@ -1,17 +1,22 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
+import { queryOne } from "@/lib/db";
+import { loadsForMessage } from "@/lib/demo/chats";
+import { extractInventory, scopedRules, type ExtractionOutcome } from "@/lib/extract";
 import { ingestMessage } from "@/lib/pipeline/ingest";
 import { reprocessMessage } from "@/lib/pipeline/process";
-import { query } from "@/lib/db";
+import { senderKeyFor } from "@/lib/pipeline/reconcile";
+import { loadRuleSet } from "@/lib/pipeline/rules";
 
 /**
- * Paste a WhatsApp message and watch it become a load.
+ * Paste a WhatsApp message and watch it become jobs.
  *
- * This is the pipeline's test harness, exposed in the admin UI: it goes through
- * the same ingest -> extract -> geocode -> dedup path as webhook traffic, so
- * what you see here is exactly what production would do with that text. Unlike
- * the webhook it runs synchronously, because seeing the result is the point.
+ * The pipeline's test harness, exposed in the admin UI: it goes through the
+ * same ingest -> extract -> geocode -> snapshot path as webhook traffic, so
+ * what you see here is exactly what production would do with that text.
+ * `dryRun: true` extracts only -- no raw_messages row, no jobs, no format
+ * signature -- which is what "Teach line" uses for its live re-parse preview.
  */
 export const POST = handler(async (req: Request) => {
   await requireRole("admin");
@@ -20,15 +25,40 @@ export const POST = handler(async (req: Request) => {
     author?: string;
     phone?: string;
     group?: string;
+    sentAt?: string;
+    dryRun?: boolean;
   };
 
   const text = (body.text ?? "").trim();
   if (!text) badRequest("Paste a message first");
 
+  const sentAt = body.sentAt ? new Date(body.sentAt) : new Date();
+  if (Number.isNaN(sentAt.getTime())) badRequest("sentAt is not a valid date");
+
+  if (body.dryRun) {
+    const senderKey = senderKeyFor({ author_phone: body.phone || null, author_name: body.author || null, group_id: null, id: 0 });
+    const rules = scopedRules(await loadRuleSet(), senderKey);
+    const outcome = extractInventory(
+      { body: text, authorName: body.author || null, authorPhone: body.phone || null, groupName: body.group || null, sentAt },
+      rules,
+    );
+    return NextResponse.json({
+      status: "dry_run",
+      loadsCreated: 0,
+      extractor: outcome.extractor,
+      extracted: outcome,
+      parse_status: outcome.parse_status,
+      attention: outcome.attention,
+      format_signature: outcome.format_signature,
+      flags: outcome.flags,
+      loads: [],
+    });
+  }
+
   const { messageId } = await ingestMessage({
     waMessageId: `manual.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`,
     body: text,
-    sentAt: new Date(),
+    sentAt,
     authorName: body.author || "Manual entry",
     authorPhone: body.phone || null,
     groupName: body.group || "Manual entry",
@@ -36,27 +66,30 @@ export const POST = handler(async (req: Request) => {
     payload: { source: "admin" },
   });
 
-  // reprocess rather than process: it resets state and clears any prior loads,
-  // which makes re-submitting the same text idempotent.
+  // reprocess rather than process: it resets state first, which makes
+  // re-submitting the same text idempotent.
   const result = await reprocessMessage(messageId);
 
-  const loads = await query(
-    `SELECT id, pickup_label, delivery_label, pickup_date::text AS pickup_date,
-            contact_name, contact_phone, load_type, weight_lbs, pallets,
-            confidence, needs_review, is_canonical, dup_group_id
-       FROM loads WHERE source_message_id = $1 ORDER BY id`,
-    [messageId],
-  );
-
-  const message = await query<{ extractor: string | null; extracted: unknown }>(
-    `SELECT extractor, extracted FROM raw_messages WHERE id = $1`,
+  const recorded = await queryOne<{
+    extractor: string | null; extracted: ExtractionOutcome | null; parse_status: string | null;
+    attention: string | null; format_signature: string | null; flags: string[];
+  }>(
+    `SELECT extractor, extracted, parse_status, attention, format_signature, coalesce(flags, '{}') AS flags
+       FROM raw_messages WHERE id = $1`,
     [messageId],
   );
 
   return NextResponse.json({
     ...result,
-    loads,
-    extractor: message[0]?.extractor ?? null,
-    extracted: message[0]?.extracted ?? null,
+    status: result.status,
+    reason: result.reason,
+    loadsCreated: result.loadsCreated,
+    extractor: "inventory-v1",
+    extracted: recorded?.extracted ?? null,
+    parse_status: recorded?.parse_status ?? result.parse_status ?? null,
+    attention: recorded?.attention ?? result.attention ?? null,
+    format_signature: recorded?.format_signature ?? null,
+    flags: recorded?.flags ?? [],
+    loads: await loadsForMessage(messageId),
   });
 });

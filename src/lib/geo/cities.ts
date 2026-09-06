@@ -220,7 +220,37 @@ Tacoma|WA|47.2529|-122.4443|98402
 Vancouver|WA|45.6387|-122.6615|98660
 Anchorage|AK|61.2181|-149.9003|99501
 Honolulu|HI|21.3069|-157.8583|96813
+Rochester|MN|44.0121|-92.4802|55901
+Grand Junction|CO|39.0639|-108.5506|81501
+Cortez|CO|37.3489|-108.5859|81321
+Sheridan|WY|44.7972|-106.9562|82801
+Los Lunas|NM|34.8062|-106.7334|87031
+Greece|NY|43.2098|-77.6931|14626
+Mayfield Heights|OH|41.5190|-81.4579|44124
+Kearny|NJ|40.7684|-74.1454|07032
+Kent|WA|47.3809|-122.2348|98032
+Woodburn|OR|45.1437|-122.8554|97071
+Auburn|CA|38.8966|-121.0769|95603
+Van Nuys|CA|34.1899|-118.4514|91401
 `;
+
+/**
+ * Which "Springfield" a mover means when nothing else says. Used only when a
+ * city-only header has no block state to lean on; the choice is flagged
+ * `ambiguous_city` so a human can correct it once, as a learned place rule.
+ */
+export const PREFERRED_HOMONYM: Record<string, string> = {
+  portland: "OR",
+  columbus: "OH",
+  charleston: "SC",
+  springfield: "MO",
+  wilmington: "NC",
+  fayetteville: "NC",
+  columbia: "SC",
+  jackson: "MS",
+  "kansas city": "MO",
+  rochester: "NY",
+};
 
 export interface City {
   city: string;
