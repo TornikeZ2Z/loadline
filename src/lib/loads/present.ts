@@ -10,9 +10,10 @@
  * Pure functions over `Pick<LoadRow, …>`: unit-testable without a database, and
  * safe to import from any client component.
  *
- * NOTE (Phase 1 handshake): the label helpers below are deliberately simple --
- * every exported name is final, the wording of a few is not. Agent C fills in
- * the finished copy, tones and edge cases; nothing outside this file changes.
+ * Two rules run through all of it. Never invent precision the post did not have
+ * -- a job with no size reads "Size not stated", not "0 cf", and a destination
+ * resolved only to a state says so. And never print a phone: `maskPhones` is
+ * re-exported here as a second pass over text the server already masked.
  */
 
 import type { LoadRow, SortKey } from "@/lib/loads/types";
@@ -84,28 +85,50 @@ function money(n: number): string {
 type PlaceJob = Pick<
   LoadRow,
   | "pickup_label"
+  | "pickup_city"
   | "pickup_state"
+  | "pickup_zip"
   | "pickup_precision"
   | "delivery_label"
+  | "delivery_city"
   | "delivery_state"
+  | "delivery_zip"
   | "delivery_precision"
 >;
 
-/** "NJ → FL" */
+/** "NJ → FL" — the two-letter lane, which is how these posts are scanned. */
 export function laneLabel(job: Pick<LoadRow, "pickup_state" | "delivery_state">): string {
   return `${job.pickup_state ?? "?"} → ${job.delivery_state ?? "?"}`;
 }
 
-/** The label to print for one end of the route, and whether it is only approximate. */
+/**
+ * The label to print for one end of the route, and whether it is only
+ * approximate.
+ *
+ * The stored label is what the sender wrote, normalized, and is preferred --
+ * "FL 33180" is a real destination in this trade even though it names no city.
+ * The composed fallback exists for rows whose label never made it (a website
+ * post with only a state, say), and deliberately stops at what is known rather
+ * than guessing a city.
+ */
 export function placeLabel(
   job: PlaceJob,
   side: "pickup" | "delivery",
 ): { text: string; approx: boolean } {
-  const label = side === "pickup" ? job.pickup_label : job.delivery_label;
-  const precision = side === "pickup" ? job.pickup_precision : job.delivery_precision;
-  const state = side === "pickup" ? job.pickup_state : job.delivery_state;
+  const pickup = side === "pickup";
+  const label = pickup ? job.pickup_label : job.delivery_label;
+  const precision = pickup ? job.pickup_precision : job.delivery_precision;
+  const city = pickup ? job.pickup_city : job.delivery_city;
+  const state = pickup ? job.pickup_state : job.delivery_state;
+  const zip = pickup ? job.pickup_zip : job.delivery_zip;
+
+  const composed = [city && state ? `${city}, ${state}` : (city ?? state ?? ""), zip ?? ""]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
   return {
-    text: label || state || "Unknown",
+    text: label?.trim() || composed || "Location not stated",
     approx: precision === "state" || precision === "region",
   };
 }
@@ -114,14 +137,21 @@ export function placeLabel(
 
 type PricedJob = Pick<LoadRow, "price_per_cf" | "price_flat" | "cubic_feet">;
 
-/** "$3.75/cf" + "est. $7,500", or "$1,500 flat" + "$5.00/cf", or "No price". */
+/**
+ * "$3.75/cf" + "est. $7,500", or "$1,500 flat" + "$5.00/cf", or "No price".
+ *
+ * Movers quote per cubic foot, so that is the headline whenever the post gave
+ * one; the estimated total is the derived number and stays subordinate. When
+ * only a flat price exists the two swap, because the per-cf figure is then ours,
+ * not the sender's.
+ */
 export function formatPrice(job: PricedJob): { headline: string; sub: string | null; tone: Tone } {
   if (job.price_per_cf != null) {
     const total = jobPrice(job);
     return {
       headline: `${money(job.price_per_cf)}/cf`,
-      sub: total != null ? `est. ${money(total)}` : null,
-      tone: "accent",
+      sub: total != null ? `est. ${money(total)}` : "size not stated",
+      tone: "ok",
     };
   }
   if (job.price_flat != null) {
@@ -129,7 +159,7 @@ export function formatPrice(job: PricedJob): { headline: string; sub: string | n
     return {
       headline: `${money(job.price_flat)} flat`,
       sub: perCf != null ? `${money(perCf)}/cf` : null,
-      tone: "accent",
+      tone: "ok",
     };
   }
   return { headline: "No price", sub: null, tone: "muted" };
@@ -144,10 +174,16 @@ const READY_SOURCE_NOTE: Record<string, string> = {
   header: "Taken from the post's header",
   footer: "Taken from the post's footer",
   title: "Taken from the post's title",
-  assumed: "Not stated in the post — assumed ready",
+  assumed: "No ready marker in the post; assumed available — confirm on the call",
 };
 
-/** "Ready now" · "Ready tomorrow" · "Ready Sep 12" · "Not ready yet". */
+/**
+ * "Ready now" · "Ready tomorrow" · "Ready Sep 12" · "Not ready yet".
+ *
+ * "Not ready yet" is the honest reading of a job on a post where OTHER lines
+ * carried an RFD marker and this one did not: the sender distinguished them, so
+ * we do too rather than rounding everything up to available.
+ */
 export function readyLabel(
   job: ReadyJob,
   todayIso: string,
@@ -156,10 +192,14 @@ export function readyLabel(
   if (isReady(job, todayIso)) return { text: "Ready now", tone: "ready", title };
   if (job.ready_date) {
     const days = daysBefore(job.ready_date, todayIso);
-    if (days === -1) return { text: "Ready tomorrow", tone: "default", title };
-    return { text: `Ready ${shortDate(job.ready_date)}`, tone: "default", title };
+    if (days === -1) return { text: "Ready tomorrow", tone: "accent", title };
+    return { text: `Ready ${shortDate(job.ready_date)}`, tone: "accent", title };
   }
-  return { text: "Not ready yet", tone: "muted", title };
+  return {
+    text: "Not ready yet",
+    tone: "muted",
+    title: title ?? "The sender marked other jobs ready but not this one",
+  };
 }
 
 /** "Deliver by Sep 20", warn tone inside three days. Null when the post gave none. */
@@ -177,12 +217,22 @@ export function deliverByLabel(
 
 type FreshJob = Pick<
   LoadRow,
-  "status" | "first_seen_at" | "last_seen_at" | "seen_count" | "relist_count" | "delisted_at"
->;
+  | "status"
+  | "first_seen_at"
+  | "last_seen_at"
+  | "seen_count"
+  | "relist_count"
+  | "delisted_at"
+  | "created_at"
+> & { is_web?: boolean };
 
 /**
- * How alive a job is. The lifecycle is the product's main claim, so this string
- * is the one a driver reads before deciding to call.
+ * How alive a job is. The lifecycle is the product's main claim -- a sender's
+ * newest post is the truth, and anything it omits goes quiet -- so this string
+ * is the one a driver reads before deciding to spend a call on it.
+ *
+ * A website post has no sender re-posting it daily, so "last seen" would be
+ * meaningless: it reads from `created_at` and says "Posted today" instead.
  */
 export function freshnessLabel(
   job: FreshJob,
@@ -202,15 +252,28 @@ export function freshnessLabel(
       detail,
     };
   }
-  if (job.status === "expired") return { text: "Sender silent — expired", tone: "muted", detail };
+  if (job.status === "expired") {
+    return {
+      text: job.last_seen_at
+        ? `Sender silent since ${shortDate(job.last_seen_at.slice(0, 10))}`
+        : "Sender silent",
+      tone: "muted",
+      detail,
+    };
+  }
 
-  const seen = job.last_seen_at;
-  if (!seen) return { text: "Listed", tone: "default", detail };
-  const days = daysBefore(seen.slice(0, 10), now.toISOString().slice(0, 10));
-  if (days == null) return { text: "Listed", tone: "default", detail };
-  if (days <= 0) return { text: "Listed today", tone: "fresh", detail };
-  if (days === 1) return { text: "Listed yesterday", tone: "default", detail };
-  return { text: `Last seen ${days} days ago`, tone: "muted", detail };
+  const verb = job.is_web ? "Posted" : "Listed";
+  const stamp = job.is_web ? (job.created_at ?? job.last_seen_at) : (job.last_seen_at ?? job.created_at);
+  if (!stamp) return { text: verb, tone: "default", detail };
+  const days = daysBefore(stamp.slice(0, 10), now.toISOString().slice(0, 10));
+  if (days == null) return { text: verb, tone: "default", detail };
+  if (days <= 0) return { text: `${verb} today`, tone: "fresh", detail };
+  if (days === 1) return { text: `${verb} yesterday`, tone: "default", detail };
+  return {
+    text: job.is_web ? `Posted ${days} days ago` : `Last seen ${days} days ago`,
+    tone: "muted",
+    detail,
+  };
 }
 
 // --- sender and requirements -------------------------------------------------
@@ -254,14 +317,24 @@ export function truckLine(cf: number, truckCf: number | null): string {
 
 type SummaryJob = PlaceJob & PricedJob & ReadyJob;
 
-/** "Kearny, NJ → Aventura, FL 33180 · 200 cf · $3.50/cf · Ready now" */
+/**
+ * "Kearny, NJ → Aventura, FL 33180 · 200 cf · $3.50/cf · Ready now"
+ *
+ * Used by the map's hover popup and as the clipboard fallback. Price and ready
+ * are dropped when the post did not state them rather than padded with "No
+ * price" -- a one-line summary should read like something a person would say.
+ */
 export function jobSummary(job: SummaryJob): string {
   const price = formatPrice(job);
-  const ready = job.ready_now ? "Ready now" : job.ready_date ? `Ready ${shortDate(job.ready_date)}` : null;
+  const ready = job.ready_now
+    ? "Ready now"
+    : job.ready_date
+      ? `Ready ${shortDate(job.ready_date)}`
+      : null;
   return [
-    `${job.pickup_label} → ${job.delivery_label}`,
+    `${placeLabel(job, "pickup").text} → ${placeLabel(job, "delivery").text}`,
     job.cubic_feet != null ? formatCf(job.cubic_feet) : "Size not stated",
-    price.headline,
+    price.tone === "muted" ? null : price.headline,
     ready,
   ]
     .filter(Boolean)
