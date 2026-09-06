@@ -24,9 +24,9 @@ public, and browsing it never asks for an account.
 A map of routes, not a list of pins. Every job is an arc from its pickup to its delivery,
 with direction chevrons and a line that gets thicker as the job gets bigger. The panel in
 the corner counts what is on screen — *All 98 jobs · 42,506 cf ≈ 28.3 truckloads* when the
-whole country fits, and *66 jobs in view · 26,006 cf ≈ 17.3 truckloads · of 98 filtered*
-once you zoom in. At low zoom each pickup state also carries a `FL · 15 jobs · 4,900 cf`
-pill.
+whole country fits, switching to *66 jobs in view · 26,006 cf ≈ 17.3 truckloads · of 98
+filtered* as soon as you zoom past some of them. At low zoom each pickup state also carries
+a `FL · 15 jobs · 4,900 cf` pill.
 
 Hover a card and its route lights up while the others dim. Click one and the detail opens
 beside the map.
@@ -35,15 +35,17 @@ beside the map.
 
 Press **Where are you?** in the header. Type `Miami` and pick **Miami, FL** from the
 drop-down (or press **Use GPS**), then press **Save**. Three things change at once: jobs
-sort by distance to the pickup, every card gains a "*1 mi from you*" line, and the header
-control now reads *Near Miami, FL*.
+sort by distance to the pickup, every card gains a distance line (*1 mi from you* on the
+Miami posts, *1093 mi from you* on the Kearny ones), and the header control now reads
+*Near Miami, FL*.
 
-> The drop-down is the HERE type-ahead and only appears with a `HERE_API_KEY` set. Without
-> one it stays empty — type the place and press **Save** anyway: the offline gazetteer
-> resolves `Miami, FL`, `philly`, `north jersey` and `07102` with no key at all.
+> With no `HERE_API_KEY` the drop-down still answers from the local table — `Miami`,
+> `philly`, `socal` and `07102` all suggest — but address-level and some literal queries
+> (`Miami, FL` among them) come back empty. Type the place and press **Save** anyway: the
+> offline gazetteer resolves it, which is why this walk needs no key.
 
-Open a job now and the pickup line carries the distance too: `1,279 mi by road · 19 h 25 m
-driving` with a HERE key, `1,091 mi straight line` without one.
+Open a job now and the pickup line carries the trip too: `1,279 mi by road · 19 h 25 m
+driving` with a HERE key; without one the same line falls back to straight-line miles.
 
 That location is stored in your browser and nowhere else — `localStorage` under
 `loadline.viewer.v1`. It travels with each search as two coordinates and is never written
