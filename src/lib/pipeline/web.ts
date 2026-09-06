@@ -9,7 +9,7 @@
 import { query, queryOne } from "@/lib/db";
 import { computeExpiry } from "@/lib/extract/dates";
 import { normalizePhone } from "@/lib/extract/phone";
-import { geocode } from "@/lib/geo/geocode";
+import { geocode, geocodeDestination } from "@/lib/geo/geocode";
 import { haversineMiles } from "@/lib/geo/math";
 
 export interface WebJobBody {
@@ -140,12 +140,9 @@ export async function insertWebJob(
     deliveryState +
     (deliveryZip ? ` ${deliveryZip}` : "");
 
-  // Phase 0a: today's free-text geocoder. Step 4 swaps this for
-  // geocodeDestination({ state, zip, city }), which knows how to fall back from
-  // an unknown ZIP to the state centroid.
-  const delivery = await geocode(
-    `${deliveryCity ?? ""} ${deliveryState} ${deliveryZip ?? ""}`.trim(),
-  );
+  // The structured geocoder: cached ZIP points, gazetteer cities, HERE when
+  // configured, and an honest state-centroid fallback for a ZIP nobody can place.
+  const delivery = await geocodeDestination({ state: deliveryState, zip: deliveryZip, city: deliveryCity });
 
   // --- size and price -------------------------------------------------------
   const cubicFeet = Math.round(numberOrNull(body.cubicFeet) ?? NaN);

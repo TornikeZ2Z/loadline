@@ -13,9 +13,11 @@
  * presented as if its pickup were pinned to a street address.
  */
 import { query, queryOne } from "@/lib/db";
+import type { OriginRef } from "@/lib/extract/schema";
+import { normalizeRuleKey, type LearnedPlace, type RuleSet } from "@/lib/extract/rules-store";
 import { CITIES, CITY_BY_KEY, CITY_BY_NAME, nearestCity, type City } from "./cities";
 import { REGIONS, STATE_BY_ABBR, resolveState, stateForZip } from "./states";
-import { lookupAlias, normalizePlaceQuery } from "./aliases";
+import { ALIASES, lookupAlias, normalizePlaceQuery } from "./aliases";
 import { hereConfigured, hereGeocode } from "./here";
 
 export type Precision = "address" | "zip" | "city" | "region" | "state";
@@ -233,6 +235,254 @@ function closestByZip(cities: City[], zip: string): City | null {
 
 function titleCase(s: string): string {
   return s.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+}
+
+// ---------------------------------------------------------------------------
+// Batch-post geocoding (A §6): origins and destinations from the extractor.
+//
+// Cache keys are prefixed -- zip:<5>, "city:<city>, <st>", q:<free text> --
+// so a ZIP is looked up exactly once ever, and a HERE failure never blocks an
+// insert: every step has an offline fallback, and the fallback is honest about
+// its precision ("state" + source "zip-approx" for a ZIP nobody could place).
+// ---------------------------------------------------------------------------
+
+interface CachedPlace {
+  label: string; city: string | null; state: string | null; zip: string | null;
+  lat: number; lng: number; precision: string; source: string;
+}
+
+async function cachedKey(key: string): Promise<GeocodeResult | null> {
+  const row = await queryOne<CachedPlace>(
+    `SELECT label, city, state, zip, lat, lng, precision, source FROM places WHERE query = $1`,
+    [key],
+  );
+  return row ? { ...row, precision: row.precision as Precision } : null;
+}
+
+async function cacheKey(key: string, r: GeocodeResult): Promise<void> {
+  await cache(key, r);
+}
+
+function centroid(st: string): GeocodeResult | null {
+  const s = STATE_BY_ABBR.get(st);
+  if (!s) return null;
+  return { label: s.name, city: null, state: s.abbr, zip: null, lat: s.lat, lng: s.lng, precision: "state", source: "state-centroid" };
+}
+
+function fromCity(c: City, source: string, zip: string | null = null): GeocodeResult {
+  return { ...cityResult(c, source, zip), precision: "city" };
+}
+
+function fromLearned(p: LearnedPlace): GeocodeResult {
+  return { label: p.label, city: p.city, state: p.state, zip: p.zip, lat: p.lat, lng: p.lng, precision: p.precision, source: "learned" };
+}
+
+/** HERE, guarded: null when unconfigured, on error, or when the state disagrees. */
+async function here(q: string, expectState: string | null): Promise<GeocodeResult | null> {
+  if (!hereConfigured()) return null;
+  try {
+    const hit = await hereGeocode(q);
+    if (!hit) return null;
+    if (expectState && hit.state && hit.state.toUpperCase() !== expectState) return null;
+    return {
+      label: hit.short || hit.label, city: hit.city, state: hit.state?.toUpperCase() ?? expectState,
+      zip: hit.postalCode, lat: hit.lat, lng: hit.lng, precision: hit.precision, source: "here",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The nearest gazetteer city to a ZIP inside the ZIP's own state: an approximation, labelled as one. */
+function zipApprox(zip: string): GeocodeResult | null {
+  const st = stateForZip(zip);
+  if (!st) return null;
+  const inState = CITIES.filter((c) => c.state === st.abbr);
+  const best = inState.find((c) => c.zip.slice(0, 3) === zip.slice(0, 3)) ?? closestByZip(inState, zip);
+  if (best) {
+    return { label: `${best.city}, ${best.state} ${zip}`, city: best.city, state: best.state, zip, lat: best.lat, lng: best.lng, precision: "state", source: "zip-approx" };
+  }
+  return { label: `${st.abbr} ${zip}`, city: null, state: st.abbr, zip, lat: st.lat, lng: st.lng, precision: "state", source: "zip-approx" };
+}
+
+/**
+ * One ZIP -> one point, one HERE call ever. `force` re-fetches a cached
+ * approximation (scripts/warm-zips.ts, once a key is configured).
+ */
+export async function geocodeZip(zip: string, opts: { force?: boolean } = {}): Promise<GeocodeResult | null> {
+  const z = zip.replace(/\D/g, "").slice(0, 5);
+  if (z.length !== 5 || !stateForZip(z)) return null;
+  const key = `zip:${z}`;
+  const cached = await cachedKey(key);
+  if (cached && !(opts.force && cached.source === "zip-approx")) return cached;
+
+  const st = stateForZip(z)!.abbr;
+  const remote = await here(z, null);
+  let result: GeocodeResult | null = null;
+  if (remote && (remote.zip === z || remote.precision === "zip" || remote.precision === "city")) {
+    result = { ...remote, zip: z, state: remote.state ?? st, precision: "zip", label: remote.city ? `${remote.city}, ${remote.state ?? st} ${z}` : `${st} ${z}` };
+  }
+  if (!result) result = zipApprox(z);
+  if (!result) return null;
+  if (cached && opts.force) {
+    await query(`DELETE FROM places WHERE query = $1`, [key]);
+  }
+  await cacheKey(key, result);
+  return result;
+}
+
+async function geocodeCityState(city: string, st: string): Promise<GeocodeResult | null> {
+  const key = `city:${city.toLowerCase()}, ${st.toLowerCase()}`;
+  const cached = await cachedKey(key);
+  if (cached) return cached;
+  const g = CITY_BY_KEY.get(`${city.toLowerCase()}, ${st.toLowerCase()}`);
+  if (g) return fromCity(g, "gazetteer");
+  const alias = ALIASES[city.toLowerCase()];
+  if (alias?.city) {
+    const ac = CITY_BY_KEY.get(alias.city.toLowerCase());
+    if (ac && ac.state === st) return { ...fromCity(ac, "alias"), label: `${titleCase(city.toLowerCase())}, ${st}` };
+  }
+  const remote = await here(`${city}, ${st}`, st);
+  if (remote) {
+    const r = { ...remote, city: remote.city ?? city, state: st, precision: (remote.precision === "state" ? "city" : remote.precision) as Precision };
+    await cacheKey(key, r);
+    return r;
+  }
+  return null;
+}
+
+export interface OriginGeocode {
+  result: GeocodeResult | null;
+  /** Flags the geocoder adds to the job: origin_unresolved, origin_zip_state_conflict. */
+  flags: string[];
+}
+
+/**
+ * Place an origin header (A §6.1). The label always comes from the header
+ * text (the extractor built it); the geocoder only supplies coordinates,
+ * precision and source.
+ */
+export async function geocodeOrigin(ref: OriginRef, hint: string | null, rules?: RuleSet): Promise<OriginGeocode> {
+  const flags: string[] = [];
+  // 1. learned place
+  const learned = rules?.places[normalizeRuleKey(ref.raw_text)] ?? rules?.places[normalizeRuleKey(ref.label)];
+  if (learned) return { result: fromLearned(learned), flags };
+
+  const state = ref.state ?? hint;
+  const city = ref.city;
+
+  // 2. ZIP
+  if (ref.zip) {
+    const zs = stateForZip(ref.zip)?.abbr ?? null;
+    if (zs && state && zs !== state) flags.push("origin_zip_state_conflict");
+    const st = zs ?? state;
+    if (city && st) {
+      const g = CITY_BY_KEY.get(`${city.toLowerCase()}, ${st.toLowerCase()}`);
+      if (g) return { result: { ...fromCity(g, "gazetteer", ref.zip), precision: "city" }, flags };
+      const cached = await cachedKey(`zip:${ref.zip}`);
+      if (cached) return { result: { ...cached, city: cached.city ?? city, precision: "zip" }, flags };
+      const remote = await here(`${city}, ${st} ${ref.zip}`, st);
+      if (remote) {
+        const r: GeocodeResult = { ...remote, city, state: st, zip: ref.zip, precision: "zip" };
+        await cacheKey(`zip:${ref.zip}`, r);
+        return { result: r, flags };
+      }
+    }
+    const z = await geocodeZip(ref.zip);
+    if (z) return { result: { ...z, city: city ?? z.city, state: st ?? z.state }, flags };
+    if (st) return { result: centroid(st), flags };
+  }
+
+  // 3. city + state
+  if (city && state) {
+    const r = await geocodeCityState(city, state);
+    if (r) return { result: { ...r, city, state, zip: null }, flags };
+    if (ref.context) {
+      const ctxCity = CITY_BY_KEY.get(`${ref.context.toLowerCase()}, ${state.toLowerCase()}`);
+      if (ctxCity) return { result: { ...fromCity(ctxCity, "context"), city, label: `${city}, ${state}` }, flags };
+    }
+    flags.push("origin_unresolved");
+    return { result: centroid(state), flags };
+  }
+
+  // 4. city, no state (the extractor already tried the gazetteer/alias/hint)
+  if (city) {
+    const any = CITY_BY_NAME.get(city.toLowerCase());
+    if (any?.length === 1) return { result: fromCity(any[0], "gazetteer"), flags };
+    const remote = hint ? await here(`${city}, ${hint}`, null) : null;
+    const remote2 = remote ?? (await here(city, null));
+    if (remote2) {
+      const r = { ...remote2, city: remote2.city ?? city };
+      await cacheKey(`q:${normalizeRuleKey(city)}`, r);
+      return { result: r, flags };
+    }
+    flags.push("origin_unresolved");
+    return { result: null, flags };
+  }
+
+  // 5. state only
+  if (state) return { result: centroid(state), flags };
+  flags.push("origin_unresolved");
+  return { result: null, flags };
+}
+
+export interface DestinationInput {
+  state: string | null;
+  zip: string | null;
+  city: string | null;
+}
+
+/** Place one destination (A §6.2). web.ts and the pipeline both call this. */
+export async function geocodeDestination(d: DestinationInput, rules?: RuleSet): Promise<GeocodeResult | null> {
+  const st = d.state?.toUpperCase() ?? null;
+  if (d.zip) {
+    const z = await geocodeZip(d.zip);
+    if (z) {
+      // On a written/ZIP disagreement the ZIP point is used only when it agrees
+      // with the written state; else the written state's centroid.
+      if (st && z.state && z.state !== st) return centroid(st);
+      return { ...z, state: st ?? z.state };
+    }
+    if (st) return centroid(st);
+    return null;
+  }
+  if (d.city && st) {
+    const r = await geocodeCityState(d.city, st);
+    if (r) return { ...r, city: r.city ?? d.city, state: st };
+    return centroid(st);
+  }
+  if (d.city) {
+    const learned = rules?.places[normalizeRuleKey(d.city)];
+    if (learned) return fromLearned(learned);
+    const any = CITY_BY_NAME.get(d.city.toLowerCase());
+    if (any?.length === 1) return fromCity(any[0], "gazetteer");
+    const remote = await here(d.city, null);
+    if (remote) {
+      await cacheKey(`q:${normalizeRuleKey(d.city)}`, remote);
+      return remote;
+    }
+    return null;
+  }
+  if (st) return centroid(st);
+  return null;
+}
+
+/** Distinct keys, concurrency 4. Results align with the input list. */
+export async function geocodeDestinations(list: DestinationInput[], rules?: RuleSet): Promise<Array<GeocodeResult | null>> {
+  const keyOf = (d: DestinationInput) => `${d.state ?? ""}|${d.zip ?? ""}|${(d.city ?? "").toLowerCase()}`;
+  const distinct = new Map<string, DestinationInput>();
+  for (const d of list) if (!distinct.has(keyOf(d))) distinct.set(keyOf(d), d);
+  const keys = [...distinct.keys()];
+  const results = new Map<string, GeocodeResult | null>();
+  let next = 0;
+  const worker = async () => {
+    while (next < keys.length) {
+      const k = keys[next++];
+      results.set(k, await geocodeDestination(distinct.get(k)!, rules));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, keys.length) }, worker));
+  return list.map((d) => results.get(keyOf(d)) ?? null);
 }
 
 // ---------------------------------------------------------------------------

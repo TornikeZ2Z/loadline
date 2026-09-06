@@ -32,4 +32,8 @@ export const KNOWN_SIGNATURES: ReadonlySet<string> = new Set([
   "H:FROM CITY ST|D:ST ZIP CF+ST ZIP CF PRICE+ST ZIP CF RFD",
   // J — "OHIO" + "📍 Columbus" blocks with "ST ZIP CF" lines
   "H:PIN CITY+STNAME|D:ST ZIP CF",
+  // K — F's shape with a city+state header only ("FROM DALLAS TX:" + "300 - FL 33101")
+  "H:FROM CITY ST|D:CF ST ZIP",
+  // A headerless continuation ("To FL 34113 200cf" minutes after a full post)
+  "H:|D:TO ST ZIP CFu",
 ]);
