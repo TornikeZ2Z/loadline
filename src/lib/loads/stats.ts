@@ -75,7 +75,7 @@ export async function dashboardStats(viewer: GeoPoint | null): Promise<Dashboard
     `SELECT count(DISTINCT dup_group_id)::int AS n FROM loads WHERE dup_group_id IS NOT NULL`,
   );
 
-  const recent = (await searchLoads({ datePreset: "any", sort: "newest", limit: 6, viewer })).rows;
+  const recent = (await searchLoads({ sort: "newest", limit: 6, viewer })).rows;
 
   let near: LoadRow[] = [];
   let nearCount = 0;
@@ -83,7 +83,6 @@ export async function dashboardStats(viewer: GeoPoint | null): Promise<Dashboard
     const result = await searchLoads({
       origin: viewer,
       radiusMiles: 100,
-      datePreset: "week",
       sort: "distance",
       limit: 6,
       viewer,

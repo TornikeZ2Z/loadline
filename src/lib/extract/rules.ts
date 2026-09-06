@@ -19,7 +19,42 @@
  */
 import { matchPlaces, type PlaceMatch } from "@/lib/geo/match";
 import { scanMessage, type MessageScan } from "./spans";
-import type { ExtractedLoad, ExtractionOutcome, MessageContext } from "./schema";
+import type { MessageContext } from "./schema";
+
+/**
+ * The v1 freight-lane shape this file emits.
+ *
+ * Deliberately local rather than `ExtractedJob` from ./schema: this extractor
+ * is scheduled for deletion in Phase 0b, and `src/lib/extract/index.ts` adapts
+ * its output to the inventory-v1 contract meanwhile. Nothing new should be
+ * written against these types.
+ */
+export interface LegacyLoad {
+  pickup_location: string;
+  delivery_location: string;
+  pickup_address: string | null;
+  delivery_address: string | null;
+  pickup_date_text: string | null;
+  pickup_date_iso: string | null;
+  pickup_time_text: string | null;
+  delivery_date_text: string | null;
+  load_type: string | null;
+  weight_lbs: number | null;
+  pallets: number | null;
+  pieces: number | null;
+  rate_usd: number | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  notes: string | null;
+  confidence: number;
+}
+
+export interface LegacyOutcome {
+  is_load_post: boolean;
+  reason: string | null;
+  loads: LegacyLoad[];
+  extractor: string;
+}
 
 /** Messages that are clearly not offering freight. */
 const NOT_A_LOAD: Array<[RegExp, string]> = [
@@ -43,7 +78,7 @@ function segments(body: string): string[] {
     .filter(Boolean);
 }
 
-export function extractWithRules(ctx: MessageContext): ExtractionOutcome {
+export function extractWithRules(ctx: MessageContext): LegacyOutcome {
   const body = ctx.body.trim();
 
   for (const [re, reason] of NOT_A_LOAD) {
@@ -66,7 +101,7 @@ export function extractWithRules(ctx: MessageContext): ExtractionOutcome {
   };
 
   const lines = segments(body);
-  const loads: ExtractedLoad[] = [];
+  const loads: LegacyLoad[] = [];
 
   for (const line of lines) {
     const scan = scanMessage(line);

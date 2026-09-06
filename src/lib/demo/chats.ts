@@ -1,11 +1,15 @@
 /**
- * Queries behind the WhatsApp test console.
+ * Queries behind the WhatsApp test console and the admin queue.
  *
  * The console shows the corpus as it would look in WhatsApp, next to what the
  * pipeline made of it. That pairing is the point: it makes extraction legible
  * to someone who is evaluating the product rather than reading the code.
+ *
+ * These payloads are admin-only and therefore carry phones. No public route
+ * proxies them.
  */
-import { query } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
+import type { ExtractionOutcome } from "@/lib/extract/schema";
 
 export interface ChatGroup {
   id: number;
@@ -29,31 +33,76 @@ export interface ChatMessage {
   group_id: number | null;
   group_name: string | null;
   load_count: number;
+  flags: string[];
+  attention: string | null;
+  parse_status: string | null;
+  format_signature: string | null;
+  sender_key: string | null;
+  snapshot_kind: "full" | "partial" | "truncated" | null;
 }
 
 export interface ChatLoad {
   id: number;
+  status: string;
   pickup_label: string;
+  pickup_state: string | null;
   delivery_label: string;
-  pickup_date: string | null;
-  pickup_time: string | null;
-  delivery_date: string | null;
-  load_type: string | null;
-  weight_lbs: number | null;
-  pallets: number | null;
-  pieces: number | null;
+  delivery_state: string | null;
+  delivery_zip: string | null;
+  cubic_feet: number | null;
+  price_per_cf: number | null;
+  price_flat: number | null;
   rate_usd: number | null;
+  ready_now: boolean;
+  ready_date: string | null;
+  ready_source: string | null;
+  deliver_by: string | null;
+  tags: string[];
+  flags: string[];
+  job_notes: string | null;
+  /** From load_sightings for this message; null for website and legacy rows. */
+  line_no: number | null;
+  line_text: string | null;
   contact_name: string | null;
+  /** Admin-only payloads; never proxied by a public route. */
   contact_phone: string | null;
+  contact_mode: string;
   trip_miles: number | null;
   pickup_precision: string | null;
   delivery_precision: string | null;
   confidence: number;
   needs_review: boolean;
-  is_canonical: boolean;
-  dup_group_id: string | null;
-  status: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  seen_count: number;
 }
+
+/**
+ * Jobs sighted by a message, falling back to the rows the message originally
+ * created. The fallback covers website posts, legacy rows, and -- until the
+ * snapshot pipeline lands -- everything.
+ */
+const SIGHTING_COUNT = `(
+  SELECT count(*) FROM load_sightings s
+    JOIN sender_snapshots sn ON sn.id = s.snapshot_id
+   WHERE sn.message_id = m.id
+)`;
+
+const SOURCE_COUNT = `(SELECT count(*) FROM loads l WHERE l.source_message_id = m.id)`;
+
+const MESSAGE_COLUMNS = `
+  m.id, m.body, m.author_name, m.author_phone,
+  m.sent_at::text AS sent_at, m.status, m.skip_reason, m.error, m.extractor,
+  m.group_id, g.name AS group_name,
+  coalesce(m.flags, '{}') AS flags,
+  m.attention, m.parse_status, m.format_signature, m.sender_key,
+  sn.kind AS snapshot_kind,
+  coalesce(nullif(${SIGHTING_COUNT}, 0), ${SOURCE_COUNT})::int AS load_count`;
+
+const MESSAGE_FROM = `
+  FROM raw_messages m
+  LEFT JOIN whatsapp_groups g ON g.id = m.group_id
+  LEFT JOIN sender_snapshots sn ON sn.message_id = m.id`;
 
 export async function listGroups(): Promise<ChatGroup[]> {
   return query<ChatGroup>(
@@ -69,29 +118,56 @@ export async function listGroups(): Promise<ChatGroup[]> {
 
 export async function listMessages(groupId: number | null): Promise<ChatMessage[]> {
   return query<ChatMessage>(
-    `SELECT m.id, m.body, m.author_name, m.author_phone,
-            m.sent_at::text AS sent_at, m.status, m.skip_reason, m.error, m.extractor,
-            m.group_id, g.name AS group_name,
-            (SELECT count(*) FROM loads l WHERE l.source_message_id = m.id)::int AS load_count
-       FROM raw_messages m
-       LEFT JOIN whatsapp_groups g ON g.id = m.group_id
+    `SELECT ${MESSAGE_COLUMNS}
+       ${MESSAGE_FROM}
       WHERE ($1::bigint IS NULL OR m.group_id = $1)
       ORDER BY m.sent_at ASC, m.id ASC`,
     [groupId],
   );
 }
 
-/** Loads derived from one message -- what the pipeline made of that text. */
+/** One message, with the extraction outcome the pipeline recorded for it. */
+export async function getMessage(
+  id: number,
+): Promise<(ChatMessage & { extracted: ExtractionOutcome | null }) | null> {
+  return queryOne<ChatMessage & { extracted: ExtractionOutcome | null }>(
+    `SELECT ${MESSAGE_COLUMNS}, m.extracted
+       ${MESSAGE_FROM}
+      WHERE m.id = $1`,
+    [id],
+  );
+}
+
+const LOAD_COLUMNS = `
+  l.id, l.status,
+  l.pickup_label, l.pickup_state,
+  l.delivery_label, l.delivery_state, l.delivery_zip,
+  l.cubic_feet, l.price_per_cf, l.price_flat, l.rate_usd,
+  l.ready_now, l.ready_date::text AS ready_date, l.ready_source,
+  l.deliver_by::text AS deliver_by,
+  coalesce(l.tags, '{}') AS tags,
+  coalesce(l.flags, '{}') AS flags,
+  l.job_notes, l.line_text,
+  l.contact_name, l.contact_phone, l.contact_mode,
+  l.trip_miles, l.pickup_precision, l.delivery_precision,
+  l.confidence, l.needs_review,
+  l.first_seen_at::text AS first_seen_at,
+  l.last_seen_at::text  AS last_seen_at,
+  l.seen_count`;
+
+/**
+ * Jobs this message is evidence for -- what the pipeline made of that text.
+ *
+ * PHASE 0a: the snapshot/sighting tables are not written yet, so this is the
+ * `source_message_id` fallback only. Phase 1 puts the sighting join in front of
+ * it (a repost sights jobs it did not create, and those belong in this list).
+ */
 export async function loadsForMessage(messageId: number): Promise<ChatLoad[]> {
   return query<ChatLoad>(
-    `SELECT id, pickup_label, delivery_label,
-            pickup_date::text AS pickup_date, pickup_time::text AS pickup_time,
-            delivery_date::text AS delivery_date,
-            load_type, weight_lbs, pallets, pieces, rate_usd,
-            contact_name, contact_phone, trip_miles,
-            pickup_precision, delivery_precision,
-            confidence, needs_review, is_canonical, dup_group_id, status
-       FROM loads WHERE source_message_id = $1 ORDER BY id`,
+    `SELECT ${LOAD_COLUMNS}, NULL::int AS line_no
+       FROM loads l
+      WHERE l.source_message_id = $1
+      ORDER BY l.id`,
     [messageId],
   );
 }

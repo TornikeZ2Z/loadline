@@ -96,11 +96,13 @@ function compare(
   got: {
     pickup_location: string;
     delivery_location: string;
-    pickup_date_text: string | null;
-    load_type: string | null;
-    weight_lbs: number | null;
-    pallets: number | null;
-    rate_usd: number | null;
+    // Optional because inventory-v1 carries these as legacy fields it never
+    // emits; this harness is rewritten alongside the new extractor.
+    pickup_date_text?: string | null;
+    load_type?: string | null;
+    weight_lbs?: number | null;
+    pallets?: number | null;
+    rate_usd?: number | null;
     contact_name: string | null;
     contact_phone: string | null;
   },

@@ -1,8 +1,20 @@
-export type LoadStatus = "available" | "pending" | "taken" | "expired" | "cancelled";
+/**
+ * Row and search shapes for the job board.
+ *
+ * The table is still called `loads` and the identifiers still say Load, but the
+ * user-facing word is "job" -- hence `export type Job = LoadRow`. Nothing here
+ * imports the database; these types cross the wire and are safe in a client
+ * component.
+ */
+export type LoadStatus = "available" | "delisted" | "pending" | "taken" | "expired" | "cancelled";
+export type StatusSource = "derived" | "manual";
+export type ReadySource = "line" | "header" | "footer" | "title" | "assumed";
+export type ContactMode = "public" | "dm";
 
 export interface LoadRow {
   id: number;
   status: LoadStatus;
+  status_source: StatusSource;
 
   pickup_label: string;
   pickup_city: string | null;
@@ -21,20 +33,39 @@ export interface LoadRow {
   delivery_precision: string | null;
 
   trip_miles: number | null;
-  pickup_date: string | null;
-  pickup_time: string | null;
-  pickup_time_note: string | null;
-  delivery_date: string | null;
 
-  load_type: string | null;
-  weight_lbs: number | null;
-  pallets: number | null;
-  pieces: number | null;
+  /** The job itself. */
+  cubic_feet: number | null;
+  price_per_cf: number | null;
+  price_flat: number | null;
+  /** COALESCE(price_flat, price_per_cf * cubic_feet); null when neither is known. */
   rate_usd: number | null;
+  ready_now: boolean;
+  ready_date: string | null;            // ISO date
+  ready_source: ReadySource | null;
+  deliver_by: string | null;            // ISO date
+  tags: string[];
+  flags: string[];
+  job_notes: string | null;
+  line_text: string | null;
+  requirements: string | null;
 
+  /** Sender + freshness. */
+  /** "phone:<E.164>" embeds the author's phone: always null on the public wire (B's PublicLoadRow adds is_web instead); present only server-side and in admin/test-console payloads. */
+  sender_key: string | null;
+  job_key: string | null;
+  ordinal: number;
+  /** Public wire: passed through redactPhones -- null when the name is itself a phone (WhatsApp's fallback for unknown contacts). */
   contact_name: string | null;
+  /** Always null on the public wire (B's PublicLoadRow); present only server-side and in admin/test-console payloads. */
   contact_phone: string | null;
-  notes: string | null;
+  contact_mode: ContactMode;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  seen_count: number;
+  relist_count: number;
+  delisted_at: string | null;
+  snapshot_message_id: number | null;
 
   confidence: number;
   needs_review: boolean;
@@ -44,21 +75,37 @@ export interface LoadRow {
 
   group_name: string | null;
   source_message_id: number | null;
+  posted_by: number | null;
   created_at: string;
   expires_at: string | null;
 
+  /** Legacy, nullable, never written by the batch path. */
+  pickup_date: string | null;           // = ready_date
+  pickup_time: string | null;
+  pickup_time_note: string | null;
+  delivery_date: string | null;
+  weight_lbs: number | null;
+  pieces: number | null;
+  notes: string | null;
+
   /** Populated when the search supplied a reference point. */
   distance_miles?: number | null;
-  /** Corridor searches only: perpendicular distance from the driver's route. */
+  /** Corridor searches only. */
   off_route_miles?: number | null;
-  /** Corridor searches only: extra miles versus driving straight through. */
   detour_miles?: number | null;
-  /** Corridor searches only: 0..1 progress along the route. */
   route_progress?: number | null;
 }
+export type Job = LoadRow;
 
-export type DatePreset = "any" | "today" | "tomorrow" | "week" | "next3" | "custom";
-export type SortKey = "newest" | "pickup_date" | "distance" | "trip_miles" | "rate";
+export type SortKey =
+  | "newest"
+  | "last_seen"
+  | "ready"
+  | "distance"
+  | "trip_miles"
+  | "rate"
+  | "cf"
+  | "deliver_by";
 
 export interface GeoPoint {
   lat: number;
@@ -79,10 +126,6 @@ export interface BoundsInput {
 }
 
 export interface LoadSearchParams {
-  datePreset?: DatePreset;
-  dateFrom?: string | null;
-  dateTo?: string | null;
-
   pickupStates?: string[];
   pickupCity?: string | null;
   pickupZip?: string | null;
@@ -91,28 +134,32 @@ export interface LoadSearchParams {
   deliveryCity?: string | null;
   deliveryZip?: string | null;
 
-  /** Radius search around the pickup point. */
+  /** Radius search around the pickup point (engine kept; UI may not expose it). */
   origin?: GeoPoint | null;
   radiusMiles?: number | null;
-
-  /** Radius search around the delivery point. */
   destination?: GeoPoint | null;
   destRadiusMiles?: number | null;
-
-  /**
-   * With both origin and destination set, "corridor" finds loads along the way
-   * instead of requiring both endpoints to match their own radius.
-   */
   routeMode?: "endpoints" | "corridor";
   corridorMiles?: number | null;
-
-  /** Map viewport ("search this area"). */
   bounds?: BoundsInput | null;
 
+  /** Size. */
+  minCf?: number | null;
+  maxCf?: number | null;
+  /** default true: jobs with no cubic_feet pass the size filter */
+  includeUnsized?: boolean;
+
+  /** Readiness / deadline. */
+  readyOnly?: boolean;                  // (ready_now OR ready_date <= CURRENT_DATE)
+  readyBy?: string | null;              // ISO date: (ready_now OR ready_date <= $d)
+  deliverBy?: string | null;            // ISO date: (deliver_by IS NULL OR deliver_by <= $d)
+
+  /** Freshness: last_seen_at > now() - N days (1..30). */
+  seenDays?: number | null;
+
+  hasPrice?: boolean;                   // (price_per_cf IS NOT NULL OR price_flat IS NOT NULL)
   statuses?: LoadStatus[];
-  loadTypes?: string[];
-  minWeight?: number | null;
-  maxWeight?: number | null;
+  senderKey?: string | null;
   q?: string | null;
 
   includeDuplicates?: boolean;
@@ -126,9 +173,20 @@ export interface LoadSearchParams {
   offset?: number;
 }
 
+export interface LoadSummary {
+  count: number;                 // rows matching the full WHERE (not the page)
+  totalCf: number;               // sum(cubic_feet)
+  withCf: number;                // rows with cubic_feet
+  readyNow: number;              // rows where ready_now OR ready_date <= CURRENT_DATE
+  freshToday: number;            // rows where last_seen_at > now() - 24h
+  priced: number;                // rows with price_per_cf or price_flat
+  medianPricePerCf: number | null;
+}
+
 export interface LoadSearchResult {
   rows: LoadRow[];
   total: number;
+  summary: LoadSummary;
   /** Echo of how the search was actually interpreted, for the UI to display. */
   applied: {
     origin?: GeoPoint | null;
@@ -136,8 +194,8 @@ export interface LoadSearchResult {
     radiusMiles?: number | null;
     corridorMiles?: number | null;
     routeMode?: "endpoints" | "corridor";
-    dateFrom?: string | null;
-    dateTo?: string | null;
+    readyBy?: string | null;
+    deliverBy?: string | null;
     truncated?: boolean;
   };
 }

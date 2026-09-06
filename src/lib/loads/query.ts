@@ -1,5 +1,5 @@
 /**
- * Load search.
+ * Job search.
  *
  * All filtering is one parameterized SQL statement, with two exceptions that
  * are documented inline: route-corridor matching and detour scoring are done
@@ -10,8 +10,13 @@
  * Radius search pattern: bounding-box prefilter (served by the (lat,lng) btree
  * indexes) AND exact haversine. The box alone would return corner
  * false-positives; the haversine alone would table-scan.
+ *
+ * The summary is computed over the *full* WHERE, not the returned page: the
+ * board's headline ("18 jobs · 6,450 cf ≈ 4.3 trucks") describes the whole
+ * filtered set, and a driver deciding whether a lane is worth the trip is
+ * reading that number, not the page size.
  */
-import { params, query } from "@/lib/db";
+import { params, query, queryOne } from "@/lib/db";
 import { DEFAULT_TZ } from "@/lib/extract/dates";
 import {
   alongTrackFraction,
@@ -28,6 +33,7 @@ import type {
   LoadRow,
   LoadSearchParams,
   LoadSearchResult,
+  LoadSummary,
 } from "./types";
 
 /** Ceiling on rows pulled into memory for corridor post-processing. */
@@ -36,28 +42,49 @@ const CORRIDOR_CANDIDATE_CAP = 3000;
 /** How far off the driver's line a pickup may sit before it stops being "on the way". */
 const DEFAULT_CORRIDOR_MILES = 75;
 
+/** Open-ended size filters: a job is never excluded for being unusually small or large. */
+const CF_FLOOR = -1;
+const CF_CEILING = 1_000_000;
+
 const SELECT_COLUMNS = `
-  l.id, l.status,
+  l.id, l.status, l.status_source,
   l.pickup_label, l.pickup_city, l.pickup_state, l.pickup_zip,
   l.pickup_lat, l.pickup_lng, l.pickup_precision,
   l.delivery_label, l.delivery_city, l.delivery_state, l.delivery_zip,
   l.delivery_lat, l.delivery_lng, l.delivery_precision,
   l.trip_miles,
+  l.cubic_feet, l.price_per_cf, l.price_flat, l.rate_usd,
+  l.ready_now,
+  l.ready_date::text  AS ready_date,
+  l.ready_source,
+  l.deliver_by::text  AS deliver_by,
+  coalesce(l.tags,  '{}') AS tags,
+  coalesce(l.flags, '{}') AS flags,
+  l.job_notes, l.line_text, l.requirements,
+  l.sender_key, l.job_key, l.ordinal,
+  l.contact_name, l.contact_phone, l.contact_mode,
+  l.first_seen_at::text AS first_seen_at,
+  l.last_seen_at::text  AS last_seen_at,
+  l.seen_count, l.relist_count,
+  l.delisted_at::text   AS delisted_at,
+  l.snapshot_message_id,
+  l.confidence, l.needs_review, l.dup_group_id, l.is_canonical,
+  g.name AS group_name,
+  l.source_message_id, l.posted_by,
+  l.created_at::text  AS created_at,
+  l.expires_at::text  AS expires_at,
   l.pickup_date::text   AS pickup_date,
   l.pickup_time::text   AS pickup_time,
   l.pickup_time_note,
   l.delivery_date::text AS delivery_date,
-  l.load_type, l.weight_lbs, l.pallets, l.pieces, l.rate_usd,
-  l.contact_name, l.contact_phone, l.notes,
-  l.confidence, l.needs_review, l.dup_group_id, l.is_canonical,
-  l.source_message_id,
-  l.created_at::text AS created_at,
-  l.expires_at::text AS expires_at,
-  g.name AS group_name,
+  l.weight_lbs, l.pieces, l.notes,
   COALESCE((
     SELECT count(*) FROM loads d
      WHERE d.dup_group_id = l.dup_group_id AND l.dup_group_id IS NOT NULL
   ), 1) AS dup_count`;
+
+/** Per-cubic-foot price, in SQL: what a mover compares two jobs on. */
+const PER_CF_SQL = `coalesce(l.price_per_cf, l.price_flat / nullif(l.cubic_feet, 0))`;
 
 /** Haversine in SQL. `latCol`/`lngCol` are column refs, never user input. */
 function distanceSql(latCol: string, lngCol: string, latP: string, lngP: string): string {
@@ -79,23 +106,6 @@ export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchRe
   if (!input.includeDuplicates) where.push(`l.is_canonical = true`);
   if (input.needsReviewOnly) where.push(`l.needs_review = true`);
 
-  // --- dates ----------------------------------------------------------------
-  const { from, to } = resolveDateWindow(input);
-  if (from && to) {
-    where.push(`l.pickup_date >= ${p.add(from)}::date`);
-    where.push(`l.pickup_date <= ${p.add(to)}::date`);
-  } else if (from) {
-    // An open-ended window keeps undated posts in play. Those are often the
-    // most urgent ones ("need a truck now"), and dropping them for having no
-    // parseable date would be exactly the wrong filter.
-    where.push(
-      `(l.pickup_date >= ${p.add(from)}::date
-        OR (l.pickup_date IS NULL AND l.created_at >= now() - interval '2 days'))`,
-    );
-  } else if (to) {
-    where.push(`l.pickup_date <= ${p.add(to)}::date`);
-  }
-
   // --- pickup / delivery attributes ----------------------------------------
   const pickupStates = expandStates(input.pickupStates);
   if (pickupStates.length) where.push(`l.pickup_state = ANY(${p.add(pickupStates)}::text[])`);
@@ -107,26 +117,63 @@ export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchRe
   if (input.pickupZip) where.push(`l.pickup_zip LIKE ${p.add(zipPattern(input.pickupZip))}`);
   if (input.deliveryZip) where.push(`l.delivery_zip LIKE ${p.add(zipPattern(input.deliveryZip))}`);
 
-  if (input.loadTypes?.length) where.push(`l.load_type = ANY(${p.add(input.loadTypes)}::text[])`);
-  if (input.minWeight != null) where.push(`l.weight_lbs >= ${p.add(input.minWeight)}`);
-  if (input.maxWeight != null) where.push(`l.weight_lbs <= ${p.add(input.maxWeight)}`);
+  // --- size -----------------------------------------------------------------
+  // A post that never stated a size is still a job. It stays in the results
+  // unless the driver explicitly unchecks "include jobs without a size".
+  if (input.minCf != null || input.maxCf != null) {
+    const lo = p.add(input.minCf ?? CF_FLOOR);
+    const hi = p.add(input.maxCf ?? CF_CEILING);
+    where.push(
+      input.includeUnsized === false
+        ? `(l.cubic_feet IS NOT NULL AND l.cubic_feet BETWEEN ${lo} AND ${hi})`
+        : `(l.cubic_feet IS NULL OR l.cubic_feet BETWEEN ${lo} AND ${hi})`,
+    );
+  } else if (input.includeUnsized === false) {
+    where.push(`l.cubic_feet IS NOT NULL`);
+  }
+
+  // --- readiness / deadline / freshness -------------------------------------
+  if (input.readyOnly) where.push(`(l.ready_now OR l.ready_date <= CURRENT_DATE)`);
+  if (input.readyBy) where.push(`(l.ready_now OR l.ready_date <= ${p.add(input.readyBy)}::date)`);
+  if (input.deliverBy) {
+    where.push(`(l.deliver_by IS NULL OR l.deliver_by <= ${p.add(input.deliverBy)}::date)`);
+  }
+  if (input.seenDays != null) {
+    const days = clamp(Math.round(input.seenDays), 1, 30);
+    where.push(`l.last_seen_at > now() - (${p.add(String(days))} || ' days')::interval`);
+  }
+
+  if (input.hasPrice) where.push(`(l.price_per_cf IS NOT NULL OR l.price_flat IS NOT NULL)`);
+
+  // The sender key is "phone:<E.164>" -- the author's own number. The query
+  // builder honours it for admin and internal callers; B's public route strips
+  // the `sender` key from the URL for everyone else, so summary.count can never
+  // be used to confirm whose phone a number is.
+  if (input.senderKey) where.push(`l.sender_key = ${p.add(input.senderKey)}`);
 
   if (input.q) {
+    // Never contact_phone: a phone search would leak the number through the count.
     const like = p.add(`%${input.q.toLowerCase()}%`);
     where.push(`(
-      lower(l.pickup_label) LIKE ${like} OR lower(l.delivery_label) LIKE ${like} OR
-      lower(coalesce(l.contact_name,'')) LIKE ${like} OR
-      lower(coalesce(l.notes,'')) LIKE ${like} OR
-      lower(coalesce(l.load_type,'')) LIKE ${like}
+      lower(l.pickup_label || ' ' || l.delivery_label || ' ' ||
+            coalesce(l.job_notes,'') || ' ' || coalesce(l.requirements,'') || ' ' ||
+            array_to_string(coalesce(l.tags,'{}'),' ') || ' ' ||
+            coalesce(l.contact_name,'')) LIKE ${like}
     )`);
   }
 
   // --- map viewport ---------------------------------------------------------
-  if (input.bounds) where.push(boundsClause(input.bounds, p, "l.pickup_lat", "l.pickup_lng"));
+  // A route is on screen when either of its ends is: panning to Florida should
+  // show the jobs arriving there, not only the ones leaving from there.
+  if (input.bounds) where.push(eitherEndInBounds(input.bounds, p));
 
   const corridor =
     input.routeMode === "corridor" && input.origin && input.destination
-      ? { origin: input.origin, destination: input.destination, miles: input.corridorMiles ?? DEFAULT_CORRIDOR_MILES }
+      ? {
+          origin: input.origin,
+          destination: input.destination,
+          miles: input.corridorMiles ?? DEFAULT_CORRIDOR_MILES,
+        }
       : null;
 
   // --- radius filters -------------------------------------------------------
@@ -156,14 +203,13 @@ export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchRe
 
   // Snapshot the bind values the WHERE clause needs, before adding any that
   // only the SELECT list uses. Postgres rejects a bind with more parameters
-  // than the statement references, so the count query -- which has no SELECT
-  // list to speak of -- must be given exactly this prefix and no more.
+  // than the statement references, so the count and summary queries -- which
+  // have no SELECT list to speak of -- must be given exactly this prefix.
   const whereValues = [...p.values];
 
   // --- distance column -----------------------------------------------------
-  // An explicit origin outranks the saved home base: when someone searches
-  // "pick up near Newark", the distances they want to see are from Newark, not
-  // from wherever their profile happens to say they live.
+  // An explicit origin outranks the viewer's own location: when someone
+  // searches "pick up near Newark", the distances they want are from Newark.
   const reference = input.origin ?? input.viewer ?? null;
   let distanceExpr = "NULL::float8";
   if (reference) {
@@ -173,11 +219,11 @@ export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchRe
   }
 
   if (corridor) {
-    return corridorSearch(input, corridor, fromSql, whereSql, distanceExpr, p, from, to);
+    return corridorSearch(input, corridor, fromSql, whereSql, distanceExpr, p);
   }
 
   const sortSql = orderBy(input.sort, Boolean(reference));
-  const limit = clamp(input.limit ?? 50, 1, 200);
+  const limit = clamp(input.limit ?? 50, 1, 500);
   const offset = Math.max(input.offset ?? 0, 0);
 
   const rows = await query<LoadRow>(
@@ -189,33 +235,62 @@ export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchRe
     p.values,
   );
 
-  const countRows = await query<{ n: number }>(
-    `SELECT count(*)::int AS n ${fromSql} ${whereSql}`,
-    whereValues,
-  );
+  const summary = await summarize(fromSql, whereSql, whereValues);
 
   return {
     rows,
-    total: countRows[0]?.n ?? rows.length,
+    total: summary.count,
+    summary,
     applied: {
       origin: input.origin ?? null,
       destination: input.destination ?? null,
       radiusMiles: input.radiusMiles ?? null,
       routeMode: "endpoints",
-      dateFrom: from,
-      dateTo: to,
+      readyBy: input.readyBy ?? null,
+      deliverBy: input.deliverBy ?? null,
     },
   };
 }
 
+/** The board headline, over the whole filtered set rather than the page. */
+async function summarize(
+  fromSql: string,
+  whereSql: string,
+  whereValues: unknown[],
+): Promise<LoadSummary> {
+  const row = await queryOne<LoadSummary>(
+    `SELECT count(*)::int AS "count",
+            coalesce(sum(l.cubic_feet),0)::int AS "totalCf",
+            count(l.cubic_feet)::int AS "withCf",
+            count(*) FILTER (WHERE l.ready_now OR l.ready_date <= CURRENT_DATE)::int AS "readyNow",
+            count(*) FILTER (WHERE l.last_seen_at > now() - interval '24 hours')::int AS "freshToday",
+            count(*) FILTER (WHERE l.price_per_cf IS NOT NULL OR l.price_flat IS NOT NULL)::int AS "priced",
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY ${PER_CF_SQL}::float8)
+              FILTER (WHERE l.price_per_cf IS NOT NULL OR (l.price_flat IS NOT NULL AND l.cubic_feet > 0)) AS "medianPricePerCf"
+       ${fromSql}
+       ${whereSql}`,
+    whereValues,
+  );
+  return (
+    row ?? {
+      count: 0,
+      totalCf: 0,
+      withCf: 0,
+      readyNow: 0,
+      freshToday: 0,
+      priced: 0,
+      medianPricePerCf: null,
+    }
+  );
+}
+
 /**
- * Route matching, the thing a plain load board cannot do.
+ * Route matching, the thing a plain board cannot do.
  *
- * "I'll be in Philadelphia tomorrow and I want to end up in Georgia" should not
- * only return Philadelphia -> Georgia loads. It should return anything whose
- * pickup sits near the Philadelphia -> Georgia line and whose delivery makes
- * forward progress along it, ranked by how far off the route the driver has to
- * swing. Charlotte -> Atlanta belongs in that answer.
+ * "I am in Miami and I want to end up back in New Jersey" should not only
+ * return Miami -> New Jersey jobs. It should return anything whose pickup sits
+ * near the line and whose delivery makes forward progress along it, ranked by
+ * how far off the route the driver has to swing.
  */
 async function corridorSearch(
   input: LoadSearchParams,
@@ -224,14 +299,12 @@ async function corridorSearch(
   whereSql: string,
   distanceExpr: string,
   p: ReturnType<typeof params>,
-  from: string | null,
-  to: string | null,
 ): Promise<LoadSearchResult> {
   const candidates = await query<LoadRow>(
     `SELECT ${SELECT_COLUMNS}, ${distanceExpr} AS distance_miles
        ${fromSql}
        ${whereSql}
-     ORDER BY l.pickup_date NULLS LAST, l.id DESC
+     ORDER BY l.last_seen_at DESC NULLS LAST, l.id DESC
      LIMIT ${p.add(CORRIDOR_CANDIDATE_CAP)}`,
     p.values,
   );
@@ -243,10 +316,9 @@ async function corridorSearch(
   for (const row of candidates) {
     if (row.pickup_lat == null || row.pickup_lng == null) continue;
     // Both endpoints are required here. Without a delivery coordinate there is
-    // no way to tell whether the load moves the driver toward the destination
-    // or straight back the way they came, and "might be on your way" is not
-    // what this search promises. Such loads still appear in radius and state
-    // searches; they are only excluded from corridor matching.
+    // no way to tell whether the job moves the driver toward home or straight
+    // back the way they came, and "might be on your way" is not what this
+    // search promises. Such jobs still appear in state and radius searches.
     if (row.delivery_lat == null || row.delivery_lng == null) continue;
 
     const pickup = { lat: row.pickup_lat, lng: row.pickup_lng };
@@ -258,26 +330,19 @@ async function corridorSearch(
     const pickupProgress = alongTrackFraction(pickup, origin, destination);
     const deliveryProgress = alongTrackFraction(delivery, origin, destination);
 
-    // Forward progress: the delivery must land further along the route than the
-    // pickup, or at least end up closer to where the driver is going.
     const closerToDest =
       haversineMiles(delivery, destination) < haversineMiles(pickup, destination);
     if (deliveryProgress <= pickupProgress && !closerToDest) continue;
 
-    // The delivery has to stay near the route too. Heading to Atlanta,
-    // Philadelphia -> Miami technically makes "forward progress" (Miami is
-    // south) while being nobody's idea of a load on the way. Allowing the
-    // delivery to sit twice as far off the line as the pickup leaves room for
-    // genuinely coastal lanes without admitting the whole southeast.
+    // The delivery has to stay near the route too. Heading to New Jersey,
+    // Miami -> Seattle technically makes "forward progress" (north) while
+    // being nobody's idea of a job on the way.
     const deliveryOffRoute = crossTrackMiles(delivery, origin, destination);
     if (deliveryOffRoute > miles * 2) continue;
 
-    // Cap total extra driving. Scaled against the trip as well as the corridor
-    // width: 150 extra miles is a rounding error on a coast-to-coast run and a
-    // different trip entirely on a 400-mile one. This is what rejects loads
-    // whose pickup sits behind the driver -- backtracking to a pickup north of
-    // the origin shows up here as a large detour even when the pickup is
-    // technically within the corridor.
+    // Cap total extra driving, scaled against the trip as well as the corridor
+    // width: 150 extra miles is a rounding error coast to coast and a different
+    // trip entirely on a 400-mile run.
     const detour = detourMiles(origin, destination, pickup, delivery);
     if (detour > Math.min(miles * 2, routeLength * 0.3)) continue;
 
@@ -287,29 +352,74 @@ async function corridorSearch(
     scored.push(row);
   }
 
-  // Best first: least extra driving, then earliest pickup.
+  // Best first: least extra driving, then freshest.
   scored.sort((a, b) => {
     const ad = a.detour_miles ?? Infinity;
     const bd = b.detour_miles ?? Infinity;
     if (ad !== bd) return ad - bd;
-    return (a.pickup_date ?? "9999").localeCompare(b.pickup_date ?? "9999");
+    return (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? "");
   });
 
-  const limit = clamp(input.limit ?? 50, 1, 200);
+  const limit = clamp(input.limit ?? 50, 1, 500);
   const offset = Math.max(input.offset ?? 0, 0);
 
   return {
     rows: scored.slice(offset, offset + limit),
     total: scored.length,
+    // The corridor filter runs in JS, so the summary is folded from the same
+    // scored set rather than re-run as SQL -- it still describes the whole
+    // match, not the page.
+    summary: summarizeRows(scored),
     applied: {
       origin,
       destination,
       corridorMiles: miles,
       routeMode: "corridor",
-      dateFrom: from,
-      dateTo: to,
+      readyBy: input.readyBy ?? null,
+      deliverBy: input.deliverBy ?? null,
       truncated: candidates.length >= CORRIDOR_CANDIDATE_CAP,
     },
+  };
+}
+
+/** The same summary as `summarize`, computed in JS for corridor mode. */
+function summarizeRows(rows: LoadRow[]): LoadSummary {
+  const today = localToday();
+  const dayAgo = Date.now() - 24 * 3600_000;
+  const perCf: number[] = [];
+  let totalCf = 0;
+  let withCf = 0;
+  let readyNow = 0;
+  let freshToday = 0;
+  let priced = 0;
+
+  for (const r of rows) {
+    if (r.cubic_feet != null) {
+      totalCf += r.cubic_feet;
+      withCf++;
+    }
+    if (r.ready_now || (r.ready_date != null && r.ready_date <= today)) readyNow++;
+    if (r.last_seen_at != null && new Date(r.last_seen_at).getTime() > dayAgo) freshToday++;
+    if (r.price_per_cf != null || r.price_flat != null) {
+      priced++;
+      if (r.price_per_cf != null) perCf.push(r.price_per_cf);
+      else if (r.price_flat != null && r.cubic_feet) perCf.push(r.price_flat / r.cubic_feet);
+    }
+  }
+
+  perCf.sort((a, b) => a - b);
+  const mid = perCf.length ? (perCf.length % 2
+    ? perCf[(perCf.length - 1) / 2]
+    : (perCf[perCf.length / 2 - 1] + perCf[perCf.length / 2]) / 2) : null;
+
+  return {
+    count: rows.length,
+    totalCf,
+    withCf,
+    readyNow,
+    freshToday,
+    priced,
+    medianPricePerCf: mid,
   };
 }
 
@@ -342,29 +452,40 @@ function boundsClause(
        AND ${lngCol} BETWEEN ${p.add(b.minLng)} AND ${p.add(b.maxLng)})`;
 }
 
+function eitherEndInBounds(b: BoundsInput, p: ReturnType<typeof params>): string {
+  return `(${boundsClause(b, p, "l.pickup_lat", "l.pickup_lng")}
+        OR ${boundsClause(b, p, "l.delivery_lat", "l.delivery_lng")})`;
+}
+
 function orderBy(sort: LoadSearchParams["sort"], hasDistance: boolean): string {
   switch (sort) {
-    case "pickup_date":
-      return `l.pickup_date ASC NULLS LAST, l.id DESC`;
+    case "newest":
+      return `l.first_seen_at DESC NULLS LAST, l.id DESC`;
+    case "last_seen":
+      return `l.last_seen_at DESC NULLS LAST, l.id DESC`;
     case "distance":
       return hasDistance ? `distance_miles ASC NULLS LAST, l.id DESC` : `l.id DESC`;
     case "trip_miles":
       return `l.trip_miles DESC NULLS LAST, l.id DESC`;
     case "rate":
-      return `l.rate_usd DESC NULLS LAST, l.id DESC`;
-    case "newest":
+      return `${PER_CF_SQL} DESC NULLS LAST, l.id DESC`;
+    case "cf":
+      return `l.cubic_feet DESC NULLS LAST, l.id DESC`;
+    case "deliver_by":
+      return `l.deliver_by ASC NULLS LAST, l.id DESC`;
+    case "ready":
     default:
-      return `l.created_at DESC, l.id DESC`;
+      return `l.ready_now DESC, l.last_seen_at DESC NULLS LAST, l.id DESC`;
   }
 }
 
 function zipPattern(zip: string): string {
   const digits = zip.replace(/\D/g, "").slice(0, 5);
-  // Partial ZIPs are a legitimate freight filter: "070" means north Jersey.
+  // Partial ZIPs are a legitimate filter: "070" means north Jersey.
   return digits.length === 5 ? digits : `${digits}%`;
 }
 
-/** Region tokens ("northeast") expand into their member states. */
+/** Region tokens ("southeast", "tristate") expand into their member states. */
 function expandStates(input: string[] | undefined): string[] {
   if (!input?.length) return [];
   const out = new Set<string>();
@@ -378,50 +499,20 @@ function expandStates(input: string[] | undefined): string[] {
   return [...out];
 }
 
-function resolveDateWindow(input: LoadSearchParams): { from: string | null; to: string | null } {
-  const preset = input.datePreset ?? "any";
-  if (preset === "custom" || (!preset && (input.dateFrom || input.dateTo))) {
-    return { from: input.dateFrom ?? null, to: input.dateTo ?? null };
-  }
-  const today = localToday();
-  switch (preset) {
-    case "today":
-      return { from: today, to: today };
-    case "tomorrow": {
-      const t = shift(today, 1);
-      return { from: t, to: t };
-    }
-    case "next3":
-      return { from: today, to: shift(today, 2) };
-    case "week":
-      return { from: today, to: shift(today, 6) };
-    default:
-      return { from: input.dateFrom ?? null, to: input.dateTo ?? null };
-  }
-}
-
 function localToday(): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: DEFAULT_TZ,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
-  return parts; // en-CA yields YYYY-MM-DD
-}
-
-function shift(iso: string, days: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
+  }).format(new Date()); // en-CA yields YYYY-MM-DD
 }
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(Math.max(n, lo), hi);
 }
 
-/** Single load with its duplicate siblings and source message. */
+/** Single job with its duplicate siblings and source message. */
 export async function getLoad(id: number): Promise<LoadRow | null> {
   const rows = await query<LoadRow>(
     `SELECT ${SELECT_COLUMNS}, NULL::float8 AS distance_miles
@@ -438,7 +529,7 @@ export async function getDuplicates(load: LoadRow): Promise<LoadRow[]> {
     `SELECT ${SELECT_COLUMNS}, NULL::float8 AS distance_miles
        FROM loads l LEFT JOIN whatsapp_groups g ON g.id = l.group_id
       WHERE l.dup_group_id = $1 AND l.id <> $2
-      ORDER BY l.created_at DESC`,
+      ORDER BY l.last_seen_at DESC NULLS LAST, l.id DESC`,
     [load.dup_group_id, load.id],
   );
 }
