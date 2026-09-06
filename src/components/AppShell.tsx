@@ -61,14 +61,15 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
         className="bg-surface sticky top-0 z-30 border-b border-border"
         style={{ height: "var(--header-h)" }}
       >
-        {/* What a phone header drops, in order: the word mark, the account name
+        {/* What a narrow header drops, in order: the word mark, the account name
             and the role label -- the parts nobody taps -- and then the nav,
             which the More menu picks up. What it never drops: the board (the
-            logo links to it), the location control, and the way in. */}
-        {/* The roomier gap and padding wait for `lg`, not `md`. They are worth
-            40 px across the row, and at 768 -- the width at which the nav comes
-            back -- that 40 px is the difference between a header that fits and
-            a page that scrolls sideways. */}
+            logo links to it), the location control, and the way in.
+
+            The roomier gap and padding wait for `lg`, not `md`. They are worth
+            40 px across this row, and at 768 -- the width at which the nav comes
+            back -- that 40 px is the difference between a header that fits and a
+            page that scrolls sideways. */}
         <div className="mx-auto flex h-full max-w-[1600px] items-center gap-[var(--sp-2)] px-[var(--sp-2)] lg:gap-[var(--sp-5)] lg:px-[var(--sp-4)]">
           <Link href="/" className="flex shrink-0 items-center gap-2 font-bold tracking-tight">
             <span
@@ -128,7 +129,6 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                   )}
                 </Link>
               ))}
-
           </nav>
 
           <div className="ml-auto flex shrink-0 items-center gap-[var(--sp-2)] lg:gap-[var(--sp-3)]">
