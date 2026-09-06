@@ -164,7 +164,7 @@ All in `loadline/infra/`, one environment, one state.
 | Data | `aws_db_subnet_group`, `aws_db_instance.loadline` — t4g.micro, PG 16, 20 GB gp3, `max_allocated_storage` 50, `manage_master_user_password`, `backup_retention_period` 1, `deletion_protection` false, `skip_final_snapshot` true |
 | Secrets | `loadline/DATABASE_URL`, `loadline/SESSION_SECRET`, `loadline/CRON_SECRET` |
 | Edge | `aws_acm_certificate` + validation records + `aws_acm_certificate_validation`; `aws_lb_listener_certificate`; `aws_route53_record` A-alias; `aws_lb_target_group` (:3000); `aws_lb_listener_rule` priority **20** |
-| Compute | `aws_ecs_cluster.loadline`; `aws_cloudwatch_log_group` `/ecs/loadline` (14-day retention); `aws_ecs_task_definition` Fargate 256 CPU / 512 MB, x86_64; execution + task roles; `aws_ecs_service` desired_count 1, public subnets, `enable_execute_command` true |
+| Compute | `aws_ecs_cluster.loadline`; `aws_cloudwatch_log_group` `/ecs/loadline` (14-day retention); `aws_ecs_task_definition` Fargate 256 CPU / 512 MB **ARM64/Graviton**; execution + task roles; `aws_ecs_service` desired_count 1, public subnets, `enable_execute_command` true |
 | CI | `aws_iam_role.loadline_deploy` + inline policy |
 
 ### Listener rule priority
@@ -268,13 +268,21 @@ the real target and the §7 runbook.
 
 ## 6. Cost
 
+**Architecture: ARM64 (Graviton), decided 2026-09-06 during implementation.** The
+design originally specified x86_64. That is not buildable here: Next 16's
+`next build` runs Turbopack, a native Rust binary, which segfaults under QEMU
+emulation on an arm64 machine (`uncaught target signal 11`, exit 139) about 11
+seconds into the build. ARM64 is native on both the developer machine and the CI
+runner (`ubuntu-24.04-arm`, free for public repositories), needs no emulation
+anywhere, and is ~20% cheaper on Fargate.
+
 | Item | Monthly |
 |---|---|
 | RDS db.t4g.micro + 20 GB gp3 | ~$14.70 |
-| Fargate 0.25 vCPU / 0.5 GB, always on | ~$9.00 |
+| Fargate 0.25 vCPU / 0.5 GB ARM64 (Graviton), always on | ~$7.20 |
 | ECR storage + CloudWatch Logs | ~$1.00 |
 | ALB, ACM certificate, Route 53 records | $0 marginal |
-| **Total** | **~$25/mo** |
+| **Total** | **~$23/mo** |
 
 The ALB is already running and already paid for; loadline adds a target group, a
 rule and a certificate to it, none of which are billed.

@@ -19,7 +19,7 @@ Every task's requirements implicitly include this section.
 - **Never modify `/Users/user/Desktop/ziptozip/`.** This stack reads prod's state read-only. No task in this plan applies the ziptozip stack.
 - OpenTofu `required_version = ">= 1.11"`; AWS provider `~> 5.70`. Matches both existing ziptozip environments.
 - Naming: `name_prefix = "loadline"`, hostname `loadline.ziptozip.app`, ALB listener rule priority `20`, secret prefix `loadline/`, state key `loadline/terraform.tfstate` in bucket `ziptozip-tfstate`.
-- **Anything pushed to ECR must be `linux/amd64`.** Fargate runs the task as x86_64. A native `docker build` on Apple Silicon produces arm64, which starts and dies with `exec format error`.
+- **Anything pushed to ECR must be `linux/arm64`.** Fargate runs the task on Graviton (`cpu_architecture = "ARM64"`). This machine is arm64, so a native `docker build` is already correct — do NOT pass `--platform linux/amd64`: `next build` runs Turbopack, a native Rust binary, which segfaults under QEMU (`uncaught target signal 11`, exit 139). x86 images cannot be built here at all.
 - Secrets are created empty by tofu and populated by hand. **Never** use `random_password` — it writes the value into state.
 - `DEMO_MODE` stays `on`. `WHATSAPP_ALLOW_UNSIGNED` must stay unset.
 - All work happens on branch `feat/aws-deployment`, off `main`.
@@ -178,7 +178,7 @@ docs
 # docs/superpowers/plans/2026-09-06-aws-deployment.md Task 2 for why.
 #
 # Build (for ECR, from any machine):
-#   docker build --platform linux/amd64 -t loadline .
+#   docker build -t loadline .          # native arm64; see infra/README.md
 
 FROM node:22-slim AS deps
 WORKDIR /app
@@ -589,7 +589,9 @@ Expected: `908768512179.dkr.ecr.us-east-1.amazonaws.com/loadline`
 
 - [ ] **Step 5: Build and push the first image**
 
-**`--platform linux/amd64` is mandatory.** The Fargate task is x86_64; a native build on Apple Silicon produces arm64, which starts and dies with `exec format error` and no useful log line.
+**Build natively for arm64 — do NOT force `linux/amd64`.** The Fargate task definition sets `cpu_architecture = "ARM64"`, and this machine is arm64, so the default native build is exactly right.
+
+Forcing amd64 does not merely run slowly, it **cannot succeed**: `next build` on Next 16 uses Turbopack, a native Rust binary, which segfaults under QEMU emulation (`qemu: uncaught target signal 11 (Segmentation fault)`, `exit code: 139`) about 11 seconds in. This was attempted and confirmed on 2026-09-06.
 
 ```bash
 cd /Users/user/Desktop/loadline
@@ -599,7 +601,7 @@ REGISTRY=908768512179.dkr.ecr.us-east-1.amazonaws.com
 aws ecr get-login-password --region us-east-1 \
   | docker login --username AWS --password-stdin "$REGISTRY"
 
-docker build --platform linux/amd64 -t "$REGISTRY/loadline:latest" .
+docker build --platform linux/arm64 -t "$REGISTRY/loadline:latest" .
 docker push "$REGISTRY/loadline:latest"
 ```
 
@@ -617,7 +619,7 @@ Then confirm the platform:
 docker image inspect "$REGISTRY/loadline:latest" --format '{{.Os}}/{{.Architecture}}'
 ```
 
-Expected: `linux/amd64`. If it says `linux/arm64`, rebuild with `--platform linux/amd64` and push again before continuing — Task 6 will otherwise produce a crash-looping service.
+Expected: `linux/arm64`. If it says `linux/amd64`, rebuild natively and push again before continuing — the ARM64 task definition would otherwise produce a crash-looping service with `exec format error`.
 
 - [ ] **Step 7: Commit**
 
@@ -1202,13 +1204,16 @@ resource "aws_ecs_task_definition" "app" {
   execution_role_arn       = aws_iam_role.task_execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
-  # x86_64, matching what the deploy workflow's ubuntu-latest runner builds
-  # natively. Anything pushed from an Apple Silicon machine must therefore
-  # use `docker build --platform linux/amd64`, or the task dies with
-  # "exec format error".
+  # ARM64 (Graviton). Three reasons, in order of force:
+  #   1. x86 images CANNOT be built on the developer machine at all — Next 16's
+  #      `next build` runs Turbopack, a native Rust binary, which segfaults
+  #      under QEMU emulation on arm64 (signal 11, exit 139).
+  #   2. The deploy workflow runs on `ubuntu-24.04-arm`, native arm64 and free
+  #      for public repositories — so CI needs no emulation either.
+  #   3. Graviton Fargate is ~20% cheaper for identical vCPU/memory.
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = "ARM64"
   }
 
   container_definitions = jsonencode([
@@ -1329,7 +1334,7 @@ aws logs tail /ecs/loadline --since 10m
 
 Each symptom has exactly one cause, because everything upstream was already proven:
 
-- `exec format error` → the image is arm64. Rebuild with `--platform linux/amd64` (Task 4 Step 5).
+- `exec format error` → the image is amd64 but the task definition is ARM64. Rebuild natively (Task 4 Step 5) — never with `--platform linux/amd64`, which cannot build here at all.
 - `ResourceInitializationError ... secrets` → a secret has no version. Re-run Task 5 Step 7.
 - `ENOENT ... db/schema.sql` → the Dockerfile is missing `COPY db ./db` (Task 2).
 - Task runs, health check times out → the security group is wrong; confirm ingress is 3000, not 3008 (Task 5).
@@ -1524,7 +1529,10 @@ env:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Native arm64 runner — free for public repositories. Must stay arm64 to
+    # match the task definition's runtime_platform, and because Turbopack
+    # segfaults under cross-architecture emulation in either direction.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -1536,8 +1544,8 @@ jobs:
       - id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ubuntu-latest is x86_64 and the task definition's runtime_platform is
-      # X86_64, so this builds natively with no emulation.
+      # The runner is arm64 and the task definition's runtime_platform is
+      # ARM64, so this builds natively with no emulation.
       - name: Build and push
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -1697,10 +1705,13 @@ on host-header and cannot capture `ziptozip.app` traffic.
 
 ## Gotchas
 
-1. **Anything pushed to ECR must be `linux/amd64`.** The task's
-   `runtime_platform` is X86_64. A native `docker build` on Apple Silicon produces
-   arm64, and the task dies with `exec format error` and no useful log line. The
-   GitHub Actions runner is x86_64, so the pipeline is safe; manual pushes are not.
+1. **Everything here is arm64, and that is not negotiable.** The task's
+   `runtime_platform` is ARM64 (Graviton) and the CI runner is `ubuntu-24.04-arm`.
+   Do not "fix" a build by forcing `--platform linux/amd64`: Next 16's `next build`
+   runs Turbopack, a native Rust binary that **segfaults under QEMU** (signal 11,
+   exit 139), so an x86 image cannot be produced on an arm64 machine at all. If a
+   pushed image is ever amd64, the task dies with `exec format error` and no useful
+   log line.
 
 2. **Secrets are created empty and populated by hand.** A task definition
    referencing a secret with no version fails at startup *before* the container
@@ -1757,4 +1768,4 @@ EOF
 - [ ] `aws elbv2 describe-rules` shows priorities `5 10 20 40 100 130 default` — 20 added, nothing else altered
 - [ ] `AWS_PROFILE=ziptozip tofu plan` in `infra/` reports **"No changes."**
 - [ ] A push to `main` deploys green
-- [ ] `AWS_PROFILE=ziptozip aws ce get-cost-and-usage` or the Billing console shows the expected ~$25/mo run rate after a few days
+- [ ] `AWS_PROFILE=ziptozip aws ce get-cost-and-usage` or the Billing console shows the expected ~$23/mo run rate after a few days (Graviton is ~20% cheaper than x86 Fargate)
