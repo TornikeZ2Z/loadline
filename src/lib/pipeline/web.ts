@@ -18,6 +18,7 @@ export interface WebJobBody {
   pickupLng?: string;
   pickupState?: string;
   pickupZip?: string;
+  pickupPrecision?: string;                         // how exact the picked place is
   deliveryState: string;                            // required 2-letter
   deliveryZip?: string;                             // 5 digits
   deliveryCity?: string;                            // one of deliveryZip / deliveryCity required
@@ -107,7 +108,11 @@ export async function insertWebJob(
       city: null,
       state: twoLetter(body.pickupState),
       zip,
-      precision: zip ? "zip" : "city",
+      // The suggestion carries its own precision: "Florida -- anywhere in the
+      // state" and "north jersey" are centroids, and calling them a city would
+      // draw a pinned point and drop the "approximate" note. Only a post from a
+      // client that sends no precision falls back to the shape of the fields.
+      precision: precisionOrNull(body.pickupPrecision) ?? (zip ? "zip" : "city"),
     };
   } else {
     const hit = await geocode(pickupLabel);
@@ -261,6 +266,18 @@ function numberOrNull(v: string | undefined): number | null {
 function twoLetter(v: string | undefined): string | null {
   const s = (v ?? "").trim().toUpperCase();
   return /^[A-Z]{2}$/.test(s) ? s : null;
+}
+
+/**
+ * The five values `loads.pickup_precision` accepts. Anything else a client
+ * sends is dropped rather than passed through: an unknown string would fail the
+ * column's CHECK and turn a valid post into a 500.
+ */
+const PRECISIONS = new Set(["address", "zip", "city", "region", "state"]);
+
+function precisionOrNull(v: string | undefined): string | null {
+  const s = (v ?? "").trim().toLowerCase();
+  return PRECISIONS.has(s) ? s : null;
 }
 
 function fiveDigits(v: string | undefined): string | null {
