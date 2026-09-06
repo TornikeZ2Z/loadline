@@ -19,6 +19,7 @@
 const AUTOCOMPLETE = "https://autocomplete.search.hereapi.com/v1/autocomplete";
 const LOOKUP = "https://lookup.search.hereapi.com/v1/lookup";
 const GEOCODE = "https://geocode.search.hereapi.com/v1/geocode";
+const REVGEOCODE = "https://revgeocode.search.hereapi.com/v1/revgeocode";
 const ROUTER = "https://router.hereapi.com/v8/routes";
 
 export interface HerePlace {
@@ -41,8 +42,44 @@ export interface RoadDistance {
   minutes: number;
 }
 
+/**
+ * A daily ceiling on billable HERE calls.
+ *
+ * Every place route is public now — no session in front of suggest, resolve or
+ * the job detail — so a bored script can spend real money on someone else's
+ * invoice. The counter is per process and per UTC day, and when it runs out
+ * `hereConfigured()` simply reports false: the public routes fall back to the
+ * offline gazetteer and straight-line distance, exactly as they do on a machine
+ * with no key at all. Degrading silently is deliberate — an error page because
+ * a quota ran out would be a worse product than a slightly coarser label.
+ */
+export const HERE_DAILY_BUDGET = Number(process.env.HERE_DAILY_BUDGET ?? 2000);
+
+let usage = { day: "", calls: 0 };
+
+function utcDay(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function callsToday(): number {
+  const day = utcDay();
+  if (usage.day !== day) usage = { day, calls: 0 };
+  return usage.calls;
+}
+
+/** Count one billable call. Every fetch below goes through this first. */
+function spend(): void {
+  callsToday();
+  usage.calls += 1;
+}
+
+/** How many calls have been spent today — read by nothing but diagnostics. */
+export function hereCallsToday(): number {
+  return callsToday();
+}
+
 export function hereConfigured(): boolean {
-  return Boolean(process.env.HERE_API_KEY);
+  return Boolean(process.env.HERE_API_KEY) && callsToday() < HERE_DAILY_BUDGET;
 }
 
 function key(): string {
@@ -131,6 +168,7 @@ export async function hereAutocomplete(q: string): Promise<HerePlace[]> {
   url.searchParams.set("limit", "8");
   url.searchParams.set("apiKey", key());
 
+  spend();
   const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
   if (!res.ok) return [];
 
@@ -164,21 +202,50 @@ export async function hereAutocomplete(q: string): Promise<HerePlace[]> {
     .filter((p): p is HerePlace => p !== null);
 }
 
-/** Turn an autocomplete result id into coordinates. One call, on selection. */
+/** The address parts a lookup or reverse geocode can give back. */
+export interface HereAddress {
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+}
+
+/**
+ * Turn an autocomplete result id into coordinates. One call, on selection.
+ *
+ * The address parts come back too, because the caller almost always needs them:
+ * the post form fills `pickupState`/`pickupZip` from a picked suggestion, and
+ * the admin console builds a learned place out of city/state/zip. They are on
+ * the same response, so asking for them costs nothing extra.
+ */
 export async function hereLookupPosition(
   id: string,
-): Promise<{ lat: number; lng: number } | null> {
+): Promise<{ lat: number; lng: number; address: HereAddress | null } | null> {
   if (!hereConfigured() || !id) return null;
 
   const url = new URL(LOOKUP);
   url.searchParams.set("id", id);
   url.searchParams.set("apiKey", key());
 
+  spend();
   const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
   if (!res.ok) return null;
 
-  const json = (await res.json()) as { position?: { lat: number; lng: number } };
-  return json.position ?? null;
+  const json = (await res.json()) as HereItem;
+  const pos = json.position ?? json.access?.[0];
+  if (!pos) return null;
+
+  const a = json.address;
+  return {
+    lat: pos.lat,
+    lng: pos.lng,
+    address: a
+      ? {
+          city: a.city ?? null,
+          state: a.stateCode ?? a.state ?? null,
+          postalCode: a.postalCode ?? null,
+        }
+      : null,
+  };
 }
 
 /** Resolve a full place string to coordinates. */
@@ -191,12 +258,51 @@ export async function hereGeocode(q: string): Promise<HerePlace | null> {
   url.searchParams.set("limit", "1");
   url.searchParams.set("apiKey", key());
 
+  spend();
   const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
   if (!res.ok) return null;
 
   const json = (await res.json()) as { items?: HereItem[] };
   const first = json.items?.[0];
   return first ? toPlace(first) : null;
+}
+
+/**
+ * Coordinates -> a place label. This is the server half of "Use GPS".
+ *
+ * The browser gives a precise position and nothing a human recognises; the
+ * driver needs to see "Miami, FL" to believe the board is sorted around them.
+ * The coordinates the caller supplied stay authoritative — only the label comes
+ * from here, so a wrong or missing reverse geocode can never move the pin.
+ */
+export async function hereReverseGeocode(
+  lat: number,
+  lng: number,
+): Promise<{ label: string; city: string | null; state: string | null; zip: string | null } | null> {
+  if (!hereConfigured() || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  const url = new URL(REVGEOCODE);
+  url.searchParams.set("at", `${lat},${lng}`);
+  url.searchParams.set("lang", "en-US");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("apiKey", key());
+
+  spend();
+  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) return null;
+
+  const json = (await res.json()) as { items?: HereItem[] };
+  const a = json.items?.[0]?.address;
+  if (!a) return null;
+
+  const city = a.city ?? null;
+  const state = a.stateCode ?? a.state ?? null;
+  const label =
+    [city, state].filter(Boolean).join(", ") ||
+    (a.label ?? "").replace(/, United States$/, "") ||
+    "Your location";
+
+  return { label, city, state, zip: a.postalCode ?? null };
 }
 
 /**
@@ -220,6 +326,7 @@ export async function hereRoute(
   url.searchParams.set("return", "summary");
   url.searchParams.set("apiKey", key());
 
+  spend();
   const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) return null;
 

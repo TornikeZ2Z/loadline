@@ -1,82 +1,76 @@
 import { NextResponse } from "next/server";
-import { badRequest, handler } from "@/lib/api";
-import { requireUser, requireRole } from "@/lib/auth";
-import { queryOne, query } from "@/lib/db";
-import { geocode } from "@/lib/geo/geocode";
-import { haversineMiles } from "@/lib/geo/math";
-import { computeExpiry } from "@/lib/extract/dates";
-import { normalizePhone } from "@/lib/extract/phone";
+import { badRequest, handler, rateLimit } from "@/lib/api";
+import { getCurrentUser, requireRole } from "@/lib/auth";
 import { searchLoads } from "@/lib/loads/query";
 import { parseSearchParams } from "@/lib/loads/searchParams";
+import { toPublicLoads } from "@/lib/loads/publicView";
+import { insertWebJob, WebJobValidationError, type WebJobBody } from "@/lib/pipeline/web";
 
-/** Search. Every filter in the UI maps to a query parameter here. */
+/**
+ * Three keys an anonymous caller may not use.
+ *
+ * `?sender=phone:%2B17865550128` is the dangerous one: even with `sender_key`
+ * stripped from every row, `summary.count` would answer "is this number the
+ * author of these jobs?" -- a phone oracle built out of a filter. Twins and the
+ * review flag are simply admin tooling.
+ */
+const ADMIN_ONLY_KEYS = ["sender", "dupes", "review"] as const;
+
+/** Search. Public: no session, no redirect, no sign-in wall in front of the board. */
 export const GET = handler(async (req: Request) => {
-  const user = await requireUser();
+  rateLimit(req, "search", 120);
   const url = new URL(req.url);
-  const viewer =
-    user.home_lat != null && user.home_lng != null
-      ? { lat: user.home_lat, lng: user.home_lng, label: user.home_label ?? undefined }
-      : null;
-  const params = await parseSearchParams(url.searchParams, viewer);
+
+  // A session read that does NOT gate the route -- it only decides whether the
+  // three admin-only keys survive into the query.
+  const user = await getCurrentUser();
+  if (user?.role !== "admin") {
+    for (const k of ADMIN_ONLY_KEYS) url.searchParams.delete(k);
+  }
+
+  // No fallback viewer: a location lives in the browser and arrives as
+  // viewerLat/viewerLng, never from a column on the user row.
+  const params = await parseSearchParams(url.searchParams);
   const result = await searchLoads(params);
-  return NextResponse.json(result);
+
+  return NextResponse.json({ ...result, rows: toPublicLoads(result.rows) });
 });
 
-/** Brokers and dispatchers publishing a load directly, without WhatsApp. */
+/** A poster publishing a job from the website rather than a WhatsApp group. */
 export const POST = handler(async (req: Request) => {
-  const user = await requireRole("broker", "admin");
-  const body = (await req.json()) as Record<string, string | number | null>;
+  const user = await requireRole("poster", "admin");
+  const body = await readBody(req);
 
-  const pickupText = String(body.pickup ?? "").trim();
-  const deliveryText = String(body.delivery ?? "").trim();
-  if (!pickupText || !deliveryText) badRequest("Pickup and delivery are both required");
-
-  const pickup = await geocode(pickupText);
-  if (!pickup) badRequest(`Could not place ${pickupText} on the map`);
-  const delivery = await geocode(deliveryText);
-  if (!delivery) badRequest(`Could not place ${deliveryText} on the map`);
-
-  const pickupDate = body.pickupDate ? String(body.pickupDate) : null;
-  const phone = normalizePhone(body.contactPhone ? String(body.contactPhone) : user.phone);
-
-  const row = await queryOne<{ id: number }>(
-    `INSERT INTO loads (
-       posted_by, status,
-       pickup_label, pickup_city, pickup_state, pickup_zip, pickup_lat, pickup_lng, pickup_precision,
-       delivery_label, delivery_city, delivery_state, delivery_zip, delivery_lat, delivery_lng, delivery_precision,
-       trip_miles, pickup_date, delivery_date,
-       load_type, weight_lbs, pallets, rate_usd,
-       contact_name, contact_phone, notes,
-       confidence, needs_review, expires_at
-     ) VALUES ($1,'available',
-       $2,$3,$4,$5,$6,$7,$8,
-       $9,$10,$11,$12,$13,$14,$15,
-       $16,$17,$18,
-       $19,$20,$21,$22,
-       $23,$24,$25,
-       1.0,false,$26) RETURNING id`,
-    [
-      user.id,
-      pickup.label, pickup.city, pickup.state, pickup.zip, pickup.lat, pickup.lng, pickup.precision,
-      delivery.label, delivery.city, delivery.state, delivery.zip, delivery.lat, delivery.lng, delivery.precision,
-      haversineMiles(pickup, delivery),
-      pickupDate,
-      body.deliveryDate ? String(body.deliveryDate) : null,
-      body.loadType || null,
-      body.weightLbs ? Number(body.weightLbs) : null,
-      body.pallets ? Number(body.pallets) : null,
-      body.rateUsd ? Number(body.rateUsd) : null,
-      body.contactName ? String(body.contactName) : user.name,
-      phone.e164 ?? phone.display,
-      body.notes ? String(body.notes) : null,
-      computeExpiry(pickupDate, new Date()),
-    ],
-  );
-
-  await query(
-    `INSERT INTO load_events (load_id, actor_id, kind, detail) VALUES ($1,$2,'created',$3)`,
-    [row!.id, user.id, JSON.stringify({ source: "web" })],
-  );
-
-  return NextResponse.json({ id: row!.id }, { status: 201 });
+  try {
+    const { id } = await insertWebJob({ id: user.id, name: user.name, phone: user.phone }, body);
+    return NextResponse.json({ id }, { status: 201 });
+  } catch (err) {
+    // A validation error names the field, so the form can say which one.
+    if (err instanceof WebJobValidationError) badRequest(`${err.field}: ${err.message}`);
+    throw err;
+  }
 });
+
+/**
+ * The form posts either JSON or a FormData body depending on whether its
+ * JavaScript is alive; both arrive here as the same string-keyed shape, which is
+ * exactly what `WebJobBody` is (every field a string, validated by A).
+ */
+async function readBody(req: Request): Promise<WebJobBody> {
+  const type = req.headers.get("content-type") ?? "";
+
+  if (type.includes("application/json")) {
+    const raw = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (v == null) continue;
+      out[k] = typeof v === "string" ? v : String(v);
+    }
+    return out as unknown as WebJobBody;
+  }
+
+  const form = await req.formData();
+  const out: Record<string, string> = {};
+  for (const [k, v] of form.entries()) if (typeof v === "string") out[k] = v;
+  return out as unknown as WebJobBody;
+}

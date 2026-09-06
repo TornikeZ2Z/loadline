@@ -1,40 +1,55 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, notFound } from "@/lib/api";
-import { requireUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
-import { listGroups, listMessages, loadsForMessage } from "@/lib/demo/chats";
+import { getMessage, listGroups, listMessages, loadsForMessage } from "@/lib/demo/chats";
+import { deleteMessage } from "@/lib/pipeline/reconcile";
 import { reprocessMessage } from "@/lib/pipeline/process";
 
 interface Ctx {
   params: Promise<{ id: string }>;
 }
 
-/** One message plus whatever the pipeline made of it. */
+/**
+ * The WhatsApp console's message inspector. Admin only: these payloads carry
+ * `contact_phone` and the unmasked body, which is exactly what the console is
+ * for and exactly why no public route may proxy it.
+ *
+ * Every read goes through A's `getMessage`, never a SELECT written here: the
+ * console needs `group_name`, `flags`, `attention`, `parse_status`,
+ * `format_signature`, `sender_key` and the snapshot kind, and the last one
+ * needs a join this file has no business owning.
+ */
 export const GET = handler(async (_req: Request, ctx: Ctx) => {
-  await requireUser();
+  await requireRole("admin");
   const { id } = await ctx.params;
 
-  const message = await queryOne(
-    `SELECT m.id, m.body, m.author_name, m.author_phone, m.sent_at::text AS sent_at,
-            m.status, m.skip_reason, m.error, m.extractor, m.extracted, m.group_id
-       FROM raw_messages m WHERE m.id = $1`,
-    [id],
-  );
+  const message = await getMessage(Number(id));
   if (!message) notFound("Message not found");
 
-  return NextResponse.json({ message, loads: await loadsForMessage(Number(id)) });
+  const loads = await loadsForMessage(Number(id));
+
+  // The per-line audit, each line carrying the job it produced. That link is
+  // what lets the console paint a gutter beside the message and highlight the
+  // line a job came from.
+  const lines = (message.extracted?.lines ?? []).map((l) => ({
+    ...l,
+    job_id: loads.find((x) => x.line_no === l.n)?.id ?? null,
+  }));
+
+  return NextResponse.json({ message, loads, lines });
 });
 
 /**
  * Edit a message and immediately re-run the pipeline over it.
  *
- * This is the loop the test console exists for: change the wording, watch the
- * extracted load change. Editing the raw message and re-deriving is safe
- * because loads are derived data -- `reprocessMessage` discards the previous
- * ones first, so there is no way to accumulate stale duplicates.
+ * This is the loop the console exists for: change the wording, watch the
+ * extracted job change. Editing the raw message and re-deriving is safe because
+ * jobs are derived data -- `reprocessMessage` discards the previous ones first,
+ * so there is no way to accumulate stale duplicates.
  */
 export const PATCH = handler(async (req: Request, ctx: Ctx) => {
-  await requireUser();
+  await requireRole("admin");
   const { id } = await ctx.params;
   const body = (await req.json()) as {
     text?: string;
@@ -75,9 +90,13 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
   return NextResponse.json({ result, loads, messages, groups });
 });
 
-/** Remove a message and the loads derived from it (they cascade). */
+/**
+ * Remove a message. A's `deleteMessage` decides what goes with it: a job a
+ * later post still sights survives, and the sender is rebuilt afterwards so the
+ * remaining jobs settle into the right statuses.
+ */
 export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
-  await requireUser();
+  await requireRole("admin");
   const { id } = await ctx.params;
 
   const existing = await queryOne<{ group_id: number | null }>(
@@ -86,7 +105,7 @@ export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
   );
   if (!existing) notFound("Message not found");
 
-  await query(`DELETE FROM raw_messages WHERE id = $1`, [id]);
+  await deleteMessage(Number(id));
   const [messages, groups] = await Promise.all([listMessages(existing.group_id), listGroups()]);
 
   return NextResponse.json({ ok: true, messages, groups });
