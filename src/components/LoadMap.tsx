@@ -452,17 +452,30 @@ export function LoadMap({
 
       let placed = false;
       for (const [dx, dy] of l.fixed ? [[0, 0] as [number, number]] : LABEL_SLOTS) {
-        const ox = l.base[0] + dx;
         const oy = l.base[1] + dy;
-        const cx = at.x + ox;
+        const cx = at.x + l.base[0] + dx;
         const cy = at.y + oy;
-        const left = l.anchor === "left" ? cx : cx - w / 2;
+        const natural = l.anchor === "left" ? cx : cx - w / 2;
         const top = l.anchor === "bottom" ? cy - h : cy - h / 2;
+        // Slide a label that would run past a side back inside, rather than
+        // hiding it or letting it clip. "FL · 4,900 cf" is 90 px on a 390 px
+        // map, so on a phone the whole eastern seaboard is within half a label
+        // of the edge, and hiding all of it is not decluttering. The shift is
+        // applied BEFORE the collision test, so what is checked is where the
+        // label will actually be drawn -- and it applies to the route's two end
+        // labels as well, which are the only ones that may not be hidden and so
+        // were the only ones that could still come out clipped.
+        let shift = 0;
+        if (natural - LABEL_PAD < 2) shift = 2 - (natural - LABEL_PAD);
+        else if (natural + w + LABEL_PAD > vw - 2) shift = vw - 2 - (natural + w + LABEL_PAD);
+        const ox = l.base[0] + dx + shift;
+        const left = natural + shift;
         const box: Box = [left - LABEL_PAD, top - LABEL_PAD, left + w + LABEL_PAD, top + h + LABEL_PAD];
         if (!l.fixed) {
-          // The map column clips, so a label that runs off the edge reads as
-          // broken text rather than as a label. Try another slot, or none.
-          if (box[0] < 2 || box[1] < 2 || box[2] > vw - 2 || box[3] > vh - 2) continue;
+          // Vertically there is nowhere to slide to: the label belongs beside
+          // its point, and a map is taller than one label everywhere it
+          // matters. Try another slot, or none.
+          if (box[1] < 2 || box[3] > vh - 2) continue;
           if (taken.some((t) => overlaps(box, t))) continue;
         }
         l.marker.setOffset([ox, oy]);

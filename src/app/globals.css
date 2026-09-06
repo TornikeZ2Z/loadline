@@ -347,8 +347,14 @@ button.map-pill:focus-visible { outline: none; box-shadow: var(--focus); }
 
   /* A state total on the map is a filter you can press. Growing the pill itself
      to 44 px would put a row of fat lozenges over the map, so the pill keeps
-     its size and the TARGET grows underneath it. */
-  button.map-pill { position: relative; }
+     its size and the TARGET grows underneath it.
+
+     No `position: relative` here, and that is load-bearing: these elements are
+     MapLibre markers, which the library positions with `position: absolute` and
+     a transform. Setting them relative dropped them back into normal flow, so
+     their painted position stopped agreeing with the label placer's arithmetic
+     and two pills per screen ended up drawn off the edge of the map. Absolute
+     is already a containing block for this pseudo-element. */
   button.map-pill::before {
     content: ""; position: absolute; inset: -11px -8px; border-radius: var(--radius-pill);
   }
