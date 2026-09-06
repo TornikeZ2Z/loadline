@@ -22,7 +22,7 @@ export const POST = handler(async (req: Request) => {
   }
 
   const { role } = (await req.json().catch(() => ({}))) as { role?: string };
-  const account = findDemoAccount(role ?? "carrier");
+  const account = findDemoAccount(role ?? "driver");
   if (!account) badRequest("Unknown demo role");
 
   // A cold start on a hosted demo can arrive with an empty database.

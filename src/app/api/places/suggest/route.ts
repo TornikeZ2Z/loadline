@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { handler } from "@/lib/api";
-import { requireUser } from "@/lib/auth";
+import { handler, rateLimit } from "@/lib/api";
 import { hereAutocomplete, hereConfigured } from "@/lib/geo/here";
 import { CITIES } from "@/lib/geo/cities";
-import { REGIONS, STATES } from "@/lib/geo/states";
+import { REGIONS, STATES, stateForZip } from "@/lib/geo/states";
 import { ALIASES } from "@/lib/geo/aliases";
 
 export interface Suggestion {
@@ -13,23 +12,29 @@ export interface Suggestion {
   lat: number | null;
   lng: number | null;
   precision: string;
+  /** "FL" when the row knows it. Feeds the post form and the location slots. */
+  state: string | null;
+  /** 5 digits when the row is a ZIP or carries one. */
+  zip: string | null;
   hereId?: string;
 }
 
 /**
- * Place suggestions for the location inputs.
+ * Place suggestions for the location inputs. Public: this is the type-ahead
+ * behind "Where are you?", and the board asks nobody to sign in to browse.
+ * A rate limit stands in for the session that used to gate it.
  *
- * Local matches come first on purpose. The freight vocabulary -- "north
- * jersey", "socal", "philly", "EWR" -- is exactly what dispatchers type and
- * exactly what a general geocoder is worst at: HERE turns "north jer" into
- * North Jerico, Virginia. Those entries are also free and instant.
+ * Local matches come first on purpose. The mover vocabulary -- "north jersey",
+ * "socal", "philly", "EWR" -- is exactly what people type and exactly what a
+ * general geocoder is worst at: HERE turns "north jer" into North Jerico,
+ * Virginia. Those entries are also free and instant.
  *
  * HERE then supplies everything our curated list cannot: every US city, ZIP and
  * street address. Its results carry no coordinates (see hereAutocomplete), so
  * they are resolved only when one is actually chosen.
  */
 export const GET = handler(async (req: Request) => {
-  await requireUser();
+  rateLimit(req, "suggest", 60);
   const q = (new URL(req.url).searchParams.get("q") ?? "").trim();
   if (q.length < 2) return NextResponse.json({ suggestions: [], source: "none" });
 
@@ -44,6 +49,8 @@ export const GET = handler(async (req: Request) => {
       lat: null,
       lng: null,
       precision: p.precision,
+      state: p.state ?? null,
+      zip: p.postalCode ?? null,
       hereId: p.id,
     }));
   }
@@ -58,18 +65,53 @@ export const GET = handler(async (req: Request) => {
   });
 });
 
-/** Aliases, curated cities, regions and states -- our own freight vocabulary. */
+/** Aliases, curated cities, ZIPs, regions and states -- our own vocabulary. */
 function localSuggestions(q: string): Suggestion[] {
   const needle = q.toLowerCase().trim();
   const out: Suggestion[] = [];
 
-  // Freight nicknames: "philly", "socal", "north jersey", "EWR".
+  // A typed ZIP resolves offline: five digits are unambiguous and the mover's
+  // own posts are written in them ("FL 33180"), so this must work with no key.
+  if (/^\d{3,5}$/.test(needle)) {
+    for (const c of CITIES) {
+      if (out.length >= 4) break;
+      if (c.zip && c.zip.startsWith(needle)) {
+        out.push({
+          label: `${c.city}, ${c.state} ${c.zip}`,
+          detail: `${c.city}, ${c.state}`,
+          lat: c.lat,
+          lng: c.lng,
+          precision: "zip",
+          state: c.state,
+          zip: c.zip,
+        });
+      }
+    }
+    if (needle.length === 5 && !out.length) {
+      const s = stateForZip(needle);
+      if (s) {
+        out.push({
+          label: `${needle}, ${s.abbr}`,
+          detail: `ZIP ${needle} — ${s.name}`,
+          lat: s.lat,
+          lng: s.lng,
+          precision: "zip",
+          state: s.abbr,
+          zip: needle,
+        });
+      }
+    }
+  }
+
+  // Mover nicknames: "philly", "socal", "north jersey", "EWR".
   for (const [alias, target] of Object.entries(ALIASES)) {
-    if (out.length >= 4) break;
+    if (out.length >= 6) break;
     if (!alias.startsWith(needle)) continue;
 
     if (target.city) {
-      const c = CITIES.find((x) => `${x.city}, ${x.state}`.toLowerCase() === target.city!.toLowerCase());
+      const c = CITIES.find(
+        (x) => `${x.city}, ${x.state}`.toLowerCase() === target.city!.toLowerCase(),
+      );
       if (c) {
         out.push({
           label: `${c.city}, ${c.state}`,
@@ -77,6 +119,8 @@ function localSuggestions(q: string): Suggestion[] {
           lat: c.lat,
           lng: c.lng,
           precision: "city",
+          state: c.state,
+          zip: null,
         });
       }
     } else if (target.region) {
@@ -88,13 +132,31 @@ function localSuggestions(q: string): Suggestion[] {
           lat: r.lat,
           lng: r.lng,
           precision: "region",
+          // A region spans states, so it names none of them.
+          state: null,
+          zip: null,
         });
       }
     }
   }
 
+  for (const c of CITIES) {
+    if (out.length >= 8) break;
+    if (c.city.toLowerCase().startsWith(needle)) {
+      out.push({
+        label: `${c.city}, ${c.state}`,
+        detail: `${c.city}, ${c.state}`,
+        lat: c.lat,
+        lng: c.lng,
+        precision: "city",
+        state: c.state,
+        zip: null,
+      });
+    }
+  }
+
   for (const s of STATES) {
-    if (out.length >= 6) break;
+    if (out.length >= 10) break;
     if (s.name.toLowerCase().startsWith(needle)) {
       out.push({
         label: s.name,
@@ -102,11 +164,13 @@ function localSuggestions(q: string): Suggestion[] {
         lat: s.lat,
         lng: s.lng,
         precision: "state",
+        state: s.abbr,
+        zip: null,
       });
     }
   }
 
-  // De-duplicate by label, keeping first (aliases outrank plain states).
+  // De-duplicate by label, keeping first (ZIPs and aliases outrank plain states).
   const seen = new Set<string>();
   return out.filter((s) => {
     const k = s.label.toLowerCase();

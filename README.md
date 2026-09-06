@@ -1,15 +1,30 @@
 # LoadLine
 
-Turns unstructured WhatsApp freight posts into a searchable, geographic load marketplace.
+A backhaul board for movers, built out of the WhatsApp groups they already post in.
 
-The product thesis is that the value is not "WhatsApp messages on a website" — it is the
-processing layer in between. This repo implements that layer for real: extraction,
-location normalization, geocoding, duplicate clustering, expiry, and a search engine that
-answers radius, lane, viewport and **route-corridor** questions.
+Long-distance moving companies run half their miles empty. The jobs that would fill those
+miles exist — they are posted every morning, in group chats, as batches like this:
+
+```
+FROM KEARNY NJ:
+200cf FL 33180 RFD
+350 FL 33435 $3.50
+2000. FL 32439 $3.75 Bulky
+Marco 201-555-0199
+```
+
+One origin, then a line per destination: state, ZIP, cubic feet, sometimes a price. Nobody
+can search that. Fifteen senders posting fifteen batches a day is a wall of text, and the
+job you want scrolled past an hour ago.
+
+LoadLine reads those posts and puts every job on a map as a **route** — pickup to delivery,
+with cubic feet, price per cubic foot, when it is ready and how fresh the post is. The
+board is public: no account to browse it, filter it, open a job or read the original
+message. An account buys exactly one thing, the sender's phone number.
 
 Extraction is **deterministic rules, not a model**. No API key, no per-message cost, no
-network dependency, and the same message always produces the same load — which is what
-makes `npm run eval` a meaningful regression gate.
+network dependency, and the same message always produces the same jobs — which is what
+makes `npm run eval` and `npm run score` meaningful regression gates.
 
 ---
 
@@ -21,9 +36,11 @@ npm run seed
 npm run dev
 ```
 
-Open http://localhost:3000 and press **Sign in as Carrier** (or Broker, or Admin). No
-credentials to type. The email/password form is still there behind a link, and the demo
-accounts are `carrier@ / broker@ / admin@example.com` with password `demo1234`.
+Open <http://localhost:3000> — **the board is public**, so there is nothing to sign in to
+first. Press **Show contact** on any job and choose **Sign in as demo driver** to see a
+number; **Sign in as demo poster** to post a job of your own; **demo admin** for the
+consoles. The accounts are `driver@ / poster@ / admin@example.com`, password `demo1234`,
+and the email form is still there behind a link on `/login`.
 
 The database **seeds itself when empty**, so a fresh deployment is usable on first visit
 without anyone running a script.
@@ -34,9 +51,30 @@ No database to install: with `DATABASE_URL` unset the app runs Postgres in-proce
 PGlite, persisted in `./.pgdata`. Set `DATABASE_URL` and the identical SQL runs against
 managed Postgres — see [Database](#database).
 
-`npm run seed` pushes ~55 realistic WhatsApp messages through the **same** entry point the
-Cloud API webhook uses, so the demo exercises the production code path rather than
-inserting rows directly.
+---
+
+## The access model, in one paragraph
+
+Everything about a job is public — the route, the size, the price, the freshness, the
+original WhatsApp text with every number replaced by `[phone hidden]`. `GET /api/loads`
+and `GET /api/loads/:id` are phone-free **for every caller**, signed in or not: the
+`contact_phone` column is nulled, `sender_key` is nulled (for a phone-keyed sender it *is*
+the number), a sender name that is nothing but a number becomes "Unnamed sender", and the
+public `?sender=` filter is ignored for anyone but an admin so a result count cannot be
+used to confirm whose number it is. The number itself comes from one endpoint,
+`POST /api/loads/:id/contact`, which needs an account and records the reveal once per
+person per job per hour. `npm run check:redact` greps the serialized payloads for E.164
+runs and bare ten-digit numbers, not only for dashed ones.
+
+| | anonymous | driver | poster | admin |
+|---|---|---|---|---|
+| Browse the board, filters, map, job detail, original message | yes | yes | yes | yes |
+| See the contact | — | yes | yes | yes |
+| Post a job, mark it taken | — | — | own jobs | any |
+| Admin console, WhatsApp console, needs-attention queue | — | — | — | yes |
+
+A driver account holds nothing but an identity. Your location lives in the browser
+(`localStorage`), never on the server, for everyone.
 
 ---
 
@@ -49,134 +87,124 @@ WhatsApp Cloud API webhook
    raw_messages ─────────────── immutable source of truth
         │
         ▼  POST /api/cron/process
-   extraction        deterministic rules: claim typed spans, then look
-        │            up places in a dictionary rather than parsing grammar
-        │            → is this even a load? how many loads? which fields?
+   extraction        one origin header, then a line per destination.
+        │            Typed spans are claimed first, then places are looked
+        │            up in a dictionary rather than parsed as grammar
         ▼
    normalization     "philly" → Philadelphia, PA · "tmrw" → a calendar date
-        │            · "44k" → 44000 lbs · "9085557788" → +19085557788
+        │            · "2000." → 2000 cf · "9085557788" → +19085557788
         ▼
    geocoding         cache → alias → offline gazetteer → optional provider
         │            records precision: address | zip | city | region | state
         ▼
-   dedup             cluster reposts and cross-group forwards, keep one canonical
-        │
+   supersession      the sender's newest full post is the truth: jobs it
+        │            omits are delisted, a silent sender's jobs expire
         ▼
-      loads          with expires_at and a cached trip distance
+      jobs           with expires_at, freshness counters and a cached
+                     road distance for the lane
 ```
 
-Every stage is re-runnable. Because `loads` are derived and `raw_messages` are not, a
-rule change or a new alias can be replayed over historical traffic from
-**/admin → Message feed → Re-run**, with no re-ingestion.
+Every stage is re-runnable. Because jobs are derived and `raw_messages` are not, a rule
+change or a new alias can be replayed over historical traffic from
+**/admin → Needs attention**, with no re-ingestion.
 
-## Test mode
+### Supersession: why the board does not rot
 
-The app currently runs on a **simulated WhatsApp export** rather than a live connection.
-The **WhatsApp test** tab is where you see and control it:
+Nobody goes back to a group chat to say a job is gone. So the board reads the *absence* of
+a job as information:
 
-- the imported group chats, rendered as the transcript actually looked;
-- a green edge on every message that produced a load, grey on every one deliberately
-  rejected, with the reason attached;
-- click a message to see precisely what the pipeline made of it — lane, resolved date,
-  freight, contact, location precision, confidence;
-- **edit the text and the load rebuilds from it immediately**, which is the fastest way to
-  probe what the rules do and do not handle;
-- add messages, delete them, or restore the original corpus.
+- a sender's newest **full** post is their current list — jobs missing from it are
+  **delisted**, not deleted, and can be shown again with one filter;
+- a sender silent for four days has their jobs **expire**;
+- a job a poster marked **Taken** stays taken even if it is reposted, because the person
+  who marked it knows something the post does not;
+- a repost is not a duplicate — it bumps "last seen" and the card reads
+  *Posted 4× since Sep 1*.
 
-This works because `raw_messages` is the source of truth and loads are derived: editing a
-message and re-deriving is the same operation the pipeline performs on arrival, so nothing
-special-cases test mode. `POST /api/test/*` backs the console; the endpoints exist only to
-serve it.
-
-Going live means pointing the Meta webhook at the deployment (see
-[Connecting real WhatsApp](#connecting-real-whatsapp)) — no other code changes.
+A post only counts as a *partial* addition (delisting nothing) when it clearly is one:
+fewer than half the sender's usual count **and** worded like one ("still available", "one
+more") or missing its own origin. A daily post titled `UPDATED LIST` is a full list and
+retires what it omits — the latest information from a sender wins.
 
 ---
 
-### Extraction
+## Extraction
 
-Rule-based, in `src/lib/extract/`. Freight posts are formulaic enough for this to work
-well — but only because the rules are arranged in a specific order.
+Rule-based, in `src/lib/extract/`. Batch posts are formulaic enough for this to work well —
+but only because the rules are arranged in a specific order.
 
-**1. Claim typed spans first** (`spans.ts`). Phones, money, weights, pallet counts, dates,
-times, equipment and trailer lengths are matched and *masked* before anything looks for a
-place. This is what prevents the classic failure: `44000` is a weight and `07102` is a
-ZIP, and both are five digits. Masking rather than deleting keeps token positions stable,
-which is what lets the extractor tell `newark -> boston` from `boston -> newark`.
+**1. Claim typed spans first.** Phones, money, cubic feet, dates and ZIPs are matched and
+*masked* before anything looks for a place. This is what prevents the classic failure:
+`33180` is a ZIP and `2000` is a size, and the line `2000. FL 32439 $3.75` contains both.
+Masking rather than deleting keeps token positions stable.
 
 **2. Resolve places by dictionary lookup, not by parsing** (`geo/match.ts`). The naive
-approach splits on `->` and guesses where the place name ends — which fails immediately,
-because the delivery half of a real post is `charlotte nc 28202 today after 2pm, 18
-pallets, call mike`. There is no grammar there to parse. Instead every n-gram is slid past
-the alias table, gazetteer, state list and ZIP ranges, and the longest, most specific hits
-win. `las vegas nv this week` yields a place because the dictionary recognizes one, not
-because we guessed that `this` begins the non-place part.
+approach splits on `->` and guesses where the place name ends — which fails immediately on
+a real line like `To:KY 400 c/f-40741 RFD 9/9`. There is no grammar there to parse.
+Instead every n-gram is slid past the alias table, gazetteer, state list and ZIP ranges,
+and the longest, most specific hits win. A dictionary hit always outranks a guess.
 
-A dictionary hit always outranks a guess, regardless of length. Without that rule,
-`reposting: elizabeth nj to charlotte nc` extracts a town called "Reposting Elizabeth" in
-New Jersey — the longer span wins on span bonus alone. Unknown towns paired with a real
-state are still kept, scored between "bare state" and every real hit.
+**3. Inherit the origin.** A batch has one origin header (`FROM KEARNY NJ:`, `📍 Kearny`,
+`NEW JERSEY`, `Desde Miami FL:`) and every following line is a destination for it. Getting
+that inheritance right is most of the work, because a line that looks like a new header and
+is not will silently re-home a dozen jobs.
 
-**3. Assemble the lane** (`rules.ts`). Direction is the one thing a load board cannot get
-wrong, so it comes from explicit evidence wherever any exists — `pickup X, delivery Y`
-markers first, then a route arrow or `to`, and only then reading order. Each basis feeds
-the confidence score differently.
+**Dates stay verbatim through extraction** and are resolved against the message's send
+time, because "tomorrow" is meaningless without knowing when it was said.
 
-**Dates stay verbatim through extraction** and are resolved in `dates.ts` against the
-message's send time, because "tomorrow" is meaningless without knowing when it was said.
-That module also handles `next tuesday` (the Tuesday of next week, not merely the next
-one), `2 days ago`, `9/5`, `sept 5` and `this week`.
-
-**Confidence is real** and drives the review queue: direction evidence, how precisely each
-end was pinned, and whether a date, phone, equipment and weight are present. On the seed
-corpus, 47 of 48 loads land above 0.84 and exactly one is flagged for review — a town
-missing from the gazetteer, which is correctly held back because it could only be placed
-at state precision.
-
-### Tuning the rules
+### The gates
 
 ```bash
-npm run eval
+npm run score   # the six real WhatsApp messages: 94/94 jobs, 0 fabricated
+npm run eval    # the regression suite: real-message baselines, negatives, variants
 ```
 
-Runs `scripts/eval-cases.ts` through the real extractor and reports what broke — 26 cases,
-107 assertions, no database, milliseconds. A third of the cases assert that a message
-produces **no** loads, because keeping chatter and driver-availability posts off the board
-matters as much as extracting well.
+`scripts/fixtures/real-whatsapp.ts` is ground truth — six posts as they actually arrived,
+with every job they contain written out. `npm run score` is the number that matters, and
+neither that fixture nor its scorer may be edited to make a change pass.
 
-This is the workflow: meet a message shape the rules get wrong, add it as a case, fix the
-rule, re-run. Every rule you add to fix one message can quietly break three others, and
-this is what catches that. `/admin -> Try a message` does the same thing interactively
-against the live database.
+A third of the eval cases assert that a message produces **no** jobs, because keeping
+chatter and availability posts off the board matters as much as extracting well.
+
+### Unknown formats are solved once and kept
+
+A message the rules cannot read lands in **/admin → Needs attention** with a per-line
+colour gutter and buttons: *Resolve place*, *Ignore line*, *Add word*, *Teach line*,
+*Sender format*, *Confirm format*. A message that *did* parse, but in a layout never seen
+before, lands there once as `new_format` until an admin confirms it. Each fix is stored as
+a rule, re-runs the message immediately, survives `npm run db:reset`, and is exported into
+the eval fixtures (`npm run rules:export`) so it never regresses.
 
 ### Geocoding
 
 Default is **fully offline**: an alias table for how people actually talk (`philly`,
-`socal`, `north jersey`, `EWR`, `the city`) plus a curated gazetteer of freight-relevant
-cities and USPS ZIP-prefix ranges. Set `GEOCODER=census` (free, keyless) or
-`GEOCODER=mapbox` (needs `MAPBOX_TOKEN`) to resolve anything the gazetteer misses; results
-are cached in `places`, so an unknown place costs one lookup ever.
+`socal`, `north jersey`, `EWR`) plus a curated gazetteer and USPS ZIP-prefix ranges. Set
+`GEOCODER=census` (free, keyless) or `GEOCODER=mapbox` to resolve anything it misses;
+results are cached in `places`, so an unknown place costs one lookup ever.
 
-Every resolution records a **precision**. A load posted as "somewhere in Florida" is
-stored at state precision, flagged for review, and drawn on the map in a different colour
-with an "approximate location" chip. Presenting a state centroid as a pinned pickup is how
-a load board loses a driver's trust.
+Every resolution records a **precision**. A job posted as "somewhere in Florida" is stored
+at state precision and drawn as a dashed route to the state centroid rather than a pinned
+address. Presenting a centroid as a real pickup is how a board loses a driver's trust.
 
 > After changing aliases or the gazetteer, run `npm run geocache:clear` — otherwise places
 > resolved badly before the fix stay resolved badly.
 
 ### Road distance and drive time (HERE)
 
-With `HERE_API_KEY` set, opening a load shows the **truck** road distance and drive time
-for its lane, and the road distance from wherever the driver currently is to the pickup.
+With `HERE_API_KEY` set, opening a job shows the **truck** road distance and drive time for
+its lane, and the road distance from wherever the driver is to the pickup.
 `transportMode=truck` matters: it respects height, weight and hazmat restrictions, so the
 number matches what the driver's own navigation will say rather than a car's shortcut.
 
-Routing is only ever called when a **single load is opened**, never for a list. A board
-query returns 50 loads; routing all of them would be 50 billable calls to answer a question
-nobody asked. Straight-line miles remain what ranking, filtering and corridor matching use;
-the road number is for the moment a driver is choosing one specific job. The lane result is
-cached on the row (`road_miles`, `road_minutes`) because it can never change.
+Routing is only ever called when a **single job is opened**, never for a list. A board
+query returns 50 jobs; routing all of them would be 50 billable calls to answer a question
+nobody asked. The lane result is cached on the row (`road_miles`, `road_minutes`) because
+it can never change.
+
+Because the place routes are public now, HERE is also capped: `HERE_DAILY_BUDGET`
+(default 2000) counts every billable call per UTC day, and past it the app silently falls
+back to the offline gazetteer and straight-line distance — the same behaviour as having no
+key at all.
 
 ### The location type-ahead
 
@@ -185,38 +213,32 @@ Two things worth knowing, both learned the hard way against the live API:
 **It uses `/autocomplete`, not `/autosuggest`.** Autosuggest is point-of-interest weighted:
 typing "newar" returns PATH-Newark Station, Newark City Hall and a phone shop, but never
 the city of Newark. Autocomplete returns properly ranked localities and addresses, and
-handles partials that plain geocoding fumbles -- "phila" gives Philadelphia, where
+handles partials that plain geocoding fumbles — "phila" gives Philadelphia, where
 `/geocode` returns Phila St in Saratoga Springs.
 
-**Local matches come first.** The freight vocabulary is exactly what dispatchers type and
-exactly what a general geocoder is worst at: HERE turns "north jer" into North Jerico,
-Virginia, while our alias table knows it means the Tri-State Area. Those entries are also
-free and instant. HERE then supplies everything the curated list cannot -- every US city,
-ZIP and street address.
+**Local matches come first.** The mover vocabulary is exactly what people type and exactly
+what a general geocoder is worst at: HERE turns "north jer" into North Jerico, Virginia,
+while our alias table knows what it means. Those entries are also free and instant.
 
-Autocomplete carries no coordinates, so results are resolved with one `/lookup` call when a
+Autocomplete carries no coordinates, so a result is resolved with one `/lookup` call when a
 suggestion is actually **picked**, never per keystroke. The key is server-side only: the
-browser calls our `/api/places/suggest`, never HERE directly. Without a key everything
-falls back to the offline gazetteer and straight-line distance.
+browser calls our `/api/places/suggest`, never HERE directly.
 
 ---
 
-### Duplicate detection
+## The board
 
-A cheap blocking pass (same pickup day, same state pair, last 7 days) followed by weighted
-field agreement, with the callback phone number carrying most of the weight. Above
-threshold the newcomer joins the cluster and stops being canonical, so search shows the
-load once. Marking a load **taken** moves the whole cluster — it is the same freight.
+The map is the primary view and every job is a **route**, pickup to delivery, with
+direction chevrons and a line width that grows with cubic feet. No pins, no clusters, no
+list/table/map toggle. A panel in the corner shows the total cubic feet currently in view
+("11 jobs in view · 3,900 cf ≈ 2.6 truckloads"), and at low zoom each pickup state carries
+a `FL · 6 jobs · 2,300 cf` pill.
 
-### Expiry
+Filters are built for the return trip: **Pickup state** and **Delivery state** as two
+prominent pickers with region chips (Tri-State, Southeast…), then Size (cf), Ready,
+Listed, More, an optional **Toward home** corridor, Clear and Sort.
 
-Derived, not manual. Every load carries `expires_at` (end of the pickup day plus a grace
-window, or 48h for undated posts) and `POST /api/cron/expire` flips the status. Nobody
-goes back to WhatsApp to say a load is gone.
-
----
-
-## Search
+### Search
 
 One parameterized SQL statement drives every filter. Radius queries use a bounding-box
 prefilter on the `(lat, lng)` btree indexes plus an exact haversine — the box alone returns
@@ -224,33 +246,24 @@ corner false-positives, the haversine alone table-scans.
 
 | Capability | Example |
 |---|---|
-| Date | `?date=tomorrow`, `?date=custom&from=…&to=…` |
-| Radius | `?origin=Newark, NJ&radius=50` |
-| Lane | `?pickupState=NJ&deliveryState=FL` |
-| ZIP (partial) | `?pickupZip=070` — all of north Jersey |
-| Map viewport | `?minLat=…&maxLat=…&minLng=…&maxLng=…` ("Search this area") |
-| **Route corridor** | `?origin=philly&dest=Atlanta, GA&routeMode=corridor&corridor=75` |
+| Lane | `?pickupState=FL&deliveryState=NJ` |
+| Region | `?deliveryState=tristate` |
+| Size | `?minCf=300&maxCf=600` |
+| Ready | `?readyOnly=1`, `?readyBy=2026-09-12` |
+| Freshness | `?seenDays=3` |
+| Map viewport | `?minLat=…&maxLat=…&minLng=…&maxLng=…` |
+| **Route corridor** | `?originLat=…&destLat=…&routeMode=corridor&corridor=100` |
 
-Searches are URLs, so they are linkable, bookmarkable, and savable without a second
-serialization format.
+Searches are URLs, so they are linkable and bookmarkable without a second serialization
+format — which is why there is no "saved searches" feature to maintain.
 
 ### Route matching
 
-The differentiator, and the part that is genuinely hard. A driver in Philadelphia heading
-to Georgia should not only see Philadelphia → Georgia loads:
-
-```
-corridor 75mi, Philadelphia → Atlanta
-   +0mi detour,  0mi off route:  Philadelphia, PA → Washington, DC
-   +11mi detour, 58mi off route: Charlotte, NC   → Atlanta, GA
-   +14mi detour,  4mi off route: Washington, DC  → Charlotte, NC
-   +23mi detour, 11mi off route: Baltimore, MD   → Richmond, VA
-```
-
-A load qualifies when its pickup is within the corridor, its delivery makes forward
-progress toward the destination, the delivery is not itself wildly off the line, and the
-total detour stays within `min(2 × corridor, 30% of the trip)`. Results rank by extra
-miles driven.
+The differentiator, and the part that is genuinely hard. A driver empty in Miami and headed
+home to New Jersey should not only see Miami → New Jersey jobs, but everything on the way,
+ranked by the extra miles it costs. A job qualifies when its pickup is within the corridor,
+its delivery makes forward progress toward home, the delivery is not itself wildly off the
+line, and the total detour stays within `min(2 × corridor, 30% of the trip)`.
 
 Corridor matching and detour scoring run in JS over a bounding-box-limited candidate set
 (`src/lib/loads/query.ts`), because cross-track geometry is unpleasant in portable SQL and
@@ -258,9 +271,35 @@ corridor searches are naturally narrow.
 
 > One geometry note worth preserving: the textbook along-track formula uses `acos()` and is
 > therefore unsigned, which reports a point *behind* the origin as far along the route.
-> That is how a northbound Newark → Boston load can look like it belongs on a
-> Philadelphia → Atlanta run. `src/lib/geo/math.ts` recovers the sign from the bearing
-> difference.
+> That is how a northbound job can look like it belongs on a southbound run.
+> `src/lib/geo/math.ts` recovers the sign from the bearing difference.
+
+### Your location
+
+A header control — "Where are you?" (type a place or Use GPS) and an optional "Home". Set
+it and jobs sort by distance to pickup, cards say "142 mi from you", the detail shows road
+miles and drive time, and Toward home draws the corridor.
+
+It is stored in `localStorage` under `loadline.viewer.v1` and travels to the server only as
+`viewerLat`/`viewerLng` query parameters on each search. It is never written to the
+shareable URL — a link you send should not carry where you were standing — and there is no
+column for it on the user row, signed in or not.
+
+---
+
+## The consoles
+
+`/admin/test` is the **WhatsApp console** (admin only). The app currently runs on a
+simulated export rather than a live connection, and this is where you see and control it:
+the imported groups, the transcript as it actually looked, a parse-status chip and a
+coloured per-line gutter on every message, and — the useful part — **edit the text and the
+jobs rebuild from it immediately**. That works because `raw_messages` is the source of
+truth and jobs are derived, so editing a message and re-deriving is the same operation the
+pipeline performs on arrival.
+
+`/admin` is the pipeline console, opening on **Needs attention** because that is the only
+tab with work waiting in it. Tabs: Needs attention · Try a message · Messages · Senders ·
+Rules · Groups.
 
 ---
 
@@ -285,8 +324,8 @@ number*. It is not a mechanism for reading arbitrary third-party WhatsApp groups
 capability is limited-availability at best, and unofficial bridges (`whatsapp-web.js`,
 Baileys) violate WhatsApp's terms and get numbers banned. The realistic paths are getting
 your number added to the groups you want to source, or having group admins share chat
-exports. Intake is deliberately isolated behind one function (`ingestMessage`), so
-swapping the source touches only the caller.
+exports. Intake is deliberately isolated behind one function (`ingestMessage`), so swapping
+the source touches only the caller.
 
 Until then, `/admin → Try a message` runs pasted text through the identical pipeline, and
 `npm run seed` populates a realistic board.
@@ -304,6 +343,9 @@ DATABASE_URL=postgres://user:pass@host:5432/loadboard npm run dev
 Geo columns are plain `double precision` with btree indexes, which is what makes the
 prototype run anywhere. `db/postgis.sql` is the drop-in upgrade to real spatial indexes
 once volume justifies it; it lists the two SQL fragments in the query builder that change.
+
+Migrations are additive and re-runnable: the schema applies twice in a row on a fresh
+directory and on an existing `.pgdata`.
 
 ---
 
@@ -329,12 +371,12 @@ WHATSAPP_APP_SECRET=<from Meta>
 
 `NEXT_PUBLIC_BASE_PATH` must be present for `next build`, not just `next start` — Next
 bakes the path into the bundle, and client code reads the same value to prefix its API
-calls (`src/lib/basePath.ts`). Setting it only at run time produces an app whose pages
-load and whose every button 404s.
+calls (`src/lib/basePath.ts`). Setting it only at run time produces an app whose pages load
+and whose every button 404s.
 
-The schema creates itself on first connection. Seed the demo corpus once, either by
-running `npm run seed` against the same `DATABASE_URL` or by pressing **Restore demo data**
-in the WhatsApp test console.
+The schema creates itself on first connection. Seed the demo corpus once, either by running
+`npm run seed` against the same `DATABASE_URL` or by pressing **Restore demo data** in the
+WhatsApp console.
 
 ### Putting it behind the domain
 
@@ -363,9 +405,9 @@ Once live, the WhatsApp webhook URL becomes
 
 > **`DEMO_MODE=off` is the switch to throw the day real data goes in.** One-click sign-in
 > is an intentional authentication bypass: anyone who opens the URL can enter as admin and
-> edit messages or change load statuses. That is the right trade for a demo on sample data
+> edit messages or change job statuses. That is the right trade for a demo on sample data
 > and the wrong one for anything else. Turning it off leaves the ordinary email/password
-> form; change the demo passwords at the same time.
+> form and the self-serve `/register`; change the demo passwords at the same time.
 
 ---
 
@@ -380,9 +422,11 @@ secrets; the app runs with none of it set.
 | `SESSION_SECRET` | dev fallback | Signs session cookies; **required in production** |
 | `LOAD_TZ` | `America/New_York` | Timezone relative dates resolve against |
 | `NEXT_PUBLIC_BASE_PATH` | *(unset)* | Serve under a sub-path, e.g. `/loadline`. Needed at **build** time. |
-| `DEMO_MODE` | `on` | One-click demo sign-in. Set to `off` for real data — see below. |
+| `DEMO_MODE` | `on` | One-click demo sign-in. Set to `off` for real data — see above. |
 | `PGLITE_DIR` | `./.pgdata`, or the temp dir on serverless | Where the embedded database lives |
 | `GEOCODER` | `local` | `local` \| `census` \| `mapbox` |
+| `HERE_API_KEY` | — | Type-ahead, address geocoding, truck road distance |
+| `HERE_DAILY_BUDGET` | `2000` | Billable HERE calls per UTC day before falling back offline |
 | `WHATSAPP_VERIFY_TOKEN` | — | Webhook handshake |
 | `WHATSAPP_APP_SECRET` | — | Signature verification |
 | `WHATSAPP_ALLOW_UNSIGNED` | `1` in dev | Local testing escape hatch; refuses to apply in production |
@@ -394,25 +438,32 @@ secrets; the app runs with none of it set.
 
 ```
 db/schema.sql              tables, indexes, and why the geo columns are shaped that way
-src/lib/demo/              sample WhatsApp corpus, reset, test-console queries
-src/lib/extract/           spans → lanes: rules.ts, spans.ts, dates.ts, phone.ts
+src/lib/demo/              sample WhatsApp corpus, reset, console queries
+src/lib/extract/           tokens, lexicon, lines, header, inventory, formats, rules
 src/lib/geo/               aliases, gazetteer, states/ZIPs, place matcher, geocoder, math
-src/lib/pipeline/          ingest, process, dedup, expire
-src/lib/loads/             search query builder, params, dashboard stats
+src/lib/moving/            cubic feet, truck equivalents, price per cf
+src/lib/pipeline/          ingest, process, reconcile (supersession), issues, expire, web
+src/lib/loads/             search query builder, params, redaction, the public wire shapes
+src/lib/location.ts        the viewer's location, in the browser and nowhere else
 src/app/api/               REST surface incl. the Cloud API webhook and cron workers
-src/components/            board, filters, list/table/map views, test + admin consoles
-scripts/                   eval + cases, seed, reprocess, expire, cache maintenance
+src/components/            board, map, filters, cards, detail, post form, consoles
+scripts/                   eval + cases, scorer, seed, reprocess, expire, maintenance
 ```
 
 ## Commands
 
 | | |
 |---|---|
+| `npm run score` | The six real WhatsApp messages: 94/94 jobs, 0 fabricated |
 | `npm run eval` | Extraction regression suite — run this after any rule change |
-| `npm run seed` | Demo users, groups, sample traffic, full pipeline run |
+| `npm run eval:lifecycle` | Supersession: delisting, expiry, sticky Taken |
+| `npm run check:redact` | Asserts no phone survives into a public payload |
+| `npm run rules:export` | Write admin-taught rules into the eval fixtures |
+| `npm run seed` | Demo accounts, groups, sample traffic, full pipeline run |
 | `npm run process` | Drain the pending message queue |
 | `npm run expire` | Run the expiry sweep |
-| `npm run db:reset` | Truncate everything, keep the schema |
+| `npm run zips:warm` | Pre-resolve the ZIPs in the corpus |
+| `npm run db:reset` | Truncate everything, keep the schema and the learned rules |
 | `npm run geocache:clear` | Drop cached place lookups after a geo change |
 | `npm run typecheck` | |
 
@@ -420,22 +471,22 @@ scripts/                   eval + cases, seed, reprocess, expire, cache maintena
 
 ## Scope
 
-Built (phase 1): intake, extraction, normalization, geocoding, dedup, expiry, accounts and
-roles, list/table/map views, radius/lane/ZIP/viewport search, route-corridor matching,
-saved searches, broker posting and status management, admin pipeline console.
+Built: intake, extraction, normalization, geocoding, supersession and expiry, accounts and
+roles, a public map-first board with lane/size/ready/freshness filters and route-corridor
+matching, the contact gate, website posting and status management, the needs-attention
+queue and both consoles.
 
-Deliberately not built: notifications and alerts (§10 of the brief — the saved-search
-records carry a `notify` flag ready for a matcher), SMS/push/email delivery, and
-drive-time routing.
+Deliberately not built: notifications and alerts, SMS/push/email delivery, and a public
+"other jobs from this sender" link — the sender id embeds the author's number, so a public
+version needs an opaque id first.
 
-**Where rules will fall short.** They handle the shapes in `eval-cases.ts` and everything
+**Where rules will fall short.** They handle the shapes in the fixtures and everything
 shaped like them, which covers the bulk of real group traffic. They will not handle prose
 ("we've got a truck coming out of the Newark area Thursday that needs a backhaul"),
-messages in other languages, or lanes described without any recognizable place name. Those
-fail *closed* — no load is created, and the message shows up in the admin feed with a skip
-reason rather than producing a wrong load. Widening coverage means adding gazetteer
-entries, aliases, and eval cases, which is cheap and safe. Corridor distances are great-circle, not road miles; swapping in a
-routing engine means replacing `detourMiles` in `src/lib/geo/math.ts` and nothing else.
+messages in languages the lexicon does not cover, or lanes described without any
+recognizable place name. Those fail *closed* — no job is created, and the message lands in
+the needs-attention queue with a reason rather than producing a wrong job. Widening
+coverage means adding gazetteer entries, aliases and eval cases, which is cheap and safe.
 
 `maplibre-gl` is pinned to v5 on purpose: v6 resolves its web worker through
 `import.meta.url`, which the Next dev bundler does not serve as a real asset, so the worker
@@ -444,4 +495,4 @@ never starts and the map fails silently. v5 inlines the worker.
 Note for anyone testing in a headless or offscreen browser: MapLibre drives its render loop
 from `requestAnimationFrame`, which never fires while a page is hidden. The map then mounts
 a correctly sized canvas and draws nothing, with no error. That is the harness, not the
-app -- in a real browser tab it renders normally.
+app — in a real browser tab it renders normally.

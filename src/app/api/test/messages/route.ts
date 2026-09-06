@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler } from "@/lib/api";
-import { requireUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import { listGroups, listMessages, loadsForMessage } from "@/lib/demo/chats";
 import { ingestMessage } from "@/lib/pipeline/ingest";
@@ -8,7 +8,7 @@ import { reprocessMessage } from "@/lib/pipeline/process";
 
 /** The chat transcript for one group, or everything when no group is given. */
 export const GET = handler(async (req: Request) => {
-  await requireUser();
+  await requireRole("admin");
   const raw = new URL(req.url).searchParams.get("groupId");
   const groupId = raw ? Number(raw) : null;
   if (raw && !Number.isFinite(groupId)) badRequest("groupId must be a number");
@@ -22,7 +22,7 @@ export const GET = handler(async (req: Request) => {
  * Runs synchronously because in test mode the whole point is seeing the result.
  */
 export const POST = handler(async (req: Request) => {
-  await requireUser();
+  await requireRole("admin");
   const body = (await req.json()) as {
     groupId?: number;
     text?: string;

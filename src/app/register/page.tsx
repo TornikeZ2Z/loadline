@@ -1,8 +1,28 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
+import { isSafeNext } from "@/lib/session";
 import { AuthForm } from "@/components/AuthForm";
 
-export default async function RegisterPage() {
-  if (await getCurrentUser()) redirect("/");
-  return <AuthForm mode="register" demoAccounts={[]} />;
+export const dynamic = "force-dynamic";
+
+/**
+ * Creating an account. Driver or poster -- never admin, whatever the form says.
+ *
+ * `?as=` is set by the link inside the contact gate ("Create a driver account")
+ * and by the post page, so the segmented choice starts on the reason the person
+ * actually came. `?next=` brings them back to the job they were looking at.
+ */
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const next = typeof sp.next === "string" ? sp.next : null;
+
+  if (await getCurrentUser()) redirect(isSafeNext(next) ? next : "/");
+
+  const as = sp.as === "poster" ? "poster" : "driver";
+
+  return <AuthForm mode="register" as={as} next={next} demoAccounts={[]} />;
 }

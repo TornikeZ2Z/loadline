@@ -1,61 +1,171 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/basePath";
+import {
+  OPEN_LOCATION_EVENT,
+  clearLocation,
+  useViewerLocation,
+  writeLocation,
+  type LocationSlot,
+} from "@/lib/location";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
 
 /**
- * "Where are you?" -- set once, used everywhere.
+ * "Where are you?" -- set once, used everywhere, stored nowhere but this browser.
  *
- * This is the input the whole product hangs off: it drives loads-near-me, the
- * distance column, the default radius search and the drive time on a load. It
- * lives in the header rather than buried in a settings page because a driver's
- * answer changes during the day.
+ * This is the input the whole board hangs off: it sorts jobs by distance to
+ * pickup, puts "142 mi from you" on the cards and drive time in the detail. It
+ * lives in the header rather than a settings page because a mover's answer
+ * changes during the day, and it needs no account because the board needs no
+ * account.
+ *
+ * Two slots. **Current** is where you are (or will be when you're empty).
+ * **Home** is where you're heading back to -- it only pre-selects the delivery
+ * filter and powers the Toward-home corridor, which is why it is a separate,
+ * quieter pill rather than a second required field.
  */
-export function CurrentLocation({
-  label,
-  role,
-}: {
-  label: string | null;
-  role: string;
-}) {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState(label ?? "");
-  const [picked, setPicked] = useState<ResolvedPlace | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export function CurrentLocation() {
+  const { current, home, hydrated } = useViewerLocation();
+  const [open, setOpen] = useState<LocationSlot | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(null);
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  async function save(body: { label?: string; lat?: number; lng?: number }) {
+  // The Board's first-visit nudge and the detail's "From you" tile ask for this
+  // popover by event, so nothing of ours has to be mounted inside the map area.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const slot = (e as CustomEvent<{ slot?: LocationSlot }>).detail?.slot;
+      setOpen(slot === "home" ? "home" : "current");
+    };
+    window.addEventListener(OPEN_LOCATION_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_LOCATION_EVENT, onOpen);
+  }, []);
+
+  return (
+    <div ref={box} className="relative flex items-center gap-[var(--sp-2)]">
+      <button
+        type="button"
+        className="pill max-w-[32vw] sm:max-w-none"
+        onClick={() => setOpen((s) => (s === "current" ? null : "current"))}
+        title="Where you are — sorts the board by distance"
+        style={
+          hydrated && !current
+            ? { borderColor: "var(--accent)", color: "var(--accent)" }
+            : undefined
+        }
+      >
+        {/* On a phone the pill says the city and nothing else -- there is no
+            room for "Near Miami, FL" beside the nav, and the state is the part
+            a driver already knows. */}
+        <span className="truncate sm:hidden">◎ {current ? shortLabel(current.label) : "Where are you?"}</span>
+        <span className="hidden truncate sm:inline">
+          ◎ {current ? `Near ${current.label}` : "Where are you?"}
+        </span>
+        ▾
+      </button>
+
+      {/* The home slot only feeds the Toward-home corridor and a filter hint,
+          so on a phone it yields its space to the one that sorts the board and
+          is reached from inside that popover instead.
+          The wrapper carries `hidden`, not the button: `.pill` sets its own
+          `display`, and a utility class of equal specificity declared earlier
+          would lose to it. */}
+      <span className="hidden sm:block">
+        <button
+          type="button"
+          className="pill"
+          onClick={() => setOpen((s) => (s === "home" ? null : "home"))}
+          title="Where you're heading back to"
+        >
+          ⌂ {home ? `Home ${home.state ?? home.label}` : "Home"} ▾
+        </button>
+      </span>
+
+      {open && (
+        // Keyed by slot: switching between the two must start from that slot's
+        // own stored value, not carry the other one's half-typed text over.
+        <LocationPopover
+          key={open}
+          slot={open}
+          onClose={() => setOpen(null)}
+          onSwitchSlot={(s) => setOpen(s)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** "Miami, FL" -> "Miami"; "Near Kearny, NJ 07032" -> "Near Kearny". */
+function shortLabel(label: string): string {
+  return label.split(",")[0]?.trim() || label;
+}
+
+function LocationPopover({
+  slot,
+  onClose,
+  onSwitchSlot,
+}: {
+  slot: LocationSlot;
+  onClose: () => void;
+  onSwitchSlot: (slot: LocationSlot) => void;
+}) {
+  const { current, home } = useViewerLocation();
+  const stored = slot === "current" ? current : home;
+
+  const [text, setText] = useState(stored?.label ?? "");
+  const [picked, setPicked] = useState<ResolvedPlace | null>(null);
+  const [truck, setTruck] = useState(stored?.truckCf ? String(stored.truckCf) : "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = useCallback(
+    (place: ResolvedPlace) => {
+      writeLocation(slot, {
+        label: place.label,
+        lat: place.lat,
+        lng: place.lng,
+        state: place.state,
+        precision: place.precision,
+        // A truck size belongs to the driver, not to the place they're heading
+        // back to -- the home slot never carries one.
+        truckCf: slot === "current" && truck.trim() ? Number(truck) || null : null,
+      });
+      onClose();
+    },
+    [slot, truck, onClose],
+  );
+
+  /** Resolve whatever is in the box: a picked suggestion, or the free text. */
+  async function saveTyped() {
+    if (picked) return save(picked);
+
+    const label = text.trim();
+    if (!label) return;
+
     setBusy(true);
     setError(null);
-    const res = await fetch(api("/api/me/location"), {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = await res.json();
-    setBusy(false);
-
-    if (!res.ok) {
-      setError(json.error ?? "Could not save that location");
-      return;
+    try {
+      const res = await fetch(api("/api/places/resolve"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      if (!res.ok) {
+        setError("We could not find that place — try a city or ZIP.");
+        return;
+      }
+      save((await res.json()) as ResolvedPlace);
+    } finally {
+      setBusy(false);
     }
-    setText(json.label ?? "");
-    setPicked(null);
-    setOpen(false);
-    // Server components render the distance columns, so re-fetch them.
-    router.refresh();
   }
 
   function useGps() {
@@ -64,8 +174,23 @@ export function CurrentLocation({
       return;
     }
     setBusy(true);
+    setError(null);
     navigator.geolocation.getCurrentPosition(
-      (pos) => save({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      async (pos) => {
+        try {
+          // The browser's coordinates are what sort the board; the round trip
+          // only buys a name a person recognises.
+          const res = await fetch(api("/api/places/resolve"), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          });
+          if (res.ok) save((await res.json()) as ResolvedPlace);
+          else setError("Could not name that location — type a place instead.");
+        } finally {
+          setBusy(false);
+        }
+      },
       () => {
         setBusy(false);
         setError("Location permission denied — type a place instead.");
@@ -74,66 +199,100 @@ export function CurrentLocation({
     );
   }
 
+  const isCurrent = slot === "current";
+
   return (
-    <div ref={box} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="block text-right leading-tight"
-        title="Set your current location"
-      >
-        <span className="block text-[11px] capitalize text-muted">
-          {role}
-          {" · "}
-          <span style={{ color: "var(--accent)" }}>
-            {label ?? "set your location"}
-            {" ▾"}
-          </span>
-        </span>
-      </button>
+    <div
+      className="popover absolute right-0 top-full z-50 mt-2 w-[340px] max-w-[calc(100vw-2rem)] p-[var(--sp-3)]"
+      style={{ background: "var(--surface)", borderColor: "var(--border-strong)" }}
+    >
+      <div className="label">{isCurrent ? "Where are you?" : "Where are you heading back to?"}</div>
+      <p className="mb-2 text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+        {isCurrent
+          ? "Where will you be when you're empty? Jobs get sorted by distance to pickup and show drive time."
+          : "A state is fine — it pre-selects the delivery filter and powers Toward home."}
+      </p>
 
-      {open && (
-        <div
-          className="absolute right-0 top-full z-50 mt-2 w-[320px] rounded-lg border p-3 shadow-xl"
-          style={{ background: "var(--surface)", borderColor: "var(--border-strong)" }}
-        >
-          <div className="label">Where are you now?</div>
-          <p className="mb-2 text-[11px] text-muted">
-            Sets &ldquo;loads near me&rdquo;, the distance column and drive times.
-          </p>
+      <LocationInput
+        ariaLabel={isCurrent ? "Your current location" : "Where you are heading back to"}
+        placeholder="City, ZIP or address…"
+        value={text}
+        onChange={(t) => {
+          setText(t);
+          setPicked(null);
+        }}
+        onPick={(p) => {
+          setPicked(p);
+          setText(p.label);
+        }}
+      />
 
-          <LocationInput
-            ariaLabel="Your current location"
-            placeholder="City, ZIP or address…"
-            value={text}
-            onChange={(t) => {
-              setText(t);
-              setPicked(null);
-            }}
-            onPick={(p) => setPicked(p)}
+      {isCurrent && (
+        <div className="mt-2">
+          <label className="label" htmlFor="truck-cf">
+            Truck size (cf) — optional
+          </label>
+          <input
+            id="truck-cf"
+            className="field"
+            inputMode="numeric"
+            placeholder="1500"
+            value={truck}
+            onChange={(e) => setTruck(e.target.value.replace(/[^\d]/g, ""))}
           />
-
-          {error && (
-            <p className="mt-2 text-[11px]" style={{ color: "var(--danger)" }}>
-              {error}
-            </p>
-          )}
-
-          <div className="mt-3 flex gap-2">
-            <button
-              className="btn btn-primary flex-1"
-              disabled={busy || !text.trim()}
-              onClick={() =>
-                save(picked ? { label: picked.label, lat: picked.lat, lng: picked.lng } : { label: text })
-              }
-            >
-              {busy ? "Saving…" : "Save"}
-            </button>
-            <button className="btn" onClick={useGps} disabled={busy} title="Use GPS">
-              ◎ GPS
-            </button>
-          </div>
         </div>
       )}
+
+      {error && (
+        <p className="mt-2 text-[var(--fs-xs)]" style={{ color: "var(--danger)" }}>
+          {error}
+        </p>
+      )}
+
+      <div className="mt-3 flex gap-[var(--sp-2)]">
+        <button
+          type="button"
+          className="btn btn-primary flex-1"
+          disabled={busy || (!picked && !text.trim())}
+          onClick={() => void saveTyped()}
+        >
+          {busy ? "One moment…" : "Save"}
+        </button>
+        <button type="button" className="btn" onClick={useGps} disabled={busy} title="Use GPS">
+          ◎ Use GPS
+        </button>
+      </div>
+
+      {stored && (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm mt-2"
+          onClick={() => {
+            clearLocation(slot);
+            onClose();
+          }}
+        >
+          Clear
+        </button>
+      )}
+
+      {/* The home pill has no room in a phone header, so it reaches its own
+          popover from here instead of disappearing. */}
+      {isCurrent && (
+        <span className="mt-2 block sm:hidden">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => onSwitchSlot("home")}
+          >
+            ⌂ {home ? `Home ${home.state ?? home.label}` : "Set where you're heading back to"}
+          </button>
+        </span>
+      )}
+
+      <p className="mt-3 text-[11px]" style={{ color: "var(--muted-2)" }}>
+        Stays on this device. Sent only with your searches.
+      </p>
     </div>
   );
 }
