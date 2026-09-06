@@ -37,7 +37,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     role: "driver",
     company: "Kaz Moving LLC",
     phone: "+19735550000",
-    blurb: "See the phone number on any job",
+    blurb: "See the contact on any job",
   },
   {
     key: "poster",
