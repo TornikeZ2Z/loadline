@@ -17,6 +17,7 @@
 import { useRef } from "react";
 import type { PublicLoadRow } from "@/lib/loads/publicView";
 import {
+  boardDay,
   deliverByLabel,
   formatCf,
   formatPrice,
@@ -110,7 +111,7 @@ export function JobList({ jobs, selectedId, hoveredId, now, onSelect, onHover }:
 }
 
 export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobCardProps) {
-  const today = now.toISOString().slice(0, 10);
+  const today = boardDay(now);
   const from = placeLabel(job, "pickup");
   const to = placeLabel(job, "delivery");
   const price = formatPrice(job);

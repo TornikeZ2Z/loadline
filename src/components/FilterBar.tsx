@@ -15,10 +15,10 @@
  * so a shared link never carries where somebody was standing.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BoundsInput, SortKey } from "@/lib/loads/types";
 import type { StoredLocation } from "@/lib/location";
-import { homeQuery, viewerQuery } from "@/lib/location";
+import { homeQuery, useViewerLocation, viewerQuery } from "@/lib/location";
 import { CF_PRESETS, READY_OPTIONS, SEEN_OPTIONS, SORT_OPTIONS } from "@/lib/loads/present";
 import { StatePicker, tokenLabel } from "./StatePicker";
 import { PopoverButton } from "./ui";
@@ -230,6 +230,42 @@ export interface FilterBarProps {
 export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }: FilterBarProps) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
 
+  // What a deferred write needs, read when it fires rather than captured when
+  // it was scheduled, so a filter changed in the meantime is not undone.
+  const live = useRef({ filters, onChange });
+  live.current = { filters, onChange };
+
+  // Search is debounced by 300 ms (C §2 item 7). Written straight into
+  // `Filters` it cost a fresh 500-row query and a map re-fit per character,
+  // six of each for "kearny". The draft lives here rather than in MorePanel,
+  // which unmounts with the popover: closing it mid-word must still search.
+  const [qDraft, setQDraft] = useState(filters.q);
+  useEffect(() => setQDraft(filters.q), [filters.q]);
+  useEffect(() => {
+    if (qDraft === live.current.filters.q) return;
+    const timer = setTimeout(
+      () => live.current.onChange({ ...live.current.filters, q: qDraft }),
+      300,
+    );
+    return () => clearTimeout(timer);
+    // Only the draft may restart the timer; any other re-render restarting it
+    // would postpone the search for as long as anything else is happening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qDraft]);
+
+  // A sort that needs a stored location must not outlive the location. The
+  // option disappears from the select, which then reads "Auto", while
+  // `sort=distance` is still sent and the server -- with no reference point --
+  // falls back to insertion order. Same for a shared link that carries it.
+  // Waiting for `hydrated` so a real stored location is not overruled by the
+  // null that localStorage has not been read into yet.
+  const { hydrated } = useViewerLocation();
+  const sortOptions = SORT_OPTIONS.filter((o) => !o.needsViewer || current);
+  const sortAvailable = sortOptions.some((o) => o.value === filters.sort);
+  useEffect(() => {
+    if (hydrated && !sortAvailable) live.current.onChange({ ...live.current.filters, sort: "" });
+  }, [hydrated, sortAvailable]);
+
   const pickupGhost =
     current?.state && filters.pickupState.length === 0
       ? { text: `Near you: ${current.state}`, state: current.state }
@@ -264,11 +300,11 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
       <select
         className="field"
         style={{ width: "auto", minWidth: 150 }}
-        value={filters.sort}
+        value={sortAvailable ? filters.sort : ""}
         aria-label="Sort jobs"
         onChange={(e) => set({ sort: e.target.value as SortKey | "" })}
       >
-        {SORT_OPTIONS.filter((o) => !o.needsViewer || current).map((o) => (
+        {sortOptions.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
           </option>
@@ -331,7 +367,7 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
                 <ListedPanel filters={filters} set={set} />
               </Section>
               <Section title="More">
-                <MorePanel filters={filters} set={set} isAdmin={isAdmin} />
+                <MorePanel filters={filters} set={set} isAdmin={isAdmin} q={qDraft} onQ={setQDraft} />
               </Section>
               {current && home && (
                 <Section title="Toward home">
@@ -409,7 +445,7 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
         width={340}
         ariaLabel="More filters"
       >
-        {() => <MorePanel filters={filters} set={set} isAdmin={isAdmin} />}
+        {() => <MorePanel filters={filters} set={set} isAdmin={isAdmin} q={qDraft} onQ={setQDraft} />}
       </PopoverButton>
 
       {current && home && <TowardHomeToggle filters={filters} set={set} />}
@@ -562,10 +598,15 @@ function MorePanel({
   filters,
   set,
   isAdmin,
+  q,
+  onQ,
 }: {
   filters: Filters;
   set(p: Partial<Filters>): void;
   isAdmin: boolean;
+  /** The debounced draft, owned by FilterBar so it survives this panel closing. */
+  q: string;
+  onQ(v: string): void;
 }) {
   return (
     <div className="flex flex-col gap-[var(--sp-3)]">
@@ -577,8 +618,8 @@ function MorePanel({
           id="filter-q"
           className="field"
           placeholder="City, ZIP, note, requirement, sender"
-          value={filters.q}
-          onChange={(e) => set({ q: e.target.value })}
+          value={q}
+          onChange={(e) => onQ(e.target.value)}
         />
       </div>
 

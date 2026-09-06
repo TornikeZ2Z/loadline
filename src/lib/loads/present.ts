@@ -18,6 +18,7 @@
 
 import type { LoadRow, SortKey } from "@/lib/loads/types";
 import type { PublicLoadRow } from "@/lib/loads/publicView";
+import { DEFAULT_TZ } from "@/lib/extract/dates";
 import {
   TRUCK_CF,
   CF_PRESETS,
@@ -50,6 +51,30 @@ export type Tone =
 // UTC midnight, which renders as Sep 11 for anyone west of Greenwich.
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * What day it is on the board's calendar -- the one date every "today" in the
+ * UI has to be measured against.
+ *
+ * `new Date().toISOString().slice(0, 10)` is UTC by specification, whatever the
+ * viewer's locale, so from 20:00 Eastern to midnight it already reads tomorrow:
+ * a job that is not ready until tomorrow rendered the green "Ready now" chip,
+ * and the header's count (taken from the server's calendar) contradicted the
+ * chips underneath it. Every client-side today comes through here instead.
+ *
+ * Next only inlines NEXT_PUBLIC_ variables into the browser bundle, so on the
+ * client `DEFAULT_TZ` is always the America/New_York default: moving the board
+ * to another zone means publishing the zone, not just setting LOAD_TZ.
+ */
+export function boardDay(at: Date): string {
+  // en-CA formats as YYYY-MM-DD, which is what every comparison here expects.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DEFAULT_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
+}
 
 function dayNumber(iso: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
@@ -265,7 +290,7 @@ export function freshnessLabel(
   const verb = job.is_web ? "Posted" : "Listed";
   const stamp = job.is_web ? (job.created_at ?? job.last_seen_at) : (job.last_seen_at ?? job.created_at);
   if (!stamp) return { text: verb, tone: "default", detail };
-  const days = daysBefore(stamp.slice(0, 10), now.toISOString().slice(0, 10));
+  const days = daysBefore(stamp.slice(0, 10), boardDay(now));
   if (days == null) return { text: verb, tone: "default", detail };
   if (days <= 0) return { text: `${verb} today`, tone: "fresh", detail };
   if (days === 1) return { text: `${verb} yesterday`, tone: "default", detail };

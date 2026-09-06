@@ -22,7 +22,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/basePath";
 import type { ChatGroup, ChatLoad, ChatMessage } from "@/lib/demo/chats";
 import type { LineAudit, LineClass } from "@/lib/extract/schema";
-import { formatCf, formatPrice, readyLabel } from "@/lib/loads/present";
+import { boardDay, formatCf, formatPrice, readyLabel } from "@/lib/loads/present";
 import { Chip } from "./ui";
 
 export interface TestConsoleProps {
@@ -522,7 +522,7 @@ function JobRow({
   highlighted: boolean;
   onHover(id: number | null): void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = boardDay(new Date());
   const ready = readyLabel(
     { ready_now: job.ready_now, ready_date: job.ready_date, ready_source: null },
     today,

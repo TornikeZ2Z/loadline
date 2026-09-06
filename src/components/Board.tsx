@@ -22,7 +22,7 @@ import type { BoundsInput, LoadSummary } from "@/lib/loads/types";
 import type { PublicLoadRow, PublicSearchResult } from "@/lib/loads/publicView";
 import { OPEN_LOCATION_EVENT, useViewerLocation } from "@/lib/location";
 import { api } from "@/lib/basePath";
-import { formatCf, truckLine } from "@/lib/loads/present";
+import { boardDay, formatCf, truckLine } from "@/lib/loads/present";
 import {
   clearedFilters,
   emptyStateSuggestions,
@@ -64,7 +64,7 @@ const NUDGE_KEY = "loadline.locnudge";
  * since a partial or failed response should still say something true.
  */
 function summarize(rows: PublicLoadRow[]): LoadSummary {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = boardDay(new Date());
   let totalCf = 0;
   let withCf = 0;
   let readyNow = 0;
