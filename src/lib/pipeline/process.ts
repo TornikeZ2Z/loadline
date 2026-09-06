@@ -52,13 +52,27 @@ export async function processPending(
   return results;
 }
 
+/** A claim older than this with no outcome is assumed dead and re-offered. */
+const CLAIM_TIMEOUT = "10 minutes";
+
+/**
+ * Claim the next message. `processed_at` doubles as the claim heartbeat: it is
+ * stamped here and by reprocessMessage, so a run interrupted between the claim
+ * and finish() (Ctrl-C on a drain, a restart) is re-offered instead of being
+ * stranded in 'processing' forever, which is what the `attempts < 3` budget
+ * was always for.
+ */
 export async function claimNext(): Promise<RawMessageRow | null> {
   const row = await queryOne<{ id: number }>(
     `UPDATE raw_messages
-        SET status = 'processing', attempts = attempts + 1
+        SET status = 'processing', attempts = attempts + 1, processed_at = now()
       WHERE id = (
         SELECT id FROM raw_messages
-         WHERE status = 'pending' AND attempts < 3
+         WHERE (status = 'pending'
+                OR (status = 'processing'
+                    AND (processed_at IS NULL
+                         OR processed_at < now() - interval '${CLAIM_TIMEOUT}')))
+           AND attempts < 3
          ORDER BY sent_at, id
          LIMIT 1
       )
@@ -91,9 +105,11 @@ export async function reprocessMessage(id: number, opts?: { now?: Date }): Promi
   }
   await query(`DELETE FROM sender_snapshots WHERE message_id = $1`, [id]);
   await query(
+    // processed_at is re-stamped so this in-flight reprocess is not mistaken
+    // for a dead claim by a concurrent drain (see claimNext).
     `UPDATE raw_messages
         SET status = 'processing', attempts = 0, error = NULL, skip_reason = NULL,
-            flags = '{}', attention = NULL
+            flags = '{}', attention = NULL, processed_at = now()
       WHERE id = $1`,
     [id],
   );
@@ -104,7 +120,13 @@ export async function reprocessMessage(id: number, opts?: { now?: Date }): Promi
   const result = await processMessage(msg, opts);
   const after = await queryOne<{ sender_key: string | null }>(`SELECT sender_key FROM raw_messages WHERE id = $1`, [id]);
   await deleteOrphanLoads([before.sender_key, after?.sender_key ?? null]);
-  if (before.sender_key && before.sender_key !== after?.sender_key) await rebuildSender(before.sender_key, opts?.now);
+  // Unconditionally, not only when the key changed: the snapshot was dropped at
+  // the top, and every path that skips (not_a_load, no_geocode) or throws
+  // returns before processMessage's own rebuild, which would otherwise leave
+  // the sender's statuses computed against a snapshot that no longer exists.
+  // rebuildSender is idempotent, so the extra call on the success path is free.
+  if (before.sender_key) await rebuildSender(before.sender_key, opts?.now);
+  if (after?.sender_key && after.sender_key !== before.sender_key) await rebuildSender(after.sender_key, opts?.now);
   return result;
 }
 

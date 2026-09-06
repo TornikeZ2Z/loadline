@@ -206,11 +206,20 @@ export async function upsertSighting(
  * greedily by |Δcf| with the sender's available rows on the same origin and
  * destination that this snapshot omits. The old row takes the new key and
  * size and keeps its history; the new row is folded into it.
+ *
+ * Only rows this snapshot is not older than are eligible: a revision can only
+ * come from newer information. Without that guard a reprocessed or
+ * late-arriving OLD post would be treated as the revision and would write its
+ * stale cubic feet and price back over a row a newer post already corrected.
  */
 export async function pairCfRevisions(key: string, snapshotId: number): Promise<number> {
-  const snap = await queryOne<{ job_keys: string[] }>(`SELECT job_keys FROM sender_snapshots WHERE id = $1`, [snapshotId]);
+  const snap = await queryOne<{ job_keys: string[]; sent_at: string }>(
+    `SELECT job_keys, sent_at::text AS sent_at FROM sender_snapshots WHERE id = $1`,
+    [snapshotId],
+  );
   if (!snap) return 0;
   const inSnapshot = new Set(snap.job_keys);
+  const sentAt = new Date(snap.sent_at).toISOString();
 
   const fresh = await query<{ id: number; job_key: string; origin_key: string; dest_key: string; cubic_feet: number | null; ordinal: number }>(
     `SELECT l.id, l.job_key, l.origin_key, l.dest_key, l.cubic_feet, l.ordinal
@@ -227,8 +236,9 @@ export async function pairCfRevisions(key: string, snapshotId: number): Promise<
        FROM loads l
       WHERE l.sender_key = $1 AND l.status = 'available' AND l.status_source = 'derived'
         AND l.cubic_feet IS NOT NULL AND l.ordinal = 1
-        AND NOT (l.job_key = ANY($2::text[]))`,
-    [key, [...inSnapshot]],
+        AND NOT (l.job_key = ANY($2::text[]))
+        AND (l.last_seen_at IS NULL OR l.last_seen_at <= $3::timestamptz)`,
+    [key, [...inSnapshot], sentAt],
   );
   if (!absent.length) return 0;
 
@@ -290,8 +300,12 @@ interface SenderLoad {
  * Pure function of (snapshots, sightings, now):
  *   manual                                    -> untouched
  *   last seen before the latest full post - 6h -> delisted
- *   last post + 4 silent days < now           -> expired
+ *   this job's last sighting + 4 days < now    -> expired
  *   else                                      -> available
+ *
+ * Expiry is per job, not per sender: a one-line "still available" post must
+ * not revive -- or push the expiry clock of -- the ten jobs it says nothing
+ * about. Only a job the newest post actually sights gets its clock refreshed.
  */
 export async function rebuildSender(
   key: string,
@@ -321,7 +335,6 @@ export async function rebuildSender(
   const latestFull = fulls.length ? new Date(fulls[fulls.length - 1].sent_at) : null;
   const latestFullSnap = fulls.length ? fulls[fulls.length - 1] : null;
   const lastPost = snapshots.length ? new Date(snapshots[snapshots.length - 1].sent_at) : null;
-  const expiresAt = lastPost ? new Date(lastPost.getTime() + SENDER_SILENCE_DAYS * DAY) : null;
   const nowIso = now.toISOString();
 
   const counts = { available: 0, delisted: 0, expired: 0 };
@@ -331,14 +344,17 @@ export async function rebuildSender(
   for (const l of loads) {
     if (l.status === "available") previouslyAvailable++;
     let status: LoadStatus = l.status;
+    const lastSeen = l.last_seen ? new Date(l.last_seen) : null;
+    // A job's clock runs from its own last sighting, so a post that omits it
+    // neither expires it early nor keeps it alive.
+    const expiresAt = lastSeen ? new Date(lastSeen.getTime() + SENDER_SILENCE_DAYS * DAY) : null;
     if (l.status_source === "derived") {
-      const lastSeen = l.last_seen ? new Date(l.last_seen) : null;
       if (!lastSeen) {
         // No sighting at all (a deleted message): nothing to say; leave it.
         status = l.status;
       } else if (latestFull && lastSeen.getTime() < latestFull.getTime() - UNION_WINDOW_HOURS * HOUR) {
         status = "delisted";
-      } else if (lastPost && lastPost.getTime() + SENDER_SILENCE_DAYS * DAY < now.getTime()) {
+      } else if (expiresAt && expiresAt.getTime() < now.getTime()) {
         status = "expired";
       } else {
         status = "available";
