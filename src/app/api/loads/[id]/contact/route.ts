@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { handler, notFound, rateLimit } from "@/lib/api";
+import { handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
 import { HttpError, getCurrentUser } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { getLoad } from "@/lib/loads/query";
@@ -31,10 +31,16 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
   const user = await getCurrentUser();
   if (!user) throw new HttpError(401, "Sign in to see the contact");
 
-  rateLimit(req, "contact", 60);
-  const { id } = await ctx.params;
+  // Scoped to the account, not the network address: a header cannot forge a
+  // user id, and every reveal already needs one. Still 60 a minute, still the
+  // "contact" bucket -- only the key is now something the caller cannot pick.
+  rateLimit(req, `contact:${user.id}`, 60);
 
-  const load = await getLoad(Number(id));
+  const { id } = await ctx.params;
+  const jobId = jobIdFrom(id);
+  if (jobId == null) notFound("Job not found");
+
+  const load = await getLoad(jobId);
   if (!load) notFound("Job not found");
 
   const contact = await revealContact(load.id, user.id);

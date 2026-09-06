@@ -78,14 +78,16 @@ export async function parseSearchParams(
 
   const viewer = pointFrom(sp, "viewerLat", "viewerLng", "your location") ?? fallbackViewer ?? null;
 
+  // All four or none. Testing only the latitudes would let the longitudes come
+  // through as nulls behind a `number` type, and `lng BETWEEN NULL AND NULL` is
+  // NULL for every row -- the whole result set silently dropped, 200 and empty.
+  const minLat = num(sp, "minLat");
+  const maxLat = num(sp, "maxLat");
+  const minLng = num(sp, "minLng");
+  const maxLng = num(sp, "maxLng");
   const bounds =
-    num(sp, "minLat") != null && num(sp, "maxLat") != null
-      ? {
-          minLat: num(sp, "minLat")!,
-          maxLat: num(sp, "maxLat")!,
-          minLng: num(sp, "minLng")!,
-          maxLng: num(sp, "maxLng")!,
-        }
+    minLat != null && maxLat != null && minLng != null && maxLng != null
+      ? { minLat, maxLat, minLng, maxLng }
       : null;
 
   const seenDaysRaw = num(sp, "seenDays");

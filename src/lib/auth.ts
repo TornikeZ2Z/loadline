@@ -46,9 +46,15 @@ function decode(token: string | undefined): number | null {
   const [idPart, expiresPart, mac] = parts;
   const payload = `${idPart}.${expiresPart}`;
   const expected = sign(payload);
+  // Compare BYTE lengths, not UTF-16 code units: timingSafeEqual throws when the
+  // buffers differ in byte length, and a 43-character MAC carrying a multi-byte
+  // character is 43 code units but more than 43 bytes. A cookie is untrusted
+  // input, so that throw would 500 every page instead of returning null.
+  const actualBytes = Buffer.from(mac);
+  const expectedBytes = Buffer.from(expected);
   if (
-    mac.length !== expected.length ||
-    !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expected))
+    actualBytes.length !== expectedBytes.length ||
+    !crypto.timingSafeEqual(actualBytes, expectedBytes)
   ) {
     return null;
   }

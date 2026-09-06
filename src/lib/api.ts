@@ -27,6 +27,20 @@ export function notFound(message = "Not found"): never {
   throw new HttpError(404, message);
 }
 
+/**
+ * A job id out of a `[id]` path segment, or null when the segment is not one.
+ *
+ * `Number()` is the wrong tool for a URL segment: `Number("abc")` is NaN, which
+ * the database rejects as a 500 instead of the 404 the caller deserves, and
+ * `Number("0x10")` is 16, so a URL that is not a job's id would serve that job.
+ * Digits only, and within bigint range so a 30-digit string 404s too.
+ */
+export function jobIdFrom(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) ? id : null;
+}
+
 // --- rate limiting -----------------------------------------------------------
 
 /**
@@ -45,9 +59,21 @@ export function notFound(message = "Not found"): never {
  */
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
+/**
+ * `x-forwarded-for` and `x-real-ip` are client-supplied unless a proxy the app
+ * controls rewrites them, so trusting them by default lets any caller pick a
+ * fresh bucket per request and delete the limiter entirely. They are read only
+ * when `TRUST_PROXY=1` says a reverse proxy is in front -- and then the LAST
+ * hop, because the documented nginx config appends the real peer address to
+ * whatever the client sent, leaving the client's own value first.
+ */
 function clientIp(req: Request): string {
+  if (process.env.TRUST_PROXY !== "1") return "local";
   const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]!.trim();
+  if (fwd) {
+    const hops = fwd.split(",").map((h) => h.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1]!;
+  }
   return req.headers.get("x-real-ip")?.trim() || "local";
 }
 

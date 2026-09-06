@@ -9,7 +9,9 @@ export const GET = handler(async (req: Request) => {
   const sp = new URL(req.url).searchParams;
   const status = sp.get("status") ?? "open";
   const kind = sp.get("kind");
-  const limit = Math.min(Math.max(Number(sp.get("limit") ?? 100) || 100, 1), 500);
+  // Round before clamping: LIMIT is bound as a bigint, so a fractional value
+  // reaches the driver and 500s instead of being treated as a page size.
+  const limit = Math.min(Math.max(Math.round(Number(sp.get("limit") ?? 100)) || 100, 1), 500);
   const issues = await query(
     `SELECT id, kind, line_hash, sample_line, message_id, sender_key, occurrences,
             first_seen_at::text AS first_seen_at, last_seen_at::text AS last_seen_at, status, resolution

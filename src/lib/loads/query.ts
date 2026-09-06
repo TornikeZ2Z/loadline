@@ -78,10 +78,12 @@ const SELECT_COLUMNS = `
   l.pickup_time_note,
   l.delivery_date::text AS delivery_date,
   l.weight_lbs, l.pieces, l.notes,
-  COALESCE((
-    SELECT count(*) FROM loads d
-     WHERE d.dup_group_id = l.dup_group_id AND l.dup_group_id IS NOT NULL
-  ), 1) AS dup_count`;
+  -- Branch on the group rather than COALESCE: an ungrouped count(*) over an
+  -- empty set is 0, never NULL, so a COALESCE(..., 1) fallback never fires and
+  -- every job without a duplicate group would ship "0 postings" instead of 1.
+  CASE WHEN l.dup_group_id IS NULL THEN 1
+       ELSE (SELECT count(*) FROM loads d WHERE d.dup_group_id = l.dup_group_id)
+  END AS dup_count`;
 
 /** Per-cubic-foot price, in SQL: what a mover compares two jobs on. */
 const PER_CF_SQL = `coalesce(l.price_per_cf, l.price_flat / nullif(l.cubic_feet, 0))`;
@@ -223,8 +225,8 @@ export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchRe
   }
 
   const sortSql = orderBy(input.sort, Boolean(reference));
-  const limit = clamp(input.limit ?? 50, 1, 500);
-  const offset = Math.max(input.offset ?? 0, 0);
+  const limit = pageLimit(input.limit);
+  const offset = pageOffset(input.offset);
 
   const rows = await query<LoadRow>(
     `SELECT ${SELECT_COLUMNS}, ${distanceExpr} AS distance_miles
@@ -248,6 +250,11 @@ export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchRe
       routeMode: "endpoints",
       readyBy: input.readyBy ?? null,
       deliverBy: input.deliverBy ?? null,
+      // The headline counts the whole filtered set but the page stops at
+      // `limit`, so the board needs to be told when the two disagree --
+      // otherwise "742 jobs" sits above a list of 500 with nothing to explain
+      // the other 242. Only the corridor branch used to set this.
+      truncated: summary.count > offset + rows.length,
     },
   };
 }
@@ -360,11 +367,12 @@ async function corridorSearch(
     return (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? "");
   });
 
-  const limit = clamp(input.limit ?? 50, 1, 500);
-  const offset = Math.max(input.offset ?? 0, 0);
+  const limit = pageLimit(input.limit);
+  const offset = pageOffset(input.offset);
+  const rows = scored.slice(offset, offset + limit);
 
   return {
-    rows: scored.slice(offset, offset + limit),
+    rows,
     total: scored.length,
     // The corridor filter runs in JS, so the summary is folded from the same
     // scored set rather than re-run as SQL -- it still describes the whole
@@ -377,7 +385,10 @@ async function corridorSearch(
       routeMode: "corridor",
       readyBy: input.readyBy ?? null,
       deliverBy: input.deliverBy ?? null,
-      truncated: candidates.length >= CORRIDOR_CANDIDATE_CAP,
+      // Two different ways matches go missing here: the candidate scan hit its
+      // cap, or the scored set was longer than the page. The flag has to cover
+      // both, or it fires on 12 matches and stays quiet when 700 are cut to 500.
+      truncated: candidates.length >= CORRIDOR_CANDIDATE_CAP || scored.length > offset + rows.length,
     },
   };
 }
@@ -510,6 +521,20 @@ function localToday(): string {
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(Math.max(n, lo), hi);
+}
+
+/**
+ * LIMIT and OFFSET are bound as bigints, so they have to be whole numbers with
+ * a ceiling: `?limit=1.5` and `?offset=1e21` are both finite, and both make the
+ * driver reject the statement -- a 500 with a raw database message where the
+ * caller should simply have got the nearest sensible page.
+ */
+function pageLimit(limit: number | undefined): number {
+  return Number.isFinite(limit) ? clamp(Math.round(limit!), 1, 500) : 50;
+}
+
+function pageOffset(offset: number | undefined): number {
+  return Number.isFinite(offset) ? clamp(Math.round(offset!), 0, 100_000) : 0;
 }
 
 /** Single job with its duplicate siblings and source message. */

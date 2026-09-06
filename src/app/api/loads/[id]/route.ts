@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { handler, notFound, rateLimit } from "@/lib/api";
+import { handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
 import { query } from "@/lib/db";
 import { getDuplicates, getLoad } from "@/lib/loads/query";
 import { loadDistances } from "@/lib/loads/roadDistance";
@@ -22,7 +22,10 @@ export const GET = handler(async (req: Request, ctx: Ctx) => {
   rateLimit(req, "detail", 120);
   const { id } = await ctx.params;
 
-  const load = await getLoad(Number(id));
+  const jobId = jobIdFrom(id);
+  if (jobId == null) notFound("Job not found");
+
+  const load = await getLoad(jobId);
   if (!load) notFound("Job not found");
 
   const duplicates = await getDuplicates(load);
