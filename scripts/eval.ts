@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractInventory, EMPTY_RULES, KNOWN_SIGNATURES, type RuleSet } from "../src/lib/extract";
+import { extractInventory, EMPTY_RULES, KNOWN_SIGNATURES, scopedRules, type RuleSet } from "../src/lib/extract";
 import { resolveDatePhrase } from "../src/lib/extract/dates";
 import { normalizePhone } from "../src/lib/extract/phone";
 import { CASES, EVAL_SENT_AT, realMessageCases, type EvalCase, type ExpectedJob } from "./eval-cases";
@@ -92,6 +92,18 @@ function loadLearnedCases(): EvalCase[] {
     });
 }
 
+/**
+ * The sender key the pipeline would derive for a case (mirrors
+ * reconcile.ts senderKeyFor without importing the database), so sender-scoped
+ * learned rules apply only to that sender's cases.
+ */
+function senderKeyOf(tc: EvalCase): string | null {
+  const phone = normalizePhone(tc.authorPhone ?? null).e164;
+  if (phone) return `phone:${phone}`;
+  const slug = (tc.author ?? "").normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug ? `name:0:${slug}` : null;
+}
+
 // --- the run ------------------------------------------------------------------
 
 interface Failure { case: string; detail: string }
@@ -112,7 +124,7 @@ function main() {
     const sentAt = new Date(tc.sentAt ?? EVAL_SENT_AT);
     const out = extractInventory(
       { body: tc.body, authorName: tc.author ?? "Tester", authorPhone: tc.authorPhone ?? null, groupName: "Eval", sentAt },
-      rules,
+      scopedRules(rules, senderKeyOf(tc)),
     );
 
     if (out.extractor !== "inventory-v1") fail(`extractor is ${out.extractor}`);
