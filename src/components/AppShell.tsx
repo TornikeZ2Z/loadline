@@ -67,9 +67,9 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
           </nav>
 
           <div className="ml-auto flex items-center gap-[var(--sp-3)]">
-            {/* TODO(B, §4.2): CurrentLocation becomes propless and reads
-                @/lib/location; drop these two props when it is rewritten. */}
-            <CurrentLocation label={null} role={user?.role ?? "driver"} />
+            {/* Propless by design: the location lives in localStorage, not on
+                the user row, so it is the same control signed in or out. */}
+            <CurrentLocation />
 
             {user ? (
               <>

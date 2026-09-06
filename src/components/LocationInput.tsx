@@ -10,21 +10,33 @@ export interface PlaceSuggestion {
   lat: number | null;
   lng: number | null;
   precision: string;
+  state: string | null;
+  zip: string | null;
   hereId?: string;
 }
 
-/** A suggestion once its coordinates are known. */
+/**
+ * A suggestion once its coordinates are known.
+ *
+ * `state`, `city` and `zip` ride along because the callers need them, not just
+ * the pin: the post form fills the delivery/pickup state and ZIP from a picked
+ * place, the location slots store the state for the "Near you: FL" hint, and
+ * the admin console turns the same three fields into a learned place.
+ */
 export interface ResolvedPlace {
   label: string;
   lat: number;
   lng: number;
   precision: string;
+  state: string | null;
+  city: string | null;
+  zip: string | null;
 }
 
 /**
  * Place input with a type-ahead dropdown.
  *
- * Backed by HERE autosuggest through our own API route, falling back to the
+ * Backed by HERE autocomplete through our own API route, falling back to the
  * offline gazetteer when no key is configured -- so the control behaves the
  * same either way, just with a smaller catalogue.
  *
@@ -76,6 +88,8 @@ export function LocationInput({
           setSuggestions(json.suggestions ?? []);
           setActive(-1);
         }
+      } catch {
+        if (id === requestId.current) setSuggestions([]);
       } finally {
         if (id === requestId.current) setLoading(false);
       }
@@ -99,8 +113,18 @@ export function LocationInput({
     setSuggestions([]);
     if (!onPick) return;
 
+    // A local row already carries everything; only the city has to be teased
+    // out of the label, since the gazetteer writes "Miami, FL".
     if (s.lat != null && s.lng != null) {
-      onPick({ label: s.label, lat: s.lat, lng: s.lng, precision: s.precision });
+      onPick({
+        label: s.label,
+        lat: s.lat,
+        lng: s.lng,
+        precision: s.precision,
+        state: s.state,
+        city: cityFromLabel(s.label),
+        zip: s.zip,
+      });
       return;
     }
 
@@ -113,8 +137,16 @@ export function LocationInput({
         body: JSON.stringify({ hereId: s.hereId, label: s.label }),
       });
       if (res.ok) {
-        const j = (await res.json()) as { lat: number; lng: number };
-        onPick({ label: s.label, lat: j.lat, lng: j.lng, precision: s.precision });
+        const j = (await res.json()) as ResolvedPlace;
+        onPick({
+          label: s.label,
+          lat: j.lat,
+          lng: j.lng,
+          precision: j.precision ?? s.precision,
+          state: j.state ?? s.state,
+          city: j.city ?? cityFromLabel(s.label),
+          zip: j.zip ?? s.zip,
+        });
       }
     } finally {
       setLoading(false);
@@ -131,7 +163,7 @@ export function LocationInput({
       setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
     } else if (e.key === "Enter" && active >= 0) {
       e.preventDefault();
-      pick(suggestions[active]);
+      void pick(suggestions[active]);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
@@ -166,7 +198,7 @@ export function LocationInput({
               <button
                 type="button"
                 onMouseEnter={() => setActive(i)}
-                onClick={() => pick(s)}
+                onClick={() => void pick(s)}
                 className="block w-full px-3 py-2 text-left"
                 style={i === active ? { background: "var(--accent-soft)" } : undefined}
               >
@@ -181,4 +213,10 @@ export function LocationInput({
       )}
     </div>
   );
+}
+
+/** "Kearny, NJ 07032" -> "Kearny". A label with no comma names no city. */
+function cityFromLabel(label: string): string | null {
+  const head = label.split(",")[0]?.trim();
+  return head && head !== label.trim() ? head : null;
 }
