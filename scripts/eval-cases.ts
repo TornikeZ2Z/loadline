@@ -225,6 +225,23 @@ export const CASES: EvalCase[] = [
     ],
   },
   {
+    name: "an origin the gazetteer does not know never inherits a block state silently",
+    body: "FROM CHICAGO IL\nFL 33101 350cf\n\nFROM ELLENWOOD\nGA 30303 400cf",
+    expect: [
+      { origin: "Chicago, IL", dest: "FL 33101", cf: 350 },
+      { origin: "Ellenwood, IL", dest: "GA 30303", cf: 400, flagsInclude: ["origin_state_assumed", "needs_review"] },
+    ],
+  },
+  {
+    name: "a known city keeps its own state, unflagged",
+    body: "FROM CHICAGO IL\nFL 33101 350cf\n\nFROM DENVER\nGA 30303 400cf",
+    expect: [
+      { origin: "Chicago, IL", dest: "FL 33101", cf: 350 },
+      { origin: "Denver, CO", dest: "GA 30303", cf: 400 },
+    ],
+    expectNotFlags: ["origin_state_assumed"],
+  },
+  {
     name: "a ZIP in front of a cubic-feet word stays a ZIP",
     body: "From Newark NJ\nState FL Zip 33101 Cube 350",
     expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],

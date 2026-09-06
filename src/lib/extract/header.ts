@@ -571,7 +571,12 @@ export function resolveCityState(
   if (alias?.state && !alias.city) {
     return { state: alias.state, source: "alias", flags: [] };
   }
-  if (hint) return { state: hint, source: hintSource, flags: [] };
+  // Nothing knows this city: not the gazetteer, not the aliases. The block
+  // state is still the best guess, but it is a guess -- "FROM ELLENWOOD" under
+  // a Chicago IL block is not in Illinois -- so say so instead of publishing a
+  // wrong origin as clean. A wrong origin is the one field a backhaul driver
+  // cannot recover from.
+  if (hint) return { state: hint, source: hintSource, flags: ["origin_state_assumed"] };
   return null;
 }
 
