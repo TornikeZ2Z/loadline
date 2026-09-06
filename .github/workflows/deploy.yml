@@ -1,0 +1,61 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# id-token is what makes OIDC work. Without it the role assumption fails
+# with a confusing credentials error.
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: loadline
+  ECS_CLUSTER: loadline
+  ECS_SERVICE: loadline
+
+jobs:
+  deploy:
+    # Native arm64 runner — free for public repositories. Must stay arm64 to
+    # match the task definition's runtime_platform, and because Turbopack
+    # segfaults under cross-architecture emulation in either direction.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # The runner is arm64 and the task definition's runtime_platform is
+      # ARM64, so this builds natively with no emulation.
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPOSITORY"
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      # The task definition pins :latest, so forcing a new deployment is the
+      # whole deploy. The SHA tag above exists so a bad deploy can be rolled
+      # back by re-tagging a known-good image as latest and forcing again.
+      - name: Deploy
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --force-new-deployment --no-cli-pager
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"

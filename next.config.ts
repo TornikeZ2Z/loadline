@@ -2,8 +2,9 @@ import type { NextConfig } from "next";
 
 /**
  * `NEXT_PUBLIC_BASE_PATH` lets the app be served under a sub-path, e.g.
- * `https://ziptozip.systems/loadline`. Leave it unset for local development so
- * the app stays at `http://localhost:3000/`.
+ * `https://example.com/loadline`. The AWS deployment does NOT use this — it
+ * serves the app at the root of loadline.ziptozip.app — but the option is kept
+ * for anyone proxying it under a prefix. Leave it unset for local development.
  *
  * It must be `NEXT_PUBLIC_` because client components read the same value (via
  * src/lib/basePath.ts) to prefix their `fetch` calls, and only `NEXT_PUBLIC_`

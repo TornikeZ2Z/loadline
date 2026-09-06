@@ -1,0 +1,12 @@
+node_modules
+.next
+.pgdata
+.git
+.github
+.env
+.env.*
+infra
+docs
+.design
+.claude
+*.md
