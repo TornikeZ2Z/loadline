@@ -521,11 +521,22 @@ export function LoadDetail({
       </div>
 
       {/* The phone's contact bar: outside the scroller, so it is always the
-          bottom of the sheet and never scrolls away or gets cut off. */}
+          bottom of the sheet and never scrolls away or gets cut off.
+
+          It may shrink, and scrolls inside itself when it does. The bar is
+          269 px tall with the sign-in step open and the sheet is not always
+          that tall: at the shortest snap, or with the on-screen keyboard up,
+          where the whole viewport is 450. `shrink-0` there pushed the Call
+          buttons 77 px past the bottom of the screen with no way to reach
+          them. Shrinking costs nothing at the snaps where it fits. */}
       {mobile && (
         <section
           ref={contactSection}
-          className="shrink-0 border-t border-border px-[var(--sp-4)] py-[var(--sp-3)]"
+          /* `scroll-py`: when the browser scrolls a focused field into this
+             scroller it aligns to the padding box, and without it the field
+             being typed into ends up flush against the bottom edge of the
+             screen with the keyboard directly under it. */
+          className="min-h-0 overflow-y-auto overscroll-contain scroll-py-[var(--sp-4)] border-t border-border px-[var(--sp-4)] py-[var(--sp-3)]"
           style={{ background: "var(--surface)" }}
         >
           {gate}
