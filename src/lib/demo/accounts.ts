@@ -11,6 +11,7 @@
  * could be the first page of a cold demo: the board, a deep-linked job, the
  * sign-in page and the demo sign-in route.
  */
+import { createHmac } from "node:crypto";
 import { query, queryOne } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import type { Role } from "@/lib/session";
@@ -60,8 +61,30 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
   },
 ];
 
-/** Password for the demo accounts, for anyone who prefers the normal form. */
-export const DEMO_PASSWORD = "demo1234";
+/**
+ * Password for the demo accounts, for anyone who prefers the normal form.
+ *
+ * NEVER a literal. This repository is public and the deployment is public, so a
+ * password written here is a published credential: it was `demo1234`, printed
+ * in README and DEMO, and it granted admin — including `POST /api/test/reset`,
+ * which truncates the corpus — to anyone who read either file. Turning
+ * DEMO_MODE off would not have helped, because that only removes the one-click
+ * buttons; the ordinary e-mail form kept accepting it.
+ *
+ * So: whatever `DEMO_PASSWORD` is set to, else a value derived from
+ * SESSION_SECRET. Derived rather than random because every task in a service
+ * has to arrive at the same answer, and rotating SESSION_SECRET — which already
+ * signs out every session — rotates this too. A deployment with no
+ * SESSION_SECRET is refused in production by src/lib/auth.ts, and locally it
+ * falls back to a development string, which is the only case where this value
+ * is predictable and the only case where that is harmless.
+ */
+export const DEMO_PASSWORD =
+  process.env.DEMO_PASSWORD ??
+  createHmac("sha256", process.env.SESSION_SECRET ?? "loadline-dev-secret")
+    .update("demo-account-password/v1")
+    .digest("base64url")
+    .slice(0, 16);
 
 /**
  * One-click demo sign-in. On by default so a hosted demo needs no instructions;
@@ -74,9 +97,14 @@ export function demoModeEnabled(): boolean {
 export async function createDemoAccounts(): Promise<void> {
   for (const a of DEMO_ACCOUNTS) {
     await query(
+      // DO UPDATE, not DO NOTHING: a database seeded when the password was a
+      // published literal still holds that hash, and the whole point of this
+      // change is that those rows stop accepting it. Every cold start rotates
+      // them. Only the demo identities are touched; a real account created
+      // through /register shares no e-mail with them.
       `INSERT INTO users (email, password_hash, name, role, phone, company)
        VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (email) DO NOTHING`,
+       ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
       [a.email, hashPassword(DEMO_PASSWORD), a.name, a.role, a.phone, a.company],
     );
   }
@@ -88,12 +116,20 @@ let seeding: Promise<void> | null = null;
 
 /** Populate an empty database with demo accounts and sample traffic. */
 export async function ensureDemoData(): Promise<void> {
+  // Read this BEFORE touching the accounts: creating them is what makes the
+  // table non-empty, so asking afterwards would never seed a fresh database.
   const existing = await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM users`);
-  if ((existing?.n ?? 0) > 0) return;
+  const fresh = (existing?.n ?? 0) === 0;
+
+  // Unconditional, and cheap: three upserts. A database seeded before the demo
+  // password stopped being a published literal still holds hashes of it, and
+  // returning early here is exactly what would let them survive. Every cold
+  // start now rotates them to the derived value.
+  await createDemoAccounts();
+  if (!fresh) return;
 
   seeding ??= (async () => {
     try {
-      await createDemoAccounts();
       await resetDemoData();
     } finally {
       seeding = null;

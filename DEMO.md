@@ -194,8 +194,10 @@ the board is half the product.
 | **Sign in as demo poster** | `poster@example.com` | Post jobs from the website and mark them taken |
 | **Sign in as demo admin** | `admin@example.com` | The pipeline, the needs-attention queue and both consoles |
 
-Password for all three: `demo1234`, through the *or sign in with an email and password* link
-on `/login`. They see the same data; switching between them is just switching hats. The
+The three buttons need no password. The e-mail form behind the *or sign in with an email and
+password* link needs one, and it is not printed here on purpose: this repo and the demo are
+both public, so a password written down is a live admin credential. It is derived from
+`SESSION_SECRET` unless you set `DEMO_PASSWORD`. They see the same data; switching between them is just switching hats. The
 normal way a driver signs in is the **Show contact** button inside a job, not this page.
 
 ---

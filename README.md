@@ -39,8 +39,11 @@ npm run dev
 Open <http://localhost:3000> — **the board is public**, so there is nothing to sign in to
 first. Press **Show contact** on any job and choose **Sign in as demo driver** to see a
 number; **Sign in as demo poster** to post a job of your own; **demo admin** for the
-consoles. The accounts are `driver@ / poster@ / admin@example.com`, password `demo1234`,
-and the email form is still there behind a link on `/login`.
+consoles. The accounts are `driver@ / poster@ / admin@example.com`; their password is
+derived from `SESSION_SECRET`, or whatever you set `DEMO_PASSWORD` to, and is deliberately
+not written down here — this repository is public and the deployment is public, so a
+password in this file is a published credential for a live admin account. Use the one-click
+buttons, or set `DEMO_PASSWORD` yourself if you need the e-mail form.
 
 The database **seeds itself when empty**, so a fresh deployment is usable on first visit
 without anyone running a script.
