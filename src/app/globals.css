@@ -24,8 +24,11 @@
   --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eef0f4; --surface-3: #e3e6ec;
   --surface-glass: rgb(255 255 255 / .92);
   /* Lighter than --glass on purpose: this backs the labels that float ON the
-     map, where an opaque card would punch a hole in the country under it. */
-  --surface-veil: rgb(255 255 255 / .76);
+     map, where an opaque card would punch a hole in the country under it. At
+     .76 it was a veil over one flat grey; the map has woodland and water in it
+     now, and a quarter of a green forest coming through a state total is a
+     tinted label. .86 keeps it a veil and stops it taking the colour on. */
+  --surface-veil: rgb(255 255 255 / .86);
   --border: #e2e5ea; --border-strong: #c9ced7;
   /* ink */
   --text: #0f172a; --text-2: #334155; --muted: #64748b; --muted-2: #94a3b8; --placeholder: #9aa4b2;
@@ -39,12 +42,14 @@
      indistinguishable from the grey the basemap paints a city in. Navy keeps
      the depth and gets the hue back. */
   --pickup: #2563eb; --delivery: #1e3a8a; --you: #059669; --home: #0f172a; --approx: #b45309;
-  /* The paper the basemap is washed onto. The tiles are keyless OpenStreetMap,
-     which is a full-colour map with green woodland and blue water; LoadMap
-     desaturates and lightens them in the raster paint and then blends them
-     into this, which is what gives the country a single cool cast instead of
-     the olive-grey the raw tiles wash down to. */
-  --map-paper: #e6ebf2;
+  /* The ground the basemap sits on, and what you see for the moment before a
+     tile arrives. It used to be a cool #e6ebf2 that the tiles were washed into
+     at 70% -- which is how a full-colour OpenStreetMap ended up as one flat
+     grey. The tiles keep their colour now and sit at 93%, so this is barely a
+     wash any more; it is the paper. Warm and very pale, a shade under the
+     land OSM draws (measured: rgb(239, 237, 232)), so tiles read as detail
+     appearing on the same ground rather than as a second material. */
+  --map-paper: #eceee7;
   /* semantics */
   --ok: #059669; --ok-soft: #e6f6ef; --ready: #059669; --ready-soft: #e6f6ef;
   --fresh: #2563eb; --fresh-soft: #e8efff;
@@ -254,9 +259,12 @@ input[type="checkbox"], input[type="radio"] {
    of them as a card sitting on a page; over a pale basemap that reads as a
    hole punched in the country. A hairline of ink at 6% and a shadow in two
    soft stages instead: the panel still detaches, but it hovers rather than
-   cuts. */
+   cuts. The backdrop DESATURATES what shows through rather than boosting it:
+   saturate(1.6) was written for a basemap that had no colour left to boost,
+   and against a green country it tinted every panel with whatever it happened
+   to be parked on. */
 .glass {
-  background: var(--surface-glass); backdrop-filter: blur(10px) saturate(1.6);
+  background: var(--surface-glass); backdrop-filter: blur(10px) saturate(.8);
   border: 0; border-radius: var(--radius-md);
   box-shadow: 0 0 0 1px rgb(15 23 42 / .06), 0 2px 6px rgb(15 23 42 / .07), 0 12px 28px rgb(15 23 42 / .07);
 }
@@ -300,7 +308,7 @@ input[type="checkbox"], input[type="radio"] {
 /* Approximate is the same mark out of focus -- no ring, no second colour,
    which is literally what the map draws for a coordinate it had to guess. */
 .point-legend i.approx {
-  width: 13px; height: 13px; border: 0; opacity: .5;
+  width: 13px; height: 13px; border: 0; opacity: .6;
   filter: blur(1.6px); box-shadow: none;
 }
 .point-legend i.road { width: 18px; height: 0; border: 0; border-top: 3px solid var(--accent); border-radius: 0; box-shadow: none; }
@@ -319,15 +327,19 @@ input[type="checkbox"], input[type="radio"] {
 /* A label on a map is not a card. The old rule gave every one of them an
    opaque white body, a full border and a drop shadow, so sixteen state totals
    read as sixteen little dialogs laid over the country -- heavier than the
-   dots they were annotating. They are veils now: white at 76%, a hairline
+   dots they were annotating. They are veils now: --surface-veil, a hairline
    instead of a border, and the weight carried by the type rather than by the
    box. A hierarchy inside the label does the rest of the work -- `.k` is the
-   thing (a state, a town), `.v` is its number. */
+   thing (a state, a town), `.v` is its number.
+
+   The backdrop desaturates rather than saturates, for the same reason .glass
+   does: the basemap has woodland and water in it again, and a label that
+   picks up the tint of whatever it is parked on stops reading as one thing. */
 .map-pill, .map-count {
   display: inline-flex; align-items: center; gap: 4px;
   border-radius: var(--radius-pill);
-  background: var(--surface-veil); backdrop-filter: blur(6px) saturate(1.4);
-  box-shadow: 0 0 0 1px rgb(15 23 42 / .07), 0 1px 3px rgb(15 23 42 / .09);
+  background: var(--surface-veil); backdrop-filter: blur(6px) saturate(.6);
+  box-shadow: 0 0 0 1px rgb(15 23 42 / .09), 0 1px 3px rgb(15 23 42 / .1);
   color: var(--text-2); white-space: nowrap;
   font-weight: 600; font-size: var(--fs-xs); line-height: 1.35;
   letter-spacing: .005em;
@@ -342,13 +354,18 @@ input[type="checkbox"], input[type="radio"] {
  * own colour (tried next) it was worse: two blue circles per marker, and no
  * way to tell at a glance which one was the freight. So it is set as bare
  * type in the mark's colour, floated over the basemap on the cartographer's
- * halo -- no box, no border, nothing to compete with the dot it is counting. */
+ * halo -- no box, no border, nothing to compete with the dot it is counting.
+ *
+ * The halo is laid on thicker than it was. A numeral with no box behind it is
+ * only as legible as the ring of paper it carries with it, and the ground it
+ * has to carry that ring over is no longer one flat grey -- it is woodland, or
+ * water, or a town. */
 .map-count {
   padding: 0; justify-content: center; pointer-events: none;
   background: none; backdrop-filter: none; box-shadow: none;
   color: var(--pickup); font-weight: 700; letter-spacing: 0;
   text-shadow:
-    0 0 3px var(--surface), 0 0 3px var(--surface),
+    0 0 4px var(--surface), 0 0 4px var(--surface), 0 0 2px var(--surface),
     -1px -1px 0 var(--surface), 1px -1px 0 var(--surface),
     -1px 1px 0 var(--surface), 1px 1px 0 var(--surface);
 }
