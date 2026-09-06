@@ -1714,9 +1714,22 @@ AWS_PROFILE=ziptozip tofu plan
 
 ## What this stack does and does not own
 
-It owns: an ECR repository, two security groups, an RDS instance, three Secrets
-Manager secrets, an ECS cluster/service/task definition, a target group, an ACM
-certificate, one ALB listener rule, one Route 53 record, and two IAM roles.
+It owns 27 declared resources (39 addresses in state, counting `for_each`
+expansions and policy attachments):
+
+| | |
+|---|---|
+| Registry | ECR repository + lifecycle policy |
+| Network | 2 security groups (`loadline-tasks`, `loadline-rds`) |
+| Data | DB subnet group, RDS instance, 3 Secrets Manager secrets |
+| Compute | ECS cluster, task definition, service, CloudWatch log group |
+| Edge | target group, ACM certificate + validation, **listener-certificate attachment**, 1 listener rule, **2 Route 53 records** (the A-alias and the certificate-validation CNAME) |
+| IAM | **3 roles** — task execution, task, and the GitHub deploy role — plus 3 inline policies and 1 managed-policy attachment |
+
+**Running cost: ~$23/month** — RDS `db.t4g.micro` + 20 GB gp3 ≈ $14.70, Fargate
+0.25 vCPU / 0.5 GB on Graviton ≈ $7.20, ECR storage and CloudWatch Logs ≈ $1. The
+ALB, the ACM certificate and the Route 53 records add nothing: the load balancer
+already exists and is already paid for, and this stack only attaches to it.
 
 It owns **none** of the platform. The VPC, subnets, the ALB itself, the Route 53
 zone and the GitHub OIDC provider all belong to the ziptozip production stack and
