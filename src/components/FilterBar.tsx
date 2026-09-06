@@ -18,7 +18,7 @@
 import { useMemo } from "react";
 import type { BoundsInput, SortKey } from "@/lib/loads/types";
 import type { StoredLocation } from "@/lib/location";
-import { viewerQuery } from "@/lib/location";
+import { homeQuery, viewerQuery } from "@/lib/location";
 import { CF_PRESETS, READY_OPTIONS, SEEN_OPTIONS, SORT_OPTIONS } from "@/lib/loads/present";
 import { StatePicker, tokenLabel } from "./StatePicker";
 import { PopoverButton } from "./ui";
@@ -102,6 +102,9 @@ export function filtersToQuery(
   if (f.showInactive) sp.set("status", INACTIVE_STATUSES);
   if (f.review) sp.set("review", "1");
   if (f.sort) sp.set("sort", f.sort);
+  // Auto: nearest pickup once the viewer has told us where they are. Said out
+  // loud rather than left to the server default, so the request is readable.
+  else if (ctx.current) sp.set("sort", "distance");
 
   // The corridor keeps its shape in the shareable URL; the two endpoints are
   // the viewer's own coordinates and are added only for the API request.
@@ -112,10 +115,7 @@ export function filtersToQuery(
       sp.set("originLat", ctx.current.lat.toFixed(5));
       sp.set("originLng", ctx.current.lng.toFixed(5));
     }
-    if (ctx.home) {
-      sp.set("destLat", ctx.home.lat.toFixed(5));
-      sp.set("destLng", ctx.home.lng.toFixed(5));
-    }
+    for (const [k, v] of new URLSearchParams(homeQuery(ctx.home))) sp.set(k, v);
   }
 
   if (ctx.bounds) {

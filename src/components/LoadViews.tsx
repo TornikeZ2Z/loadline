@@ -159,6 +159,7 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
   return (
     <div
       data-job-card
+      data-job-id={job.id}
       role="button"
       tabIndex={0}
       aria-pressed={selected}
