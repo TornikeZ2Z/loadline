@@ -32,15 +32,22 @@ RUN groupadd --system --gid 1001 nodejs \
  && useradd --system --uid 1001 --gid nodejs nextjs
 
 COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=builder   /app/.next        ./.next
+# --chown here is free (ownership is set while the layer is written) and
+# covers `next start` wanting to write .next/cache.
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY package.json next.config.ts ./
 # REQUIRED AT RUNTIME: migrate() reads db/schema.sql from process.cwd().
 COPY db ./db
 
-# Without DATABASE_URL, PGlite persists to ./.pgdata under process.cwd()
-# (/app) at runtime, so /app must be writable by the user that starts
-# the process, not just readable.
-RUN chown -R nextjs:nodejs /app
+# Without DATABASE_URL, PGlite (local/dev only — the deployed environment
+# always sets DATABASE_URL, so PGlite never runs there) persists to
+# ./.pgdata under process.cwd() (/app) at runtime. Creating that directory
+# entry needs write permission on the /app inode itself, not just on its
+# contents, so a single non-recursive chown of /app is required — node_modules
+# (504MB) stays root-owned since it only ever needs to be readable, and a
+# recursive chown here would copy-up the entire preceding layers (~568MB),
+# nearly doubling the image for no runtime benefit.
+RUN chown nextjs:nodejs /app
 
 USER nextjs
 EXPOSE 3000
