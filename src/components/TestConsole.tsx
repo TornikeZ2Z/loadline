@@ -222,7 +222,7 @@ export function TestConsole({
   }
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - var(--header-h))" }}>
+    <div className="flex flex-col" style={{ height: "100%" }}>
       <div
         className="flex flex-wrap items-center gap-[var(--sp-3)] border-b px-[var(--sp-4)] py-[var(--sp-2)] text-(length:--fs-sm)"
         style={{ background: "var(--warn-soft)", borderColor: "var(--border)", color: "var(--warn)" }}

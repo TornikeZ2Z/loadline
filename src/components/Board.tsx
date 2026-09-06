@@ -457,12 +457,16 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         </div>
       )}
 
+      {/* The list beside this already carries the full empty state -- headline,
+          the lifecycle note and a way forward. Printing all three again over
+          the map would be the same paragraph twice on one screen, so this says
+          only what the MAP needs to say (there is nothing here to plot) and
+          offers the one action the list does not. */}
       {rows.length === 0 && !loading && !error && (
-        <div className="glass absolute left-1/2 top-1/2 w-[320px] -translate-x-1/2 -translate-y-1/2 p-[var(--sp-4)] text-center">
-          <div className="font-semibold">{emptyStateTitle(filters)}</div>
-          <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-            {LIFECYCLE_NOTE}
-          </p>
+        <div className="glass absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-[var(--sp-4)] py-[var(--sp-3)] text-center">
+          <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+            Nothing to plot for this search.
+          </div>
           {!isDefault(filters) && (
             <button
               type="button"
@@ -496,7 +500,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
 
   if (mobile) {
     return (
-      <div ref={root} className="board flex flex-col" style={{ height: "calc(100vh - var(--header-h))" }}>
+      <div ref={root} className="board flex flex-col" style={{ height: "100%" }}>
         {filterBar}
         <div className="relative flex-1">
           <div style={{ height: "48vh" }}>{map}</div>
@@ -516,7 +520,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     <div
       ref={root}
       className="board flex flex-col"
-      style={{ height: "calc(100vh - var(--header-h))" }}
+      style={{ height: "100%" }}
     >
       {filterBar}
 

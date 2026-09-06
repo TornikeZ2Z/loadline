@@ -153,7 +153,8 @@ textarea.field { height: auto; padding: 8px 10px; }
 
 /* chips
  *
- * One rule decides a chip's shape, and it is about who is speaking:
+ * On a JOB -- its card and its drawer, where a driver is reading a stranger's
+ * post -- one rule decides a chip's shape, and it is about who is speaking:
  *
  *   FILLED  -- the sender said this. Ready now, Urgent, COD, DOT & MC, Piano.
  *              Colour then grades it: green ready, amber act-on-it, grey plain
@@ -167,6 +168,10 @@ textarea.field { height: auto; padding: 8px 10px; }
  * Before this, `approximate` (a caveat about our geocoding) and `Urgent` (a
  * fact from the post) were both amber-on-cream at the same weight, so a card
  * carrying two caveats looked more alarming than one carrying a deadline.
+ *
+ * The admin console and the WhatsApp console are outside the rule and keep
+ * filled chips throughout: there, every chip is LoadLine talking about its own
+ * pipeline, so "who is speaking" is not a distinction worth drawing.
  */
 .chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 600; line-height: 1; white-space: nowrap; background: var(--surface-2); color: var(--text-2); border: 1px solid transparent; }
 .chip-accent { background: var(--accent-soft); color: var(--accent); }

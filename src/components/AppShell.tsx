@@ -62,10 +62,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
   ];
 
   return (
-    <div className={appScreen ? undefined : "flex min-h-screen flex-col"}>
+    /* An app screen is exactly one viewport tall, and until now it was one
+       viewport PLUS the footer bar: the board measured 934 px in a 900 px
+       window, so opening a job scrolled the whole page and took the filter
+       bar off the top with it. The height lives here now rather than in each
+       screen -- header, body, bar, adding up to 100vh by construction, so no
+       screen has to subtract the chrome above it by hand. */
+    <div className={appScreen ? "flex h-screen flex-col" : "flex min-h-screen flex-col"}>
       <MenuAutoClose />
       <header
-        className="bg-surface sticky top-0 z-30 border-b border-border"
+        className="bg-surface sticky top-0 z-30 shrink-0 border-b border-border"
         style={{ height: "var(--header-h)" }}
       >
         {/* What a narrow header drops, in order: the word mark, the account name
@@ -85,7 +91,11 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
             >
               L
             </span>
-            <span className="hidden sm:inline">LoadLine</span>
+            {/* At the body size the wordmark read as another nav item. One
+                step up is enough to make it the mark; two would start
+                crowding the pinned group at 640-767 px, where the header is
+                already tight. */}
+            <span className="hidden text-(length:--fs-md) sm:inline">LoadLine</span>
           </Link>
 
           {/* Hidden below `md`, and this is a change of mind that measurements
@@ -255,15 +265,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
           </div>
         </div>
       </header>
-      {/* An app screen sets its own height and must not be wrapped in a flex
-          item that could shrink it; a content page is pushed down so a short
-          page still has its footer at the bottom of the window. */}
-      {appScreen ? children : <div className="flex-1">{children}</div>}
+      {/* `min-h-0` so the app screen's own scrollers (the board's list column,
+          the console's panes) can actually scroll instead of stretching this
+          flex item past the window; a content page is pushed down so a short
+          page still has its footer at the bottom. */}
+      <div className={appScreen ? "min-h-0 flex-1" : "flex-1"}>{children}</div>
       {appScreen ? (
         // Hidden on a phone, and that is a decision rather than an omission:
         // the board's bottom sheet is fixed to the bottom of the viewport and
         // would cover this strip. The More menu carries the same links there.
-        <div className="hidden md:block">
+        <div className="hidden shrink-0 md:block">
           <FooterBar />
         </div>
       ) : (
