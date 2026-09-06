@@ -569,6 +569,15 @@ function tagTags(toks: ATok[], ev: Evidence, lex: Lexicon) {
 }
 
 const FOOTER_RE = /^\s*(all|every|everything|todos?|jobs|loads)\b.*\b(ready|rfd|available|listo)/i;
+/**
+ * Words that can follow a FROM marker but can never start a place name. Only
+ * the first FROM phrase on a line sets fromAt, so a stacked marker ("Loading
+ * out of Houston", "Pickup from Houston") leaves its tail in front of the
+ * place text; without this the header parses as the city "Out Of Houston",
+ * which is both the wrong label and a different origin key for the same
+ * warehouse. No US city name is one of these words.
+ */
+const FROM_CONNECTOR = new Set(["out", "of", "in", "from", "at", "up"]);
 const FOOTER_FILLER = new Set(["all", "jobs", "loads", "are", "is", "everything", "todo", "todos", "for", "delivery", "now", "the", "these", "them", "ready"]);
 
 export function annotate(L: ScannedLine, ctx: LineContext): { toks: ATok[]; ev: Evidence } {
@@ -623,6 +632,13 @@ export function annotate(L: ScannedLine, ctx: LineContext): { toks: ATok[]; ev: 
   // "1 more" as a partial marker.
   for (let i = 0; i + 1 < toks.length; i++) {
     if (toks[i].cls === "NUM" && Number(toks[i].value) === 1 && isWord(toks[i + 1]) && toks[i + 1].norm === "more" && !ev.partialHit) ev.partialHit = "1 more";
+  }
+  if (ev.hasFrom) {
+    for (const t of toks) {
+      if (t.start < ev.fromAt || t.cls === "PUNCT") continue;
+      if (t.cls !== "WORD" || !FROM_CONNECTOR.has(t.norm)) break;
+      ev.fromAt = t.end;
+    }
   }
   if (L.pin && !ev.hasFrom) ev.fromAt = 0;
 

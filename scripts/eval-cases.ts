@@ -225,6 +225,21 @@ export const CASES: EvalCase[] = [
     ],
   },
   {
+    name: "stacked FROM markers stay out of the origin city",
+    body: "Loading out of Houston TX 77002\nAustin TX 78701 250 cf",
+    expect: [{ origin: "Houston, TX 77002", dest: "TX 78701", cf: 250 }],
+  },
+  {
+    name: "a marker tail of connector words never becomes the city",
+    body: "Loading up in Houston TX 77002\nAustin TX 78701 250 cf",
+    expect: [{ origin: "Houston, TX 77002", dest: "TX 78701", cf: 250 }],
+  },
+  {
+    name: "a real leading place word after FROM survives",
+    body: "From Warehouse District, Houston TX 77002\nAustin TX 78701 250 cf",
+    expect: [{ origin: "Warehouse District, TX 77002", dest: "TX 78701", cf: 250 }],
+  },
+  {
     name: "two destinations on one line are never two jobs to the first",
     body: "FROM DALLAS TX\nNC 28202 250 cf + SC 29201 180 cf",
     expect: null,
