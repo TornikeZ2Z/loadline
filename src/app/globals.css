@@ -99,6 +99,9 @@ body {
    focus ring for free. Keyboard users walk the list with the arrow keys, which
    means this is the ONLY thing telling them where they are. */
 [data-job-card] { outline: none; }
+/* Set by the MAP as well as by the pointer: hovering a marker lights its card.
+   Declared before the focus rule so that, at equal specificity, focus wins. */
+[data-job-card][data-hovered] { border-color: var(--border-strong); }
 [data-job-card]:focus-visible { border-color: var(--accent); box-shadow: var(--focus); }
 
 /* fields, labels, buttons */

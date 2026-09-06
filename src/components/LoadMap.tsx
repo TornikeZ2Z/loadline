@@ -86,6 +86,8 @@ export interface LoadMapProps {
   /** Height of the mobile sheet, so the route is fitted into the visible half. */
   bottomPadding?: number;
   filteredSummary: LoadSummary | null;
+  /** The first search has not answered yet; the panel must not report a 0. */
+  loading?: boolean;
 }
 
 /** What `/api/loads/:id/route` answers with. */
@@ -305,6 +307,7 @@ export function LoadMap({
   fitKey,
   bottomPadding = 0,
   filteredSummary,
+  loading = false,
 }: LoadMapProps) {
   const container = useRef<HTMLDivElement>(null);
   /** The canvas plus everything floating over it; the declutter frame. */
@@ -1158,15 +1161,27 @@ export function LoadMap({
             Saying which is which costs one small line and stops the two
             reading as the same number printed twice. */}
         <div className="label">On screen</div>
-        <div className="big nums text-(length:--fs-lg)">
-          {inView == null
-            ? "Loading…"
-            : `${allShown ? "All " : ""}${inView.count} job${inView.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
-        </div>
-        <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-          {totalCf > 0 ? truckLine(totalCf, viewer?.truckCf ?? null) : "No stated sizes on screen"}
-          {inView && inView.unsized > 0 && ` · ${inView.unsized} without size`}
-        </div>
+        {/* The map is ready long before the first search answers, so `inView`
+            is a truthful 0 over an empty map -- and a confident "All 0 jobs"
+            is the wrong thing to say to someone who is waiting. */}
+        {inView == null || loading ? (
+          <>
+            <span className="skeleton h-[16px] w-[150px]" />
+            <span className="skeleton mt-[4px] h-[12px] w-[110px]" />
+          </>
+        ) : (
+          <>
+            <div className="big nums text-(length:--fs-lg)">
+              {`${allShown ? "All " : ""}${inView.count} job${inView.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
+            </div>
+            <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+              {totalCf > 0
+                ? truckLine(totalCf, viewer?.truckCf ?? null)
+                : "No stated sizes on screen"}
+              {inView.unsized > 0 && ` · ${inView.unsized} without size`}
+            </div>
+          </>
+        )}
         {notPlotted > 0 && (
           <div className="mt-[2px] text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
             {notPlotted} job{notPlotted === 1 ? " has" : "s have"} no mappable {end}

@@ -309,7 +309,16 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
    * count and the cubic feet carry the weight; the truckload equivalent and
    * the ready/priced tally are the footnote to it, on one quiet line.
    */
-  const header = (
+  const firstLoad = loading && summary == null && rows.length === 0;
+
+  const header = firstLoad ? (
+    // "0 jobs · 0 ready now · 0 priced" is a confident answer to a question
+    // nobody has answered yet, and it is the wrong one often enough to matter.
+    <div aria-hidden="true">
+      <span className="skeleton h-[20px] w-[150px]" />
+      <span className="skeleton mt-[5px] h-[12px] w-[210px]" />
+    </div>
+  ) : (
     <div>
       <div className="big nums text-(length:--fs-xl)">
         {shown.count} {shown.count === 1 ? "job" : "jobs"}
@@ -430,6 +439,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         fitKey={visibleQuery}
         bottomPadding={mobile ? Math.round(viewportHeight * SNAP_FRACTION[snap]) : 0}
         filteredSummary={summary}
+        loading={firstLoad}
       />
 
       {showNudge && (

@@ -203,10 +203,13 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
       onMouseEnter={() => onHover(job.id)}
       onFocus={() => onHover(job.id)}
       className={`card card-hover cursor-pointer p-[var(--sp-3)]${selected ? " card-selected" : ""}`}
-      style={{
-        opacity: inactive ? 0.7 : 1,
-        ...(hovered && !selected ? { borderColor: "var(--border-strong)" } : null),
-      }}
+      /* An attribute rather than an inline borderColor. `hovered` is also set
+         by the MAP -- hovering a marker lights its card without the pointer
+         ever being over it -- so it cannot just be :hover; but as an inline
+         style it also beat the focus ring's border, and a card you had tabbed
+         to looked hovered instead of focused. */
+      data-hovered={hovered && !selected ? "" : undefined}
+      style={{ opacity: inactive ? 0.7 : 1 }}
     >
       {/* Band 1 — what a driver scans. The lane and the size are the only two
           things at full ink; everything below them steps down in size, weight
