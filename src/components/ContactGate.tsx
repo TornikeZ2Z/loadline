@@ -11,6 +11,17 @@
  * number, and the filters, the map viewport and the open drawer are untouched
  * throughout.
  *
+ * WHEN THE POST HAS NO NUMBER this used to be a dead end -- "the sender wants
+ * to be messaged in the group" and nothing to press. It is now the same gate
+ * over a different payload: the group, a link to the group when an admin stored
+ * one, and the job as plain text to paste there.
+ *
+ * There is deliberately NO "open this message" control, because WhatsApp has no
+ * link to an individual message -- no scheme, no query string, nothing. Only
+ * `wa.me/<digits>` (a person) and `chat.whatsapp.com/<code>` (a group invite
+ * somebody generated) exist, and the block says so in one line rather than
+ * shipping a button that quietly fails.
+ *
  * Owned by Agent B; Agent C mounts it in the job detail's contact section and
  * nowhere else. It renders its own chrome (the "Contact" label and the name
  * line), so C mounts this and nothing around it.
@@ -27,7 +38,11 @@ import type { ContactMode } from "@/lib/loads/types";
 export interface ContactGateProps {
   loadId: number;
   contactName: string | null;
-  /** PublicLoadRow.has_phone. False -> no button at all: there is nothing to gate. */
+  /**
+   * PublicLoadRow.has_phone. False -> the reveal shows the group instead of a
+   * number; the gate itself is the same, because reaching the sender by any
+   * route is what the account is for.
+   */
   hasPhone: boolean;
   /** job.group_name, named in the "message the sender in the group" line. */
   groupName?: string | null;
@@ -66,6 +81,39 @@ function currentPath(): string {
   return window.location.pathname + window.location.search;
 }
 
+/**
+ * Put text on the clipboard, or say it did not.
+ *
+ * `navigator.clipboard` needs a secure context, and this board is demoed over
+ * plain http often enough that "Copy the job" silently doing nothing would be a
+ * real bug rather than a theoretical one. The textarea fallback is the one
+ * thing `document.execCommand` is still good for.
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to the textarea
+  }
+  try {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.setAttribute("readonly", "");
+    el.style.position = "fixed";
+    el.style.top = "-1000px";
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function ContactGate({
   loadId,
   contactName,
@@ -85,7 +133,7 @@ export function ContactGate({
   const [showForm, setShowForm] = useState(!demoMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"yes" | "no" | null>(null);
   const autoRan = useRef(false);
 
   const reveal = useCallback(
@@ -121,13 +169,13 @@ export function ContactGate({
   // The card's Show contact button opens the detail with autoOpen set; a job
   // this tab already revealed re-opens itself after the sign-in remount.
   useEffect(() => {
-    if (autoRan.current || !hasPhone) return;
+    if (autoRan.current) return;
     const resume = revealedInTab.has(loadId);
     if (!autoOpen && !resume) return;
     autoRan.current = true;
     if (signedIn) void reveal();
     else setState("gate");
-  }, [autoOpen, hasPhone, signedIn, reveal, loadId]);
+  }, [autoOpen, signedIn, reveal, loadId]);
 
   async function signInDemo() {
     setError(null);
@@ -161,35 +209,27 @@ export function ContactGate({
     }
   }
 
+  async function copyJob(text: string) {
+    const ok = await copyText(text);
+    setCopied(ok ? "yes" : "no");
+    setTimeout(() => setCopied(null), 2000);
+  }
+
   const chrome =
     variant === "sticky"
       ? "flex flex-col gap-2"
       : "card flex flex-col gap-2 p-[var(--sp-4)]";
 
-  // --- 1. Nothing to gate ----------------------------------------------------
-  // A post with no phone (the sender wants to be messaged in the group) shows
-  // no button: the original message is already visible in full, so a gate here
-  // would guard a no-op and read as a broken flow.
-  if (!hasPhone) {
-    return (
-      <section className={chrome}>
-        {variant === "card" && <div className="label">Contact</div>}
-        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
-          No phone number in this post — the sender wants to be messaged in the group
-          {contactMode === "dm" ? " (privately)" : ""}.
-        </p>
-        {groupName && (
-          <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted-2)" }}>
-            Group: {groupName}
-          </p>
-        )}
-      </section>
-    );
-  }
+  const copyLabel = copied === "yes" ? "Copied" : copied === "no" ? "Press ⌘/Ctrl+C" : "Copy the job";
 
   // --- 4. Revealed -----------------------------------------------------------
   if (state === "revealed" && contact) {
     const c = contact.contact;
+    const g = contact.group;
+    // Nothing to dial: either the post carried no number at all, or it wrote a
+    // 7-digit shorthand with no area code. Both are dead ends on their own, so
+    // both get the group instead.
+    const unreachable = !c.tel;
     return (
       <section className={chrome}>
         {variant === "card" && <div className="label">Contact</div>}
@@ -199,14 +239,28 @@ export function ContactGate({
             The sender asked to be messaged privately.
           </p>
         )}
-        {c.incomplete || !c.tel ? (
+
+        {c.display && (
           <>
-            <div className="nums text-[var(--fs-lg)] font-semibold">{c.display ?? "—"}</div>
-            <p className="text-[var(--fs-sm)]" style={{ color: "var(--warn)" }}>
-              Area code missing in the post — check the original message.
+            <div className="nums text-[var(--fs-lg)] font-semibold">{c.display}</div>
+            {/* Which line the driver is about to call. Calling the wrong one
+                wastes a call, and "the sender's usual number" is a different
+                promise from "the number in this post". */}
+            <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+              {c.source === "sender"
+                ? "This sender's usual number — this post did not carry one."
+                : "The number in this post."}
             </p>
           </>
-        ) : (
+        )}
+
+        {c.incomplete && (
+          <p className="text-[var(--fs-sm)]" style={{ color: "var(--warn)" }}>
+            Area code missing in the post — check the original message.
+          </p>
+        )}
+
+        {!unreachable && (
           <div className="flex flex-wrap gap-[var(--sp-2)]">
             {contactMode === "dm" ? (
               <>
@@ -221,17 +275,13 @@ export function ContactGate({
                     WhatsApp
                   </a>
                 )}
-                <a className="btn" style={{ minHeight: "var(--tap-min)" }} href={c.tel}>
+                <a className="btn" style={{ minHeight: "var(--tap-min)" }} href={c.tel!}>
                   Call {c.display}
                 </a>
               </>
             ) : (
               <>
-                <a
-                  className="btn btn-primary"
-                  style={{ minHeight: "var(--tap-min)" }}
-                  href={c.tel}
-                >
+                <a className="btn btn-primary" style={{ minHeight: "var(--tap-min)" }} href={c.tel!}>
                   Call {c.display}
                 </a>
                 {c.whatsapp && (
@@ -249,21 +299,58 @@ export function ContactGate({
             )}
           </div>
         )}
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm self-start"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(c.summary);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            } catch {
-              setCopied(false);
-            }
-          }}
-        >
-          {copied ? "Copied" : "Copy summary"}
-        </button>
+
+        {/* No number to dial: the group is the way through. */}
+        {unreachable && (
+          <>
+            {!c.display && (
+              <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+                No phone number in this post, and none from this sender’s other posts
+                {contactMode === "dm" ? " — they asked to be messaged privately" : ""}.
+              </p>
+            )}
+            {g.name && (
+              <p className="text-[var(--fs-base)]">
+                Posted in <span className="font-semibold">{g.name}</span>
+              </p>
+            )}
+            <div className="flex flex-wrap gap-[var(--sp-2)]">
+              {g.url && (
+                <a
+                  className="btn btn-primary"
+                  style={{ minHeight: "var(--tap-min)" }}
+                  href={g.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {g.kind === "wa" ? "Message the dispatcher" : "Open the group in WhatsApp"}
+                </a>
+              )}
+              <button
+                type="button"
+                className={g.url ? "btn" : "btn btn-primary"}
+                style={{ minHeight: "var(--tap-min)" }}
+                onClick={() => void copyJob(contact.jobText)}
+              >
+                {copyLabel}
+              </button>
+            </div>
+            <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+              WhatsApp cannot open one message from a link, so paste the job into the group
+              {g.url ? "" : " and ask for it"}.
+            </p>
+          </>
+        )}
+
+        {!unreachable && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm self-start"
+            onClick={() => void copyJob(contact.jobText)}
+          >
+            {copyLabel}
+          </button>
+        )}
       </section>
     );
   }
@@ -353,6 +440,8 @@ export function ContactGate({
   }
 
   // --- 1. idle · 3. revealing · 5. error ------------------------------------
+  // The idle copy tells the driver what pressing the button will get them, so
+  // signing in for a job with no number is a choice rather than a surprise.
   return (
     <section className={chrome}>
       {variant === "card" && <div className="label">Contact</div>}
@@ -360,6 +449,19 @@ export function ContactGate({
       {contactMode === "dm" && (
         <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
           The sender asked to be messaged privately.
+        </p>
+      )}
+      {!hasPhone && (
+        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          No phone number in this post — the sender wants to be messaged
+          {groupName ? (
+            <>
+              {" "}
+              in <span className="font-semibold">{groupName}</span>.
+            </>
+          ) : (
+            " in the group."
+          )}
         </p>
       )}
       <button

@@ -3,6 +3,7 @@ import { handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
 import { HttpError, getCurrentUser } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { getLoad } from "@/lib/loads/query";
+import { parseGroupLink } from "@/lib/loads/groupLink";
 import { revealContact } from "@/lib/pipeline/reconcile";
 import { normalizePhone } from "@/lib/extract/phone";
 import type { ContactResponse } from "@/lib/loads/publicView";
@@ -22,8 +23,11 @@ interface Ctx {
  * accountability. `revealContact` handles the once-per-hour dedupe, so clicking
  * Call twice is not counted as twice the interest.
  *
- * A post with no number still answers 200: the sender may have asked to be
- * messaged in the group, and the unmasked original text is the useful part.
+ * A post with no number still answers 200, and it is no longer a dead end: the
+ * response names the group, carries the group's stored WhatsApp link when an
+ * admin set one, and always carries the job as plain text to paste there. The
+ * group link is gated with the number rather than published, because a `wa.me`
+ * link IS a phone number -- see the note on ContactResponse.
  */
 export const POST = handler(async (req: Request, ctx: Ctx) => {
   // requireUser()'s message is "Sign in to continue", which is wrong here --
@@ -65,7 +69,10 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
   // show, but nothing to dial. A job with no number at all is not incomplete,
   // it simply has none.
   const incomplete = e164 == null && display != null;
-  const summary = jobSummary(load, contact.contact_name, display);
+
+  // Re-parsed rather than trusted: the column is admin-typed, and a stored link
+  // that no longer validates must not become a broken href.
+  const link = parseGroupLink(contact.group_link);
 
   const body: ContactResponse = {
     id: load.id,
@@ -79,8 +86,14 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       whatsapp: e164
         ? `https://wa.me/${e164.replace(/\D/g, "")}?text=${encodeURIComponent(waText(load))}`
         : null,
-      summary,
+      source: display == null ? null : contact.contact_phone_source,
     },
+    group: {
+      name: contact.group_name,
+      url: link?.url ?? null,
+      kind: link?.kind ?? null,
+    },
+    jobText: jobText(load, contact.contact_name, display),
     sourceBody: source?.body ?? null,
     viewer: { id: user.id, name: user.name, role: user.role },
   };
@@ -88,25 +101,36 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
   return NextResponse.json(body);
 });
 
-/** One line for the clipboard, and the seed of the WhatsApp opener. */
-function jobSummary(load: LoadRow, name: string | null, display: string | null): string {
-  const parts = [
-    `${load.pickup_label} → ${load.delivery_label}`,
-    load.cubic_feet ? `${load.cubic_feet.toLocaleString("en-US")} cf` : "size not stated",
-    load.price_per_cf
-      ? `$${load.price_per_cf}/cf`
-      : load.price_flat
-        ? `$${load.price_flat.toLocaleString("en-US")}`
-        : "no price",
-  ];
+/**
+ * The job as plain text -- what a driver pastes into the group when there is no
+ * number to call, and what "Copy the job" puts on the clipboard either way.
+ *
+ * Written for a person reading it in WhatsApp, not for a parser: short lines,
+ * no labels the sender did not use, and the sender's OWN line last so they can
+ * see at a glance which of the fifteen they posted this morning is being asked
+ * about. Nothing is invented -- a field the post did not state is left out.
+ */
+function jobText(load: LoadRow, name: string | null, display: string | null): string {
+  const lines: string[] = [`${load.pickup_label} → ${load.delivery_label}`];
 
-  if (load.ready_now) parts.push("ready now");
-  else if (load.ready_date) parts.push(`ready ${load.ready_date}`);
+  const size: string[] = [];
+  if (load.cubic_feet) size.push(`${load.cubic_feet.toLocaleString("en-US")} cf`);
+  if (load.price_per_cf) size.push(`$${load.price_per_cf}/cf`);
+  else if (load.price_flat) size.push(`$${Number(load.price_flat).toLocaleString("en-US")}`);
+  if (size.length) lines.push(size.join(" · "));
 
-  const who = [name, display].filter(Boolean).join(" ");
-  if (who) parts.push(who);
+  const when: string[] = [];
+  if (load.ready_now) when.push("Ready now");
+  else if (load.ready_date) when.push(`Ready ${load.ready_date}`);
+  if (load.deliver_by) when.push(`deliver by ${load.deliver_by}`);
+  if (when.length) lines.push(when.join(" · "));
 
-  return parts.join(" · ");
+  const who = [name, display].filter(Boolean).join(" · ");
+  if (who) lines.push(who);
+
+  if (load.line_text) lines.push(`Your line: ${load.line_text}`);
+
+  return lines.join("\n");
 }
 
 /**

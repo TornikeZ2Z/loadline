@@ -26,9 +26,13 @@ async function main() {
 
   for (const g of GROUPS) {
     await query(
-      `INSERT INTO whatsapp_groups (wa_group_id, name, description)
-       VALUES ($1,$2,$3) ON CONFLICT (wa_group_id) DO UPDATE SET description = EXCLUDED.description`,
-      [g.waId, g.name, g.description],
+      `INSERT INTO whatsapp_groups (wa_group_id, name, description, invite_url)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (wa_group_id) DO UPDATE SET
+         description = EXCLUDED.description,
+         -- A link an admin pasted in the console outlives a re-seed.
+         invite_url  = COALESCE(whatsapp_groups.invite_url, EXCLUDED.invite_url)`,
+      [g.waId, g.name, g.description, g.invite ?? null],
     );
   }
   console.log(`groups: ${GROUPS.length}`);

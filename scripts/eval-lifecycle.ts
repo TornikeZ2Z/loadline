@@ -23,6 +23,9 @@
  *       one-line partial, and their expiry clock is not pushed forward.
  *   S7  a claim interrupted between claimNext and finish is re-offered, while
  *       a claim that is still fresh is not stolen.
+ *   S8  a sender whose number is known from one post is reachable from ALL of
+ *       their jobs, the rows say which number came from where, an attached
+ *       number reaches the same rows, and nothing borrows another sender's.
  */
 process.env.PGLITE_DIR = "memory://";
 
@@ -307,6 +310,110 @@ async function main() {
   expect(
     stillHeld?.status === "processing" && stillHeld.attempts === 1,
     `the in-flight message keeps its claim (got ${JSON.stringify(stillHeld)})`,
+  );
+
+  // ------------------------------------------------------------------ S8
+  // Reachability (§1.3). What makes a job reachable is the SENDER's number, not
+  // the post's: a dispatcher who signed one post and not the next is the same
+  // dispatcher. Both posts here arrive with no author phone -- the pasted
+  // chat-export case, where the WhatsApp author id is missing and reachability
+  // is a real problem -- so the sender is keyed by name and the only number
+  // anywhere is the one the signed post's footer carried.
+  console.log(`\n${DIM}S8: a sender's number reaches every job of theirs${RESET}`);
+  const FOOTER = "+12015550199"; // fixture C's "📱 Call/Text Marco: (201) 555-0199"
+  const namePost = async (author: string, body: string, at: Date) => {
+    const { messageId } = await ingestMessage({
+      waMessageId: `lifecycle.${++seq}`,
+      body,
+      sentAt: at,
+      authorName: author,
+      authorPhone: null,
+      groupName: "Lifecycle",
+      groupWaId: "lifecycle",
+    });
+    const results = await processPending(5, { now: T0 });
+    const r = results.find((x) => x.messageId === messageId);
+    if (!r || r.status === "error") throw new Error(`message ${messageId} did not process: ${JSON.stringify(r)}`);
+    return messageId;
+  };
+  const reach = async (key: string) =>
+    (await queryOne<{ total: number; reachable: number; from_post: number; from_sender: number }>(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE contact_phone IS NOT NULL)::int AS reachable,
+              count(*) FILTER (WHERE contact_phone_source = 'post')::int AS from_post,
+              count(*) FILTER (WHERE contact_phone_source = 'sender')::int AS from_sender
+         FROM loads WHERE sender_key = $1`,
+      [key],
+    ))!;
+
+  // The unsigned post first, then the one whose footer carries the number.
+  const unsigned = await namePost("Reachability Dispatcher", bodyOf("B"), new Date(T0.getTime() - 2 * HOUR));
+  const nameKey = (await queryOne<{ sender_key: string }>(
+    `SELECT sender_key FROM raw_messages WHERE id = $1`,
+    [unsigned],
+  ))!.sender_key;
+  expect(nameKey.startsWith("name:"), `a post with no author phone is keyed by name (got ${nameKey})`);
+  let r8 = await reach(nameKey);
+  expect(
+    r8.total > 0 && r8.reachable === 0,
+    `before the signed post, none of the sender's ${r8.total} jobs is reachable (got ${r8.reachable})`,
+  );
+
+  const signed = await namePost("Reachability Dispatcher", bodyOf("C"), new Date(T0.getTime() - HOUR));
+  r8 = await reach(nameKey);
+  expect(
+    r8.reachable === r8.total && r8.total > 0,
+    `the footer number reaches all ${r8.total} of the sender's jobs (got ${r8.reachable})`,
+  );
+  expect(
+    r8.from_post > 0 && r8.from_sender > 0 && r8.from_post + r8.from_sender === r8.total,
+    `every row says where its number came from (post ${r8.from_post}, sender ${r8.from_sender}, total ${r8.total})`,
+  );
+  const wrong = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n FROM loads WHERE sender_key = $1 AND contact_phone <> $2`,
+    [nameKey, FOOTER],
+  );
+  expect(wrong!.n === 0, `no number is invented: every row carries ${FOOTER} (got ${wrong!.n} others)`);
+  const borrowed = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n FROM loads WHERE contact_phone = $1 AND sender_key IS DISTINCT FROM $2`,
+    [FOOTER, nameKey],
+  );
+  expect(borrowed!.n === 0, `no other sender borrowed this number (got ${borrowed!.n} rows)`);
+
+  // Reprocessing the signed post must not strand a marker: rebuildSender undoes
+  // its own backfill first, so the answer is recomputed rather than patched.
+  await reprocessMessage(signed, { now: T0 });
+  const after8 = await reach(nameKey);
+  expect(
+    after8.reachable === r8.reachable && after8.from_post === r8.from_post && after8.from_sender === r8.from_sender,
+    `reprocessing changes nothing (got ${JSON.stringify(after8)}, wanted ${JSON.stringify(r8)})`,
+  );
+
+  // The admin escape hatch: a sender with no number anywhere, made reachable
+  // once. This is exactly what PATCH /api/admin/senders/:key does.
+  const ATTACHED = "+13055550142";
+  const silentMsg = await namePost("Silent Dispatcher", bodyOf("B"), new Date(T0.getTime() - 3 * HOUR));
+  const silentKey = (await queryOne<{ sender_key: string }>(
+    `SELECT sender_key FROM raw_messages WHERE id = $1`,
+    [silentMsg],
+  ))!.sender_key;
+  let s8 = await reach(silentKey);
+  expect(s8.total > 0 && s8.reachable === 0, `a sender with no number has ${s8.total} unreachable jobs`);
+
+  await query(`UPDATE senders SET author_phone = $2 WHERE key = $1`, [silentKey, ATTACHED]);
+  await rebuildSender(silentKey, T0);
+  s8 = await reach(silentKey);
+  expect(
+    s8.reachable === s8.total && s8.from_sender === s8.total,
+    `an attached number reaches all ${s8.total} jobs, all labelled as the sender's (got ${s8.reachable}/${s8.from_sender})`,
+  );
+
+  await query(`UPDATE senders SET author_phone = NULL WHERE key = $1`, [silentKey]);
+  await rebuildSender(silentKey, T0);
+  s8 = await reach(silentKey);
+  expect(
+    s8.reachable === 0 && s8.from_sender === 0,
+    `detaching it puts the rows back exactly as they were (got ${s8.reachable} reachable)`,
   );
 
   const orphanEvents = await query<{ n: number }>(`SELECT count(*)::int AS n FROM load_events WHERE kind = 'viewed_contact'`);

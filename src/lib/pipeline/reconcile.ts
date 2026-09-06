@@ -283,6 +283,74 @@ export async function pairCfRevisions(key: string, snapshotId: number): Promise<
   return n;
 }
 
+/**
+ * The sender's own number, from ANY of their posts.
+ *
+ * `author_phone` is the WhatsApp author id -- in production the Cloud API
+ * webhook always carries it, so this is normally just the number -- and
+ * `contact_phones` is the union of the footer numbers their posts signed off
+ * with. Both are that sender's own row, so nothing here can borrow a different
+ * sender's line, and nothing is invented: a sender with neither returns null
+ * and their phone-less jobs stay phone-less until an admin attaches one.
+ */
+async function knownSenderPhone(key: string): Promise<string | null> {
+  const s = await queryOne<{ author_phone: string | null; contact_phones: string[] | null }>(
+    `SELECT author_phone, contact_phones FROM senders WHERE key = $1`,
+    [key],
+  );
+  if (!s) return null;
+  for (const candidate of [s.author_phone, ...(s.contact_phones ?? [])]) {
+    const e164 = normalizePhone(candidate).e164;
+    if (e164) return e164;
+  }
+  return null;
+}
+
+/**
+ * Reuse the sender's number across their posts (§1.3).
+ *
+ * A dispatcher who signed one post and not the next is the same dispatcher, so
+ * a job from the unsigned post is reachable on the number the signed one gave.
+ * The rows keep saying where the number came from, because a driver calling the
+ * wrong line wastes a call: `contact_phone_source` is 'post' when the message
+ * itself carried the number and 'sender' when this function copied it in.
+ *
+ * Written to be recomputed from scratch on every pass rather than patched:
+ * step 1 undoes the previous backfill, step 2 re-derives the marker from what
+ * the posts actually say now, step 3 fills the gaps. That is what keeps the
+ * marker honest after `upsertJob` rewrites `contact_phone` from a newer post
+ * that omitted the number -- there is no state to go stale.
+ */
+export async function backfillSenderPhone(key: string): Promise<{ phone: string | null; filled: number }> {
+  const phone = await knownSenderPhone(key);
+
+  // 1. Undo this function's own previous work, so step 2 sees only what the
+  //    messages put there.
+  await query(
+    `UPDATE loads SET contact_phone = NULL, contact_phone_source = NULL
+      WHERE sender_key = $1 AND contact_phone_source = 'sender'`,
+    [key],
+  );
+  // 2. The marker is now a pure function of the row: a number here came from
+  //    the post, and a row with none is unmarked.
+  await query(
+    `UPDATE loads SET contact_phone_source = CASE WHEN contact_phone IS NULL THEN NULL ELSE 'post' END
+      WHERE sender_key = $1
+        AND contact_phone_source IS DISTINCT FROM (CASE WHEN contact_phone IS NULL THEN NULL ELSE 'post' END)`,
+    [key],
+  );
+  if (!phone) return { phone: null, filled: 0 };
+
+  // 3. Every remaining gap gets the sender's known line, labelled as theirs.
+  const filled = await query<{ id: number }>(
+    `UPDATE loads SET contact_phone = $2, contact_phone_source = 'sender'
+      WHERE sender_key = $1 AND contact_phone IS NULL
+      RETURNING id`,
+    [key, phone],
+  );
+  return { phone, filled: filled.length };
+}
+
 interface SenderLoad {
   id: number;
   status: LoadStatus;
@@ -389,6 +457,11 @@ export async function rebuildSender(
       ]);
     }
   }
+
+  // A number this sender gave in one post reaches every job of theirs. Runs on
+  // every rebuild -- so a post that arrives without a number, an admin who
+  // attaches one, and a reprocess all converge on the same answer.
+  await backfillSenderPhone(key);
 
   // A full post that retires most of a sizeable inventory deserves a look.
   if (latestFullSnap && retired > 0) {
@@ -536,23 +609,39 @@ export async function deleteMessage(id: number): Promise<{ senderKey: string | n
   return { senderKey: msg.sender_key };
 }
 
+/** Everything the reveal endpoint is allowed to know. SERVER-ONLY. */
+export interface RevealedContact {
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_mode: ContactMode;
+  /** 'post' -- the message carried it; 'sender' -- their usual line, reused. */
+  contact_phone_source: "post" | "sender" | null;
+  group_name: string | null;
+  /** The group's stored invite (or wa.me) link. Gated: never on a public row. */
+  group_link: string | null;
+}
+
 /**
  * The one place a phone number leaves the server.
  *
- * Returns the unredacted contact triple and records the reveal -- at most one
- * event per actor per job per rolling hour, because clicking Call twice is not
- * twice the interest, and an inflated count would make the only signal the
- * board has about demand useless.
+ * Returns the unredacted contact, where the number came from, and how to reach
+ * the group the post was made in -- then records the reveal, at most one event
+ * per actor per job per rolling hour, because clicking Call twice is not twice
+ * the interest and an inflated count would make the only signal the board has
+ * about demand useless.
+ *
+ * The group link rides along here rather than on the public row on purpose: a
+ * `wa.me` link is a phone number written as a URL, and the gate exists so that
+ * reaching the sender at all takes an account.
  */
-export async function revealContact(
-  loadId: number,
-  userId: number,
-): Promise<{ contact_name: string | null; contact_phone: string | null; contact_mode: ContactMode } | null> {
-  const load = await queryOne<{
-    contact_name: string | null;
-    contact_phone: string | null;
-    contact_mode: ContactMode;
-  }>(`SELECT contact_name, contact_phone, contact_mode FROM loads WHERE id = $1`, [loadId]);
+export async function revealContact(loadId: number, userId: number): Promise<RevealedContact | null> {
+  const load = await queryOne<RevealedContact>(
+    `SELECT l.contact_name, l.contact_phone, l.contact_mode, l.contact_phone_source,
+            g.name AS group_name, g.invite_url AS group_link
+       FROM loads l LEFT JOIN whatsapp_groups g ON g.id = l.group_id
+      WHERE l.id = $1`,
+    [loadId],
+  );
   if (!load) return null;
 
   const recent = await queryOne<{ id: number }>(
@@ -567,7 +656,11 @@ export async function revealContact(
     await query(
       `INSERT INTO load_events (load_id, actor_id, kind, detail)
        VALUES ($1, $2, 'viewed_contact', $3)`,
-      [loadId, userId, JSON.stringify({ has_phone: load.contact_phone != null })],
+      [
+        loadId,
+        userId,
+        JSON.stringify({ has_phone: load.contact_phone != null, phone_source: load.contact_phone_source }),
+      ],
     );
   }
 

@@ -37,9 +37,10 @@ export async function resetDemoData(): Promise<ResetSummary> {
 
   for (const g of GROUPS) {
     await query(
-      `INSERT INTO whatsapp_groups (wa_group_id, name, description) VALUES ($1,$2,$3)
-       ON CONFLICT (wa_group_id) DO UPDATE SET description = EXCLUDED.description`,
-      [g.waId, g.name, g.description],
+      `INSERT INTO whatsapp_groups (wa_group_id, name, description, invite_url) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (wa_group_id) DO UPDATE SET
+         description = EXCLUDED.description, invite_url = EXCLUDED.invite_url`,
+      [g.waId, g.name, g.description, g.invite ?? null],
     );
   }
 

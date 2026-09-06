@@ -248,7 +248,7 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
         {tab === "messages" && <MessageFeed />}
         {tab === "senders" && <Senders onToast={setToast} />}
         {tab === "rules" && <Rules onToast={setToast} />}
-        {tab === "groups" && <Groups groups={groups} />}
+        {tab === "groups" && <Groups groups={groups} onToast={setToast} />}
       </div>
     </div>
   );
@@ -905,29 +905,61 @@ function MessageFeed() {
 interface SenderRow {
   key: string;
   display_name: string | null;
+  author_phone: string | null;
   phones: string[];
   groups: string[];
   last_snapshot_at: string | null;
   available: number;
   delisted: number;
+  /** Available jobs of theirs with no number at all: what attaching one fixes. */
+  unreachable_count: number;
   default_origin: { label?: string } | null;
 }
 
+/**
+ * Senders, and the two things an admin can fix about one.
+ *
+ * The Phone column is the reachability escape hatch. A pasted chat export
+ * arrives with no author id, so the sender has no number and every job of
+ * theirs is a dead end; attaching one here rebuilds the sender, which copies it
+ * onto all of their phone-less rows at once. In production the Cloud API
+ * webhook always carries the sender's WA id, so this column is normally
+ * read-only information -- the "unreachable" count next to it says when it is
+ * not.
+ */
 function Senders({ onToast }: { onToast(text: string): void }) {
   const senders = useAdminResource<{ senders: SenderRow[] }>("/api/admin/senders");
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [phoneDraft, setPhoneDraft] = useState<Record<string, string>>({});
 
   if (senders.unavailable) return <Unavailable what="The senders list" />;
 
-  async function save(key: string) {
-    // A raw "+" in a path is a space to some clients, so the key is encoded.
+  // A raw "+" in a path is a space to some clients, so the key is encoded.
+  async function patch(key: string, body: Record<string, unknown>): Promise<string | null> {
     const res = await fetch(api(`/api/admin/senders/${encodeURIComponent(key)}`), {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ default_origin: draft[key] ?? "" }),
+      body: JSON.stringify(body),
     });
-    onToast(res.ok ? "Default origin saved." : "Could not save the default origin.");
     senders.reload();
+    if (res.ok) return null;
+    const err = await res.json().catch(() => null);
+    return err?.error ?? "Request failed";
+  }
+
+  async function save(key: string) {
+    const err = await patch(key, { default_origin: draft[key] ?? "" });
+    onToast(err ?? "Default origin saved.");
+  }
+
+  async function savePhone(key: string, rebuilt: number) {
+    const err = await patch(key, { author_phone: phoneDraft[key] ?? "" });
+    onToast(
+      err ??
+        (phoneDraft[key]?.trim()
+          ? `Number attached — ${rebuilt} job${rebuilt === 1 ? "" : "s"} of theirs can be revealed now.`
+          : "Number detached."),
+    );
   }
 
   return (
@@ -937,6 +969,7 @@ function Senders({ onToast }: { onToast(text: string): void }) {
           <tr className="label border-b border-border text-left">
             <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Sender</th>
             <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Phones</th>
+            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Attach a number</th>
             <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Groups</th>
             <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Last post</th>
             <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Jobs</th>
@@ -947,7 +980,30 @@ function Senders({ onToast }: { onToast(text: string): void }) {
           {(senders.data?.senders ?? []).map((s) => (
             <tr key={s.key} className="border-b border-border">
               <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{s.display_name ?? s.key}</td>
-              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{s.phones?.join(", ") || "—"}</td>
+              <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">
+                {s.phones?.length ? (
+                  s.phones.join(", ")
+                ) : (
+                  <Chip tone="warn">
+                    no number{s.unreachable_count ? ` · ${s.unreachable_count} unreachable` : ""}
+                  </Chip>
+                )}
+              </td>
+              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
+                <div className="flex gap-[var(--sp-1)]">
+                  <input
+                    className="field"
+                    inputMode="tel"
+                    placeholder="+1 305 555 0142"
+                    aria-label={`Phone for ${s.display_name ?? s.key}`}
+                    value={phoneDraft[s.key] ?? s.author_phone ?? ""}
+                    onChange={(e) => setPhoneDraft({ ...phoneDraft, [s.key]: e.target.value })}
+                  />
+                  <button className="btn btn-sm" onClick={() => savePhone(s.key, s.available)}>
+                    Save
+                  </button>
+                </div>
+              </td>
               <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{s.groups?.join(", ") || "—"}</td>
               <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
                 {s.last_snapshot_at ? new Date(s.last_snapshot_at).toLocaleDateString() : "—"}
@@ -959,6 +1015,7 @@ function Senders({ onToast }: { onToast(text: string): void }) {
                 <div className="flex gap-[var(--sp-1)]">
                   <input
                     className="field"
+                    aria-label={`Default origin for ${s.display_name ?? s.key}`}
                     value={draft[s.key] ?? s.default_origin?.label ?? ""}
                     onChange={(e) => setDraft({ ...draft, [s.key]: e.target.value })}
                   />
@@ -1054,31 +1111,94 @@ function summarizeValue(value: unknown): string {
 
 /* --------------------------------- groups --------------------------------- */
 
-function Groups({ groups }: { groups: ChatGroup[] }) {
+interface AdminGroup {
+  id: number;
+  invite_url: string | null;
+}
+
+/**
+ * Groups, and the one WhatsApp link that can reach one.
+ *
+ * WhatsApp has no public link to an individual message, so a job whose post
+ * carried no number can only point a driver at the group as a whole -- and a
+ * group invite cannot be derived either: somebody with admin rights in that
+ * group has to generate it and paste it here. Until they do, the job's contact
+ * block still offers "Copy the job"; the link only adds the shortcut.
+ *
+ * The links come from /api/admin/groups rather than from the group list this
+ * page already server-renders, because a stored link may be a `wa.me` line --
+ * a phone number written as a URL -- and that must not ride along in a payload
+ * anyone but an admin receives.
+ */
+function Groups({ groups, onToast }: { groups: ChatGroup[]; onToast(text: string): void }) {
+  const links = useAdminResource<{ groups: AdminGroup[] }>("/api/admin/groups");
+  const [draft, setDraft] = useState<Record<number, string>>({});
+
+  const stored = new Map((links.data?.groups ?? []).map((g) => [g.id, g.invite_url]));
+
+  async function save(id: number) {
+    const res = await fetch(api(`/api/admin/groups/${id}`), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ invite_url: draft[id] ?? "" }),
+    });
+    const body = await res.json().catch(() => null);
+    onToast(res.ok ? (body?.group?.invite_url ? "Group link saved." : "Group link removed.") : (body?.error ?? "Could not save the link."));
+    links.reload();
+  }
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[var(--fs-sm)]">
-        <thead>
-          <tr className="label border-b border-border text-left">
-            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Group</th>
-            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Description</th>
-            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Messages</th>
-            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Jobs</th>
-            <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Skipped</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((g) => (
-            <tr key={g.id} className="border-b border-border">
-              <td className="px-[var(--sp-2)] py-[var(--sp-2)] font-semibold">{g.name}</td>
-              <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{g.description ?? "—"}</td>
-              <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.message_count}</td>
-              <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.load_count}</td>
-              <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.skipped_count}</td>
+    <div>
+      <p className="mb-[var(--sp-2)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        A group invite (<code>https://chat.whatsapp.com/…</code>) has to be generated inside WhatsApp
+        by a group admin — it cannot be derived. A <code>wa.me</code> number works too, for a “group”
+        that is really a dispatcher’s line. There is no link to a single message, so nothing here
+        offers one.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[var(--fs-sm)]">
+          <thead>
+            <tr className="label border-b border-border text-left">
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Group</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Description</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">WhatsApp link</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Messages</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Jobs</th>
+              <th className="px-[var(--sp-2)] py-[var(--sp-2)]">Skipped</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {groups.map((g) => (
+              <tr key={g.id} className="border-b border-border">
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)] font-semibold">{g.name}</td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">{g.description ?? "—"}</td>
+                <td className="px-[var(--sp-2)] py-[var(--sp-2)]">
+                  {links.unavailable ? (
+                    <span style={{ color: "var(--muted)" }}>—</span>
+                  ) : (
+                    <div className="flex gap-[var(--sp-1)]">
+                      <input
+                        className="field"
+                        style={{ minWidth: "18rem" }}
+                        placeholder="https://chat.whatsapp.com/…"
+                        aria-label={`WhatsApp link for ${g.name}`}
+                        value={draft[g.id] ?? stored.get(g.id) ?? ""}
+                        onChange={(e) => setDraft({ ...draft, [g.id]: e.target.value })}
+                      />
+                      <button className="btn btn-sm" onClick={() => save(g.id)}>
+                        Save
+                      </button>
+                    </div>
+                  )}
+                </td>
+                <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.message_count}</td>
+                <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.load_count}</td>
+                <td className="nums px-[var(--sp-2)] py-[var(--sp-2)]">{g.skipped_count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

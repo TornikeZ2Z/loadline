@@ -339,3 +339,30 @@ UPDATE users SET email = 'driver@example.com', name = 'Dan Driver'
  WHERE email = 'carrier@example.com' AND NOT EXISTS (SELECT 1 FROM users WHERE email = 'driver@example.com');
 UPDATE users SET email = 'poster@example.com', name = 'Rosa Poster', company = 'Sunshine Movers'
  WHERE email = 'broker@example.com' AND NOT EXISTS (SELECT 1 FROM users WHERE email = 'poster@example.com');
+
+-- ---------------------------------------------------------------------------
+-- Reachability v1: reaching the sender when the post carried no number.
+-- Additive only; safe to replay.
+-- ---------------------------------------------------------------------------
+
+-- A group's WhatsApp invite link (https://chat.whatsapp.com/<code>), or the
+-- wa.me line of a dispatcher whose "group" is really a DM. It cannot be derived
+-- -- somebody with admin rights in the group has to produce it -- so an admin
+-- stores it here. Shape-validated on write by src/lib/loads/groupLink.ts.
+--
+-- GATED, not public. An invite code is harmless on its own, but a wa.me link
+-- IS a phone number, and the point of the gate is that reaching the sender
+-- takes an account. So the link travels in exactly one payload -- POST
+-- /api/loads/:id/contact -- and nothing selects it into a board or detail row.
+ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_url text;
+
+-- Where this row's contact_phone came from: 'post' (the message carried one) or
+-- 'sender' (rebuildSender copied the sender's known number onto a row that had
+-- none). NULL means "not computed yet". rebuildSender rewrites both markers on
+-- every pass -- it clears its own backfill first -- so a stale marker cannot
+-- survive a reprocess. The reveal reads it to tell the driver whether they are
+-- calling the number in this post or the sender's usual line.
+ALTER TABLE loads ADD COLUMN IF NOT EXISTS contact_phone_source text;
+ALTER TABLE loads DROP CONSTRAINT IF EXISTS loads_contact_phone_source_check;
+ALTER TABLE loads ADD CONSTRAINT loads_contact_phone_source_check
+  CHECK (contact_phone_source IS NULL OR contact_phone_source IN ('post', 'sender'));
