@@ -9,3 +9,11 @@ next-env.d.ts
 
 # Design-pass artifacts (large, partly superseded drafts); durable but not published
 .design/
+
+# OpenTofu — state and provider caches never go in git.
+# infra/*.tfvars IS committed: it holds no secrets.
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfplan
+infra/.terraform.lock.hcl.bak
