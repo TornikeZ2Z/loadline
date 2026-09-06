@@ -9,6 +9,7 @@
 import { query } from "@/lib/db";
 import {
   EMPTY_RULES,
+  normalizeRuleKey,
   senderPlaceKey,
   type IgnoreLineRule,
   type KeywordRule,
@@ -110,4 +111,100 @@ export async function loadRuleSet(): Promise<RuleSet> {
 
 export function invalidateRuleSet(): void {
   cached = null;
+}
+
+// ---------------------------------------------------------------------------
+// Rule rows and the messages a rule change touches (the admin routes' helpers).
+// ---------------------------------------------------------------------------
+
+export const RULE_KINDS = ["place", "ignore_line", "keyword", "line_template", "sender_format", "note_word"] as const;
+export type RuleKind = (typeof RULE_KINDS)[number];
+
+/** Kinds whose key is free text the console sends raw; the route normalizes it. */
+export const NORMALIZED_KEY_KINDS: ReadonlySet<string> = new Set(["place", "ignore_line", "keyword", "note_word"]);
+
+const RULE_COLUMNS = `id, kind, scope, key, value, source_message_id, created_by, note, active, created_at::text AS created_at`;
+
+export async function listRules(): Promise<RuleRow[]> {
+  return query<RuleRow>(`SELECT ${RULE_COLUMNS} FROM extraction_rules ORDER BY active DESC, id DESC`);
+}
+
+export async function getRule(id: number): Promise<RuleRow | null> {
+  const rows = await query<RuleRow>(`SELECT ${RULE_COLUMNS} FROM extraction_rules WHERE id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
+export async function saveRule(input: {
+  kind: RuleKind;
+  scope: string;
+  /** Raw text for place/ignore_line/keyword/note_word (normalized here); an id / sender key otherwise. */
+  key: string;
+  value: unknown;
+  note?: string | null;
+  source_message_id?: number | null;
+  created_by?: number | null;
+}): Promise<RuleRow> {
+  const key = NORMALIZED_KEY_KINDS.has(input.kind) ? normalizeRuleKey(input.key) : input.key.trim();
+  if (!key) throw new Error("saveRule: key is empty after normalization");
+  const rows = await query<RuleRow>(
+    `INSERT INTO extraction_rules (kind, scope, key, value, source_message_id, created_by, note, active)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, true)
+     ON CONFLICT (kind, scope, key) DO UPDATE SET
+       value = EXCLUDED.value, source_message_id = COALESCE(EXCLUDED.source_message_id, extraction_rules.source_message_id),
+       created_by = COALESCE(EXCLUDED.created_by, extraction_rules.created_by), note = COALESCE(EXCLUDED.note, extraction_rules.note),
+       active = true
+     RETURNING ${RULE_COLUMNS}`,
+    [input.kind, input.scope, key, JSON.stringify(input.value ?? {}), input.source_message_id ?? null, input.created_by ?? null, input.note ?? null],
+  );
+  invalidateRuleSet();
+  return rows[0];
+}
+
+export async function updateRule(id: number, patch: { active?: boolean; value?: unknown; note?: string | null }): Promise<RuleRow | null> {
+  const rows = await query<RuleRow>(
+    `UPDATE extraction_rules SET
+       active = COALESCE($2, active),
+       value = COALESCE($3::jsonb, value),
+       note = COALESCE($4, note)
+     WHERE id = $1
+     RETURNING ${RULE_COLUMNS}`,
+    [id, patch.active ?? null, patch.value === undefined ? null : JSON.stringify(patch.value), patch.note ?? null],
+  );
+  invalidateRuleSet();
+  return rows[0] ?? null;
+}
+
+export async function deleteRule(id: number): Promise<RuleRow | null> {
+  const rows = await query<RuleRow>(`DELETE FROM extraction_rules WHERE id = $1 RETURNING ${RULE_COLUMNS}`, [id]);
+  invalidateRuleSet();
+  return rows[0] ?? null;
+}
+
+/**
+ * The messages a rule change should re-run: the rule's source message and the
+ * same sender's messages of the last `days` days (by send time), oldest first.
+ */
+export async function messagesAffectedBy(rule: { source_message_id: number | null; scope: string }, days = 30): Promise<number[]> {
+  const ids = new Set<number>();
+  let senderKey: string | null = rule.scope.startsWith("sender:") ? rule.scope.slice("sender:".length) : null;
+  if (rule.source_message_id != null) {
+    const m = await query<{ id: number; sender_key: string | null; sent_at: string }>(
+      `SELECT id, sender_key, sent_at::text AS sent_at FROM raw_messages WHERE id = $1`,
+      [rule.source_message_id],
+    );
+    if (m[0]) {
+      ids.add(m[0].id);
+      senderKey = senderKey ?? m[0].sender_key;
+    }
+  }
+  if (senderKey) {
+    const rows = await query<{ id: number }>(
+      `SELECT id FROM raw_messages
+        WHERE sender_key = $1 AND sent_at > now() - ($2 || ' days')::interval
+        ORDER BY sent_at, id`,
+      [senderKey, String(days)],
+    );
+    for (const r of rows) ids.add(r.id);
+  }
+  return [...ids].sort((a, b) => a - b);
 }

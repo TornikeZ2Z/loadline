@@ -151,7 +151,7 @@ export async function processMessage(
         sentAt,
         senderHints: {
           lastOrigin: recentOrigin,
-          defaultOrigin: hints?.default_origin ?? null,
+          defaultOrigin: hints?.default_origin ?? allRules.senderFormats[senderKey]?.default_origin ?? null,
           format: allRules.senderFormats[senderKey] ?? null,
         },
       },
@@ -159,11 +159,15 @@ export async function processMessage(
     );
 
     // A parseable message in a layout never seen before enters the queue once.
+    // A layout an admin taught with a line template is confirmed by that act.
     let attention = outcome.attention;
     let parseStatus = outcome.parse_status;
     if (outcome.loads.length) {
       const sig = await recordFormatSignature(outcome.format_signature, msg.id);
-      if (sig.status === "new") {
+      const taught = outcome.lines.some((l) => l.flags.some((f) => f.startsWith("template:")));
+      if (sig.status === "new" && taught) {
+        await query(`UPDATE format_signatures SET status = 'known' WHERE signature = $1`, [outcome.format_signature]);
+      } else if (sig.status === "new") {
         const higher = ["unknown_format", "no_origin", "origin_unresolved", "unknown_lines"];
         if (!attention || !higher.includes(attention)) attention = "new_format";
         if (parseStatus === "clean") parseStatus = "partial";

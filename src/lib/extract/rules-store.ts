@@ -148,17 +148,19 @@ export function compileTemplate(t: LineTemplate): RegExp {
   if (!src) throw new Error("compileTemplate: empty template");
   let out = "";
   let i = 0;
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   while (i < src.length) {
     const ch = src[i];
     if (ch === "{") {
       const close = src.indexOf("}", i);
       if (close < 0) throw new Error("compileTemplate: unclosed placeholder");
       const name = src.slice(i + 1, close).trim().toUpperCase();
-      const pat = PLACEHOLDERS[name];
+      let pat = PLACEHOLDERS[name];
       if (!pat) throw new Error(`compileTemplate: unknown placeholder {${name}}`);
-      if (seen.has(name)) throw new Error(`compileTemplate: placeholder {${name}} used twice`);
-      seen.add(name);
+      // A placeholder used twice ("{ZIP}/{CF}, {ZIP}/{CF}") gets numbered groups.
+      const n = (seen.get(name) ?? 0) + 1;
+      seen.set(name, n);
+      if (n > 1) pat = pat.replace(`(?<${name}>`, `(?<${name}_${n}>`);
       i = close + 1;
       if (src[i] === "?") {
         out += `(?:${pat})?`;
