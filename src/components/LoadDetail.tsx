@@ -25,6 +25,7 @@ import type { StoredLocation } from "@/lib/location";
 import { OPEN_LOCATION_EVENT } from "@/lib/location";
 import type { Role } from "@/lib/session";
 import {
+  boardDay,
   deliverByLabel,
   formatCf,
   formatPrice,
@@ -126,8 +127,8 @@ export function LoadDetail({
   // The row from the list is shown immediately so the drawer never flashes
   // empty; the fetched row replaces it and adds the source message.
   const row = data?.load ?? job;
-  const today = new Date().toISOString().slice(0, 10);
   const now = new Date();
+  const today = boardDay(now);
 
   const excerpt = useMemo(
     () => buildExcerpt(data?.source?.body ?? null, row?.line_text ?? null, row?.pickup_city ?? null),
