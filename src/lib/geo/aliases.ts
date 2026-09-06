@@ -92,8 +92,11 @@ export const ALIASES: Record<string, Alias> = {
   "kansas city mo": { city: "Kansas City, MO" },
   "st paul": { city: "Saint Paul, MN" },
   "st. paul": { city: "Saint Paul, MN" },
-  charlotte: { city: "Charlotte, NC" },
   clt: { city: "Charlotte, NC" },
+  // A region of Los Angeles, not a gazetteer city: anchored on Van Nuys.
+  "san fernando valley": { city: "Van Nuys, CA", state: "CA" },
+  sfv: { city: "Van Nuys, CA", state: "CA" },
+  "the valley ca": { city: "Van Nuys, CA", state: "CA" },
   rdu: { city: "Raleigh, NC" },
   "the triangle": { city: "Raleigh, NC" },
   denv: { city: "Denver, CO" },

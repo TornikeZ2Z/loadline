@@ -50,7 +50,8 @@ export const STATES: StateInfo[] = [
   { abbr: "NH", name: "New Hampshire", lat: 43.452, lng: -71.564, zip3: [[30, 38]] },
   { abbr: "NJ", name: "New Jersey", lat: 40.298, lng: -74.521, zip3: [[70, 89]] },
   { abbr: "NM", name: "New Mexico", lat: 34.841, lng: -106.249, zip3: [[870, 884]] },
-  { abbr: "NY", name: "New York", lat: 42.166, lng: -74.948, zip3: [[100, 149], [5, 6]] },
+  // 005 (Holtsville) is New York; 006-009 are Puerto Rico.
+  { abbr: "NY", name: "New York", lat: 42.166, lng: -74.948, zip3: [[100, 149], [5, 5]] },
   { abbr: "NC", name: "North Carolina", lat: 35.63, lng: -79.807, zip3: [[270, 289]] },
   { abbr: "ND", name: "North Dakota", lat: 47.529, lng: -99.784, zip3: [[580, 588]] },
   { abbr: "OH", name: "Ohio", lat: 40.389, lng: -82.765, zip3: [[430, 459]] },
@@ -75,17 +76,29 @@ export const STATES: StateInfo[] = [
 export const STATE_BY_ABBR = new Map(STATES.map((s) => [s.abbr, s]));
 export const STATE_BY_NAME = new Map(STATES.map((s) => [s.name.toLowerCase(), s]));
 
-/** Which state owns a ZIP code. Returns null for malformed input. */
+/**
+ * Which state owns a ZIP code. Returns null for malformed input.
+ *
+ * The NARROWEST matching zip3 range wins. The published allocations overlap:
+ * DC is 200-205 while northern Virginia's 201 sits inside it, so a first-match
+ * walk in table order read every 201xx ZIP (Ashburn, Sterling, Purcellville)
+ * as Washington. The width-0 VA range beats the width-5 DC one.
+ */
 export function stateForZip(zip: string): StateInfo | null {
   const digits = zip.replace(/\D/g, "");
   if (digits.length < 5) return null;
   const prefix = Number(digits.slice(0, 3));
+  let best: StateInfo | null = null;
+  let bestWidth = Infinity;
   for (const state of STATES) {
     for (const [lo, hi] of state.zip3) {
-      if (prefix >= lo && prefix <= hi) return state;
+      if (prefix >= lo && prefix <= hi && hi - lo < bestWidth) {
+        best = state;
+        bestWidth = hi - lo;
+      }
     }
   }
-  return null;
+  return best;
 }
 
 /** "new jersey" | "nj" | "N.J." -> StateInfo */
