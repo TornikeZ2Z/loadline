@@ -98,6 +98,18 @@ body {
 .card-hover:hover { box-shadow: var(--shadow-2); border-color: var(--border-strong); transform: translateY(-1px); }
 .card-selected, .card-hover.card-selected:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
+/* One focus indicator for the whole app.
+ *
+ * .btn, .pill, .field, .seg-option and the rest each declare `var(--focus)`
+ * already. Links, disclosure triggers and the sheet's drag handle did not, so
+ * they fell back to the browser's own ring -- a different shape and colour on
+ * every platform, and on the header's wordmark and More menu it was the only
+ * thing that looked out of place while tabbing through a row of controls that
+ * all agreed with each other. */
+a:focus-visible, summary:focus-visible, .sheet-handle:focus-visible {
+  outline: none; border-radius: var(--radius-sm); box-shadow: var(--focus);
+}
+
 /* A job card is a div role="button" (it contains a real button), so it gets no
    focus ring for free. Keyboard users walk the list with the arrow keys, which
    means this is the ONLY thing telling them where they are. */
@@ -131,8 +143,8 @@ textarea.field { height: auto; padding: 8px 10px; }
 .chip-button { height: 28px; cursor: pointer; }
 /* Marks a control that must still reach the touch target on a screen where its
    own layout is sized for a mouse: the header's More menu and the footer links
-   both go compact from `md`, which a tablet and a phone lying down are. */
-.tap { }
+   both go compact from `md`, which a tablet and a phone lying down are. It does
+   nothing on a mouse-driven screen -- see the touch block at the end. */
 
 /* A checkbox in a filter panel was whatever the browser drew -- 13 px, system
    blue, and a 13 px tap target. Sized and coloured here so every one of them
@@ -308,8 +320,9 @@ button.map-pill:focus-visible { outline: none; box-shadow: var(--focus); }
 
   .btn, .field, .pill, .seg-option, .select-pill > select, .option-row,
   .chip-button, .tap { min-height: var(--tap-min); }
-  /* "Flat" and "Safe" are four letters wide; the target is not. */
-  .chip-button, .tap { min-width: var(--tap-min); justify-content: center; }
+  /* "Flat" and "Safe" are four letters wide; the target is not. `.tap` is put
+     on rows whose text is left-aligned, so only the chip re-centres. */
+  .chip-button { min-width: var(--tap-min); justify-content: center; }
   /* .seg is the padding and border AROUND .seg-option, so it has to be the
      taller box or the button inside it comes out at 38. */
   .seg { min-height: calc(var(--tap-min) + 6px); }

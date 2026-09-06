@@ -627,8 +627,7 @@ function LineActions({
             {PLACEHOLDERS.map((p) => (
               <button
                 key={p}
-                className="chip"
-                style={{ cursor: "pointer" }}
+                className="chip chip-button"
                 onClick={() => setTemplate((t) => `${t} ${p}`.trim())}
               >
                 {p}
@@ -767,8 +766,7 @@ function TryMessage() {
           {EXAMPLES.map((ex) => (
             <button
               key={ex.label}
-              className="chip"
-              style={{ cursor: "pointer" }}
+              className="chip chip-button"
               onClick={() => setText(ex.text)}
             >
               {ex.label}
@@ -1218,11 +1216,10 @@ function FilterChip({
   return (
     <button
       type="button"
-      className="chip"
+      className="chip chip-button"
       aria-pressed={on}
       onClick={onClick}
       style={{
-        cursor: "pointer",
         background: on ? "var(--accent-soft)" : "var(--surface-2)",
         color: on ? "var(--accent)" : "var(--text-2)",
       }}

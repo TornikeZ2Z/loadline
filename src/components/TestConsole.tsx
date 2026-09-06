@@ -248,7 +248,7 @@ export function TestConsole({
           <div className="label px-[var(--sp-3)] py-[var(--sp-2)]">Imported chats</div>
           <button
             onClick={() => openGroup(null)}
-            className="w-full px-[var(--sp-3)] py-[var(--sp-2)] text-left text-(length:--fs-base) hover:bg-surface-2"
+            className="tap w-full px-[var(--sp-3)] py-[var(--sp-2)] text-left text-(length:--fs-base) hover:bg-surface-2"
             style={groupId === null ? { background: "var(--accent-soft)", color: "var(--accent)" } : undefined}
           >
             All chats
