@@ -575,15 +575,19 @@ export function LoadMap({
         type: "line",
         source: "road",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#ffffff", "line-width": 7, "line-opacity": 0.9 },
+        paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.9 },
       });
+      // Six pixels rather than four so the direction chevrons sit INSIDE the
+      // stroke: a white arrow on a thin line bleeds into its own white casing
+      // and the direction stops being readable, which is most of what the line
+      // is for.
       instance.addLayer({
         id: "route-road",
         type: "line",
         source: "road",
         filter: ["get", "road"],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": colors.accent, "line-width": 4 },
+        paint: { "line-color": colors.accent, "line-width": 6 },
       });
       // No road route to be had: a dashed chord, which reads as "we do not know
       // the way" rather than as a highway that does not exist.
@@ -606,9 +610,9 @@ export function LoadMap({
         source: "road",
         layout: {
           "symbol-placement": "line",
-          "symbol-spacing": 110,
+          "symbol-spacing": 90,
           "icon-image": "chevron",
-          "icon-size": 0.9,
+          "icon-size": 0.7,
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
