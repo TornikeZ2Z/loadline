@@ -20,11 +20,12 @@ import { api } from "@/lib/basePath";
 import type { ChatGroup, ChatLoad, ChatMessage } from "@/lib/demo/chats";
 import type { LineAudit, LineClass } from "@/lib/extract/schema";
 import type { IgnoreLineRule, KeywordAs } from "@/lib/extract/rules-store";
+import type { HereStatus, ZipSurvey, ZipWarmResult } from "@/lib/geo/zips";
 import { formatCf } from "@/lib/loads/present";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
 import { Chip } from "./ui";
 
-export type AdminTab = "attention" | "try" | "messages" | "senders" | "rules" | "groups";
+export type AdminTab = "attention" | "try" | "messages" | "senders" | "rules" | "groups" | "map";
 
 export interface AdminConsoleProps {
   groups: ChatGroup[];
@@ -39,6 +40,7 @@ const TABS: Array<[AdminTab, string]> = [
   ["senders", "Senders"],
   ["rules", "Rules"],
   ["groups", "Groups"],
+  ["map", "Map precision"],
 ];
 
 /** Exactly the attention codes the pipeline can set. */
@@ -252,6 +254,7 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
         {tab === "senders" && <Senders onToast={setToast} />}
         {tab === "rules" && <Rules onToast={setToast} />}
         {tab === "groups" && <Groups groups={groups} onToast={setToast} />}
+        {tab === "map" && <MapPrecision onToast={setToast} />}
       </div>
     </div>
   );
@@ -1200,6 +1203,215 @@ function Groups({ groups, onToast }: { groups: ChatGroup[]; onToast(text: string
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------ map precision ----------------------------- */
+
+/**
+ * "Every destination is a hollow approximate marker" is the most visible way
+ * this board can look broken, and on a fresh deployment it is the default.
+ *
+ * The reason is deliberate at ingest: a job is stored the moment it is read,
+ * and if the geocoder is unreachable the ZIP is placed at the nearest
+ * gazetteer city inside its own state and honestly labelled `state` precision.
+ * Locally `npm run zips:warm` upgrades those. In production nothing can run a
+ * script against the database — it is inside the VPC — so the same sweep has
+ * to be reachable from here.
+ *
+ * The button walks the board in batches and shows what each one did, rather
+ * than posting once and spinning: a board with thousands of ZIPs would blow
+ * any request timeout, and a driver-facing number ("34 jobs moved") is more
+ * convincing than a spinner that eventually stops.
+ */
+interface GeocodeStatus {
+  survey: ZipSurvey;
+  here: HereStatus;
+  batch: number;
+}
+
+interface WarmTotals {
+  batches: number;
+  examined: number;
+  fetched: number;
+  upgraded: number;
+  unresolved: number;
+  loadsUpdated: number;
+  pickupsUpgraded: number;
+  deliveriesUpgraded: number;
+}
+
+const NO_TOTALS: WarmTotals = {
+  batches: 0, examined: 0, fetched: 0, upgraded: 0,
+  unresolved: 0, loadsUpdated: 0, pickupsUpgraded: 0, deliveriesUpgraded: 0,
+};
+
+/**
+ * 50 batches of 40 is 2,000 ZIPs — the same ceiling as the HERE daily budget,
+ * so the loop cannot outrun the thing that pays for it even if the cursor
+ * somehow failed to advance.
+ */
+const MAX_BATCHES = 50;
+
+function MapPrecision({ onToast }: { onToast(text: string): void }) {
+  const status = useAdminResource<GeocodeStatus>("/api/admin/geocode");
+  const [busy, setBusy] = useState(false);
+  const [totals, setTotals] = useState<WarmTotals>(NO_TOTALS);
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const survey = status.data?.survey ?? null;
+  const here = status.data?.here ?? null;
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setTotals(NO_TOTALS);
+    setRemaining(null);
+
+    const sum = { ...NO_TOTALS };
+    let after: string | null = null;
+
+    try {
+      for (let i = 0; i < MAX_BATCHES; i += 1) {
+        const res = await fetch(api(`/api/admin/geocode${after ? `?after=${encodeURIComponent(after)}` : ""}`), {
+          method: "POST",
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) {
+          setError(json?.error ?? "Could not reach the geocoder.");
+          break;
+        }
+        const r = json as ZipWarmResult;
+        sum.batches += 1;
+        sum.examined += r.examined;
+        sum.fetched += r.fetched;
+        sum.upgraded += r.upgraded;
+        sum.unresolved += r.unresolved;
+        sum.loadsUpdated += r.loadsUpdated;
+        sum.pickupsUpgraded += r.pickupsUpgraded;
+        sum.deliveriesUpgraded += r.deliveriesUpgraded;
+        setTotals({ ...sum });
+        setRemaining(r.remaining);
+        if (r.done) break;
+        after = r.nextAfter;
+      }
+      onToast(
+        sum.loadsUpdated
+          ? `${sum.loadsUpdated} job${sum.loadsUpdated === 1 ? "" : "s"} moved onto a real point.`
+          : "Nothing to upgrade — every job is already on the best point we can get.",
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setBusy(false);
+      status.reload();
+    }
+  }
+
+  if (status.unavailable) return <Unavailable what="The geocoding endpoint" />;
+
+  return (
+    <div className="grid gap-[var(--sp-4)] lg:grid-cols-2">
+      <div className="card p-[var(--sp-4)]">
+        <div className="label">Where the board stands</div>
+        {status.loading && !survey ? (
+          <p className="mt-[var(--sp-2)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
+            Counting…
+          </p>
+        ) : survey ? (
+          <>
+            <dl className="mt-[var(--sp-3)] grid grid-cols-2 gap-[var(--sp-2)] text-(length:--fs-sm)">
+              <Stat label="ZIPs on the board" value={survey.boardZips} />
+              <Stat label="Placed by a geocoder" value={survey.precise} />
+              <Stat label="In-state approximations" value={survey.approximate} />
+              <Stat label="Never geocoded" value={survey.uncached} />
+              <Stat label="Pickups drawn approximate" value={survey.coarsePickups} />
+              <Stat label="Deliveries drawn approximate" value={survey.coarseDeliveries} />
+            </dl>
+            <p className="mt-[var(--sp-3)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+              {survey.pending === 0
+                ? "Nothing pending. Every ZIP has the best answer available."
+                : `${survey.pending} ZIP${survey.pending === 1 ? "" : "s"} left to visit.`}
+            </p>
+          </>
+        ) : (
+          <p className="mt-[var(--sp-2)] text-(length:--fs-base)" style={{ color: "var(--danger)" }}>
+            {status.error ?? "Could not read the board."}
+          </p>
+        )}
+      </div>
+
+      <div className="card p-[var(--sp-4)]">
+        <div className="label">Make the map precise</div>
+        <p className="mt-[var(--sp-2)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+          Geocodes every ZIP the board points at, caches the answer forever, and moves the jobs that
+          were sitting on a state centroid. Safe to run twice — a ZIP that already has a real answer
+          is never asked about again.
+        </p>
+
+        {here && !here.configured && (
+          <p
+            className="mt-[var(--sp-3)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+            style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
+          >
+            <code>HERE_API_KEY</code> is not configured on this deployment, so there is nothing
+            better to fetch: every ZIP falls back to the nearest city in its own state. Add the key
+            and run this again.
+          </p>
+        )}
+
+        {here?.configured && (
+          <p className="mt-[var(--sp-2)] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+            HERE calls used today: <span className="nums">{here.callsToday}</span> of{" "}
+            <span className="nums">{here.budget}</span>.
+          </p>
+        )}
+
+        <div className="mt-[var(--sp-3)] flex items-center gap-[var(--sp-2)]">
+          <button
+            className="btn btn-primary"
+            onClick={run}
+            disabled={busy || !survey || !here?.configured}
+          >
+            {busy ? "Geocoding…" : "Make the map precise"}
+          </button>
+          {busy && remaining !== null && (
+            <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+              {remaining} ZIP{remaining === 1 ? "" : "s"} to go
+            </span>
+          )}
+        </div>
+
+        {error && (
+          <p className="mt-[var(--sp-3)] text-(length:--fs-sm)" style={{ color: "var(--danger)" }}>
+            {error}
+          </p>
+        )}
+
+        {totals.batches > 0 && (
+          <dl className="mt-[var(--sp-3)] grid grid-cols-2 gap-[var(--sp-2)] text-(length:--fs-sm)">
+            <Stat label="ZIPs visited" value={totals.examined} />
+            <Stat label="Geocoded for the first time" value={totals.fetched} />
+            <Stat label="Approximations upgraded" value={totals.upgraded} />
+            <Stat label="Still unresolved" value={totals.unresolved} />
+            <Stat label="Pickups moved" value={totals.pickupsUpgraded} />
+            <Stat label="Deliveries moved" value={totals.deliveriesUpgraded} />
+            <Stat label="Jobs changed" value={totals.loadsUpdated} />
+            <Stat label="Batches" value={totals.batches} />
+          </dl>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <dt style={{ color: "var(--muted)" }}>{label}</dt>
+      <dd className="nums text-(length:--fs-lg) font-semibold">{value}</dd>
     </div>
   );
 }
