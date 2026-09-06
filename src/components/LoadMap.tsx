@@ -407,27 +407,39 @@ export function LoadMap({
     () => new Map(built.groups.map((g) => [g.key, g])),
     [built],
   );
+  // Read by the map's own event handlers, which are registered once and must
+  // not close over a stale result set.
+  const groups = useRef(built.groups);
+  groups.current = built.groups;
 
   // A single boolean rather than the raw zoom: `zoom` ticks on every frame of
   // every wheel gesture, and rebuilding a screenful of HTML markers per frame
   // is the one thing that makes this map feel slow.
   const detailed = zoom > PILL_MAX_ZOOM;
 
-  /** Recompute the in-view totals from what is actually rendered. */
+  /**
+   * The in-view totals, from the viewport box against the groups themselves.
+   *
+   * Deliberately NOT `queryRenderedFeatures`: that answers "what has been
+   * painted", which is a different question with a race in front of it. The
+   * refit after a search fires `moveend` before the new features are indexed,
+   * so the panel would write a 0 that nothing takes back; and on a phone, or in
+   * any tab the browser has throttled, frames arrive late enough that a map
+   * plainly covered in points can report none. A point either is inside the
+   * bounds or it is not, and that is knowable without a frame.
+   */
   const measureInView = useCallback(() => {
     const m = map.current;
-    if (!m || !m.getLayer("points")) return;
-    const seen = new Set<string>();
+    if (!m) return;
+    const box = m.getBounds();
     let count = 0;
     let cf = 0;
     let unsized = 0;
-    for (const f of m.queryRenderedFeatures({ layers: ["points"] })) {
-      const key = f.properties?.key as string | undefined;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      count += Number(f.properties?.count ?? 0);
-      cf += Number(f.properties?.cf ?? 0);
-      unsized += Number(f.properties?.unsized ?? 0);
+    for (const group of groups.current) {
+      if (!box.contains([group.lng, group.lat])) continue;
+      count += group.ids.length;
+      cf += group.cf;
+      unsized += group.unsized;
     }
     setInView({ count, cf, unsized });
   }, []);
@@ -641,18 +653,6 @@ export function LoadMap({
 
       instance.on("zoom", () => setZoom(instance.getZoom()));
 
-      // Re-measure whenever the points themselves become queryable, and again
-      // whenever the map settles. `moveend` alone is not enough: the refit that
-      // follows a search fires it before the new features have been indexed, so
-      // it writes a 0 that nothing takes back. `idle` alone is not enough
-      // either -- MapLibre only calls the map loaded once every basemap raster
-      // tile in view has arrived, so on a slow tile host that 0 stays on screen
-      // over points that are plainly drawn.
-      instance.on("sourcedata", (e) => {
-        if (e.sourceId === "points" && e.isSourceLoaded) measureInView();
-      });
-      instance.on("idle", measureInView);
-
       let boundsTimer: ReturnType<typeof setTimeout> | null = null;
       instance.on("moveend", () => {
         measureInView();
@@ -691,7 +691,9 @@ export function LoadMap({
     const m = map.current;
     if (!ready || !m) return;
     (m.getSource("points") as GeoJSONSource | undefined)?.setData(built.features);
-  }, [built, ready]);
+    // A new result set changes the totals even when the viewport does not.
+    measureInView();
+  }, [built, ready, measureInView]);
 
   // Pickups and deliveries are different colours because they are different
   // questions; the layer is built once, so the colour is repainted here.
