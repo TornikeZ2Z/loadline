@@ -53,7 +53,7 @@ export function CurrentLocation() {
     <div ref={box} className="relative flex items-center gap-[var(--sp-2)]">
       <button
         type="button"
-        className="pill"
+        className="pill max-w-[32vw] sm:max-w-none"
         onClick={() => setOpen((s) => (s === "current" ? null : "current"))}
         title="Where you are — sorts the board by distance"
         style={
@@ -62,24 +62,61 @@ export function CurrentLocation() {
             : undefined
         }
       >
-        ◎ {current ? `Near ${current.label}` : "Where are you?"} ▾
+        {/* On a phone the pill says the city and nothing else -- there is no
+            room for "Near Miami, FL" beside the nav, and the state is the part
+            a driver already knows. */}
+        <span className="truncate sm:hidden">◎ {current ? shortLabel(current.label) : "Where are you?"}</span>
+        <span className="hidden truncate sm:inline">
+          ◎ {current ? `Near ${current.label}` : "Where are you?"}
+        </span>
+        ▾
       </button>
 
-      <button
-        type="button"
-        className="pill"
-        onClick={() => setOpen((s) => (s === "home" ? null : "home"))}
-        title="Where you're heading back to"
-      >
-        ⌂ {home ? `Home ${home.state ?? home.label}` : "Home"} ▾
-      </button>
+      {/* The home slot only feeds the Toward-home corridor and a filter hint,
+          so on a phone it yields its space to the one that sorts the board and
+          is reached from inside that popover instead.
+          The wrapper carries `hidden`, not the button: `.pill` sets its own
+          `display`, and a utility class of equal specificity declared earlier
+          would lose to it. */}
+      <span className="hidden sm:block">
+        <button
+          type="button"
+          className="pill"
+          onClick={() => setOpen((s) => (s === "home" ? null : "home"))}
+          title="Where you're heading back to"
+        >
+          ⌂ {home ? `Home ${home.state ?? home.label}` : "Home"} ▾
+        </button>
+      </span>
 
-      {open && <LocationPopover slot={open} onClose={() => setOpen(null)} />}
+      {open && (
+        // Keyed by slot: switching between the two must start from that slot's
+        // own stored value, not carry the other one's half-typed text over.
+        <LocationPopover
+          key={open}
+          slot={open}
+          onClose={() => setOpen(null)}
+          onSwitchSlot={(s) => setOpen(s)}
+        />
+      )}
     </div>
   );
 }
 
-function LocationPopover({ slot, onClose }: { slot: LocationSlot; onClose: () => void }) {
+/** "Miami, FL" -> "Miami"; "Near Kearny, NJ 07032" -> "Near Kearny". */
+function shortLabel(label: string): string {
+  return label.split(",")[0]?.trim() || label;
+}
+
+function LocationPopover({
+  slot,
+  onClose,
+  onSwitchSlot,
+}: {
+  slot: LocationSlot;
+  onClose: () => void;
+  onSwitchSlot: (slot: LocationSlot) => void;
+}) {
   const { current, home } = useViewerLocation();
   const stored = slot === "current" ? current : home;
 
@@ -237,6 +274,20 @@ function LocationPopover({ slot, onClose }: { slot: LocationSlot; onClose: () =>
         >
           Clear
         </button>
+      )}
+
+      {/* The home pill has no room in a phone header, so it reaches its own
+          popover from here instead of disappearing. */}
+      {isCurrent && (
+        <span className="mt-2 block sm:hidden">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => onSwitchSlot("home")}
+          >
+            ⌂ {home ? `Home ${home.state ?? home.label}` : "Set where you're heading back to"}
+          </button>
+        </span>
       )}
 
       <p className="mt-3 text-[11px]" style={{ color: "var(--muted-2)" }}>
