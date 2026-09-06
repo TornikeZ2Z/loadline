@@ -93,6 +93,9 @@ const CONUS: [[number, number], [number, number]] = [
 /** Above this zoom the state totals would sit on top of the routes they count. */
 const PILL_MAX_ZOOM = 5.4;
 
+/** Keyless raster tiles; the pale Positron look is applied in paint, below. */
+const BASEMAP_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 /** The palette, read from globals.css once the document exists. */
@@ -152,15 +155,25 @@ const WIDTH_BY_CF: maplibregl.ExpressionSpecification = [
   4.5,
 ];
 
-const ZOOM_WIDTH: maplibregl.ExpressionSpecification = [
-  "interpolate",
-  ["linear"],
-  ["zoom"],
-  4,
-  WIDTH_BY_CF,
-  8,
-  ["*", WIDTH_BY_CF, 1.5],
-];
+/**
+ * Width by cubic feet, grown with zoom, optionally with `extra` px added (the
+ * white casing, the active highlight).
+ *
+ * The zoom interpolation has to be the OUTERMOST expression -- MapLibre rejects
+ * `["+", ["interpolate", ["zoom"], …], 3]` because a zoom curve may only be a
+ * top-level step/interpolate -- so the addition is pushed into each stop.
+ */
+function zoomWidth(extra = 0): maplibregl.ExpressionSpecification {
+  const at = (scale: number): maplibregl.ExpressionSpecification =>
+    extra === 0
+      ? scale === 1
+        ? WIDTH_BY_CF
+        : ["*", WIDTH_BY_CF, scale]
+      : ["+", scale === 1 ? WIDTH_BY_CF : ["*", WIDTH_BY_CF, scale], extra];
+  return ["interpolate", ["linear"], ["zoom"], 4, at(1), 8, at(1.5)];
+}
+
+const ZOOM_WIDTH = zoomWidth();
 
 const DIM_OPACITY: maplibregl.ExpressionSpecification = [
   "case",
@@ -375,16 +388,30 @@ export function LoadMap({
         sources: {
           basemap: {
             type: "raster",
-            tiles: [
-              "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-              "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-              "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-            ],
+            tiles: [BASEMAP_TILES],
             tileSize: 256,
-            attribution: "© OpenStreetMap contributors © CARTO",
+            attribution: "© OpenStreetMap contributors",
           },
         },
-        layers: [{ id: "basemap", type: "raster", source: "basemap" }],
+        // The design calls for a pale basemap so the routes are the only
+        // saturated thing on screen. CARTO Positron is the usual way to get
+        // that, but it now stamps "API KEY REQUIRED" across every
+        // unauthenticated tile, so the pale look is produced here instead:
+        // keyless OSM tiles desaturated and lightened by the raster paint
+        // properties, which touch this layer only and leave the routes alone.
+        layers: [
+          {
+            id: "basemap",
+            type: "raster",
+            source: "basemap",
+            paint: {
+              "raster-saturation": -0.75,
+              "raster-contrast": -0.12,
+              "raster-brightness-min": 0.12,
+              "raster-opacity": 0.9,
+            },
+          },
+        ],
       },
       bounds: CONUS,
       fitBoundsOptions: { padding: 40 },
@@ -393,15 +420,13 @@ export function LoadMap({
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
     // A tile host that is blocked or down otherwise fails silently as a blank
-    // canvas, so fall back to plain OSM the first time a tile errors.
-    let swapped = false;
+    // canvas, so say so once rather than leaving an empty rectangle.
+    let reported = false;
     instance.on("error", (e) => {
       const message = e.error?.message ?? String(e);
-      if (!swapped && /tile|fetch|load/i.test(message)) {
-        swapped = true;
-        const src = instance.getSource("basemap") as maplibregl.RasterTileSource | undefined;
-        src?.setTiles?.(["https://tile.openstreetmap.org/{z}/{x}/{y}.png"]);
-        return;
+      if (/tile/i.test(message)) {
+        if (reported) return;
+        reported = true;
       }
       console.error("[LoadMap]", message);
     });
@@ -450,7 +475,7 @@ export function LoadMap({
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": "#ffffff",
-          "line-width": ["+", ZOOM_WIDTH, 3],
+          "line-width": zoomWidth(3),
           "line-opacity": 0.9,
         },
       });
@@ -505,16 +530,17 @@ export function LoadMap({
         },
       });
 
+      // Feature-state cannot appear in a layer filter, so the highlight layer
+      // draws every route and hides all but the active one in paint.
       instance.addLayer({
         id: "job-lines-active",
         type: "line",
         source: "jobs",
-        filter: ["boolean", ["feature-state", "active"], false],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": colors.accentHover,
-          "line-width": ["+", ZOOM_WIDTH, 1.5],
-          "line-opacity": 1,
+          "line-width": zoomWidth(1.5),
+          "line-opacity": ["case", ["boolean", ["feature-state", "active"], false], 1, 0],
         },
       });
 
