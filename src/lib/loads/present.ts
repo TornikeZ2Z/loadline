@@ -1,0 +1,318 @@
+/**
+ * Everything the UI says about a job, in one place.
+ *
+ * The split with `@/lib/moving/cubicFeet` is deliberate and load-bearing:
+ * that module is arithmetic (what is 2,000 cf at $3.75?), this one is language
+ * and tone (does that read as "Ready now" green or "Not ready yet" grey?).
+ * Keeping them apart means no name exists in two files and the numeric helpers
+ * stay usable from the server, the scripts and the eval.
+ *
+ * Pure functions over `Pick<LoadRow, …>`: unit-testable without a database, and
+ * safe to import from any client component.
+ *
+ * NOTE (Phase 1 handshake): the label helpers below are deliberately simple --
+ * every exported name is final, the wording of a few is not. Agent C fills in
+ * the finished copy, tones and edge cases; nothing outside this file changes.
+ */
+
+import type { LoadRow, SortKey } from "@/lib/loads/types";
+import type { PublicLoadRow } from "@/lib/loads/publicView";
+import {
+  TRUCK_CF,
+  CF_PRESETS,
+  formatCf,
+  jobPrice,
+  pricePerCf,
+  isReady,
+} from "@/lib/moving/cubicFeet";
+import { redactPhones } from "@/lib/loads/redact";
+
+export { TRUCK_CF, CF_PRESETS, formatCf };
+
+/** A second line of defence in the DOM; the server already masked everything. */
+export const maskPhones = redactPhones;
+
+export type Tone =
+  | "default"
+  | "accent"
+  | "ok"
+  | "ready"
+  | "fresh"
+  | "warn"
+  | "review"
+  | "approx"
+  | "danger"
+  | "muted";
+
+// --- small date helpers ------------------------------------------------------
+// ISO dates are compared and formatted by hand: `new Date("2026-09-12")` is
+// UTC midnight, which renders as Sep 11 for anyone west of Greenwich.
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function dayNumber(iso: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86_400_000);
+}
+
+/** "Sep 12" */
+function shortDate(iso: string | null): string {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  return `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}`;
+}
+
+/** Whole days from `iso` to `todayIso` (positive = in the past). */
+function daysBefore(iso: string | null, todayIso: string): number | null {
+  if (!iso) return null;
+  const a = dayNumber(iso);
+  const b = dayNumber(todayIso);
+  if (a == null || b == null) return null;
+  return b - a;
+}
+
+function money(n: number): string {
+  return n >= 100
+    ? `$${Math.round(n).toLocaleString("en-US")}`
+    : `$${n.toFixed(2).replace(/\.00$/, "")}`;
+}
+
+// --- place and lane ----------------------------------------------------------
+
+type PlaceJob = Pick<
+  LoadRow,
+  | "pickup_label"
+  | "pickup_state"
+  | "pickup_precision"
+  | "delivery_label"
+  | "delivery_state"
+  | "delivery_precision"
+>;
+
+/** "NJ → FL" */
+export function laneLabel(job: Pick<LoadRow, "pickup_state" | "delivery_state">): string {
+  return `${job.pickup_state ?? "?"} → ${job.delivery_state ?? "?"}`;
+}
+
+/** The label to print for one end of the route, and whether it is only approximate. */
+export function placeLabel(
+  job: PlaceJob,
+  side: "pickup" | "delivery",
+): { text: string; approx: boolean } {
+  const label = side === "pickup" ? job.pickup_label : job.delivery_label;
+  const precision = side === "pickup" ? job.pickup_precision : job.delivery_precision;
+  const state = side === "pickup" ? job.pickup_state : job.delivery_state;
+  return {
+    text: label || state || "Unknown",
+    approx: precision === "state" || precision === "region",
+  };
+}
+
+// --- price -------------------------------------------------------------------
+
+type PricedJob = Pick<LoadRow, "price_per_cf" | "price_flat" | "cubic_feet">;
+
+/** "$3.75/cf" + "est. $7,500", or "$1,500 flat" + "$5.00/cf", or "No price". */
+export function formatPrice(job: PricedJob): { headline: string; sub: string | null; tone: Tone } {
+  if (job.price_per_cf != null) {
+    const total = jobPrice(job);
+    return {
+      headline: `${money(job.price_per_cf)}/cf`,
+      sub: total != null ? `est. ${money(total)}` : null,
+      tone: "accent",
+    };
+  }
+  if (job.price_flat != null) {
+    const perCf = pricePerCf(job);
+    return {
+      headline: `${money(job.price_flat)} flat`,
+      sub: perCf != null ? `${money(perCf)}/cf` : null,
+      tone: "accent",
+    };
+  }
+  return { headline: "No price", sub: null, tone: "muted" };
+}
+
+// --- ready / deliver by ------------------------------------------------------
+
+type ReadyJob = Pick<LoadRow, "ready_now" | "ready_date" | "ready_source">;
+
+const READY_SOURCE_NOTE: Record<string, string> = {
+  line: "Stated on the job's own line",
+  header: "Taken from the post's header",
+  footer: "Taken from the post's footer",
+  title: "Taken from the post's title",
+  assumed: "Not stated in the post — assumed ready",
+};
+
+/** "Ready now" · "Ready tomorrow" · "Ready Sep 12" · "Not ready yet". */
+export function readyLabel(
+  job: ReadyJob,
+  todayIso: string,
+): { text: string; tone: Tone; title: string | null } {
+  const title = job.ready_source ? (READY_SOURCE_NOTE[job.ready_source] ?? null) : null;
+  if (isReady(job, todayIso)) return { text: "Ready now", tone: "ready", title };
+  if (job.ready_date) {
+    const days = daysBefore(job.ready_date, todayIso);
+    if (days === -1) return { text: "Ready tomorrow", tone: "default", title };
+    return { text: `Ready ${shortDate(job.ready_date)}`, tone: "default", title };
+  }
+  return { text: "Not ready yet", tone: "muted", title };
+}
+
+/** "Deliver by Sep 20", warn tone inside three days. Null when the post gave none. */
+export function deliverByLabel(
+  job: Pick<LoadRow, "deliver_by">,
+  todayIso: string,
+): { text: string; tone: Tone } | null {
+  if (!job.deliver_by) return null;
+  const days = daysBefore(job.deliver_by, todayIso);
+  const urgent = days != null && days >= -3;
+  return { text: `Deliver by ${shortDate(job.deliver_by)}`, tone: urgent ? "warn" : "default" };
+}
+
+// --- freshness ---------------------------------------------------------------
+
+type FreshJob = Pick<
+  LoadRow,
+  "status" | "first_seen_at" | "last_seen_at" | "seen_count" | "relist_count" | "delisted_at"
+>;
+
+/**
+ * How alive a job is. The lifecycle is the product's main claim, so this string
+ * is the one a driver reads before deciding to call.
+ */
+export function freshnessLabel(
+  job: FreshJob,
+  now: Date,
+): { text: string; tone: Tone; detail: string | null } {
+  let detail: string | null = null;
+  if (job.seen_count > 1 && job.first_seen_at) {
+    detail = `Posted ${job.seen_count}× since ${shortDate(job.first_seen_at.slice(0, 10))}`;
+  }
+  if (job.relist_count > 0) detail = detail ? `Relisted · ${detail}` : "Relisted";
+
+  if (job.status === "taken") return { text: "Taken", tone: "muted", detail };
+  if (job.status === "delisted") {
+    return {
+      text: job.delisted_at ? `Delisted ${shortDate(job.delisted_at.slice(0, 10))}` : "Delisted",
+      tone: "muted",
+      detail,
+    };
+  }
+  if (job.status === "expired") return { text: "Sender silent — expired", tone: "muted", detail };
+
+  const seen = job.last_seen_at;
+  if (!seen) return { text: "Listed", tone: "default", detail };
+  const days = daysBefore(seen.slice(0, 10), now.toISOString().slice(0, 10));
+  if (days == null) return { text: "Listed", tone: "default", detail };
+  if (days <= 0) return { text: "Listed today", tone: "fresh", detail };
+  if (days === 1) return { text: "Listed yesterday", tone: "default", detail };
+  return { text: `Last seen ${days} days ago`, tone: "muted", detail };
+}
+
+// --- sender and requirements -------------------------------------------------
+
+/** "Marco · via NJ Movers Loads" | "Unnamed sender" | "via LoadLine". */
+export function senderLine(job: Pick<PublicLoadRow, "contact_name" | "group_name" | "is_web">): string {
+  if (job.is_web) return "via LoadLine";
+  const name = job.contact_name?.trim() || "Unnamed sender";
+  return job.group_name ? `${name} · via ${job.group_name}` : name;
+}
+
+const REQUIREMENT_RULES: Array<{ re: RegExp; label: string }> = [
+  { re: /\bno\s+brokers?\b/i, label: "No brokers" },
+  { re: /\b(dot|mc)\b/i, label: "DOT & MC" },
+  { re: /\binsur/i, label: "Insurance" },
+  { re: /\b(cash|zelle|venmo|cod)\b/i, label: "Cash/Zelle" },
+];
+
+/** A one-word chip for a sender's requirements, with the full text as the tooltip. */
+export function requirementChip(text: string | null): { label: string; title: string } | null {
+  const t = text?.trim();
+  if (!t) return null;
+  const hit = REQUIREMENT_RULES.find((r) => r.re.test(t));
+  return { label: hit ? hit.label : "Requirements", title: t };
+}
+
+// --- sizes -------------------------------------------------------------------
+
+/** "≈ 2.6 truckloads" · "2.6× your 1,500 cf truck" · "61% of your 1,500 cf truck". */
+export function truckLine(cf: number, truckCf: number | null): string {
+  const size = truckCf && truckCf > 0 ? truckCf : TRUCK_CF;
+  const ratio = cf / size;
+  if (truckCf && truckCf > 0) {
+    const yours = `your ${truckCf.toLocaleString("en-US")} cf truck`;
+    return ratio >= 1 ? `${ratio.toFixed(1)}× ${yours}` : `${Math.round(ratio * 100)}% of ${yours}`;
+  }
+  return `≈ ${ratio.toFixed(1)} truckload${ratio === 1 ? "" : "s"}`;
+}
+
+// --- one-line summary --------------------------------------------------------
+
+type SummaryJob = PlaceJob & PricedJob & ReadyJob;
+
+/** "Kearny, NJ → Aventura, FL 33180 · 200 cf · $3.50/cf · Ready now" */
+export function jobSummary(job: SummaryJob): string {
+  const price = formatPrice(job);
+  const ready = job.ready_now ? "Ready now" : job.ready_date ? `Ready ${shortDate(job.ready_date)}` : null;
+  return [
+    `${job.pickup_label} → ${job.delivery_label}`,
+    job.cubic_feet != null ? formatCf(job.cubic_feet) : "Size not stated",
+    price.headline,
+    ready,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+// --- option tables -----------------------------------------------------------
+
+export const TAG_LABELS: Record<string, { label: string; tone: Tone }> = {
+  bulky: { label: "Bulky", tone: "default" },
+  urgent: { label: "Urgent", tone: "warn" },
+  hot_tub: { label: "Hot tub", tone: "default" },
+  piano: { label: "Piano", tone: "default" },
+  safe: { label: "Safe", tone: "default" },
+  stairs: { label: "Stairs", tone: "default" },
+  elevator: { label: "Elevator", tone: "default" },
+  no_elevator: { label: "No elevator", tone: "default" },
+  shuttle: { label: "Shuttle", tone: "default" },
+  long_carry: { label: "Long carry", tone: "default" },
+  packing: { label: "Packing", tone: "default" },
+  partial: { label: "Partial", tone: "default" },
+  full: { label: "Full load", tone: "default" },
+  fragile: { label: "Fragile", tone: "default" },
+  motorcycle: { label: "Motorcycle", tone: "default" },
+  pool_table: { label: "Pool table", tone: "default" },
+  treadmill: { label: "Treadmill", tone: "default" },
+  storage: { label: "Storage", tone: "default" },
+  cod: { label: "COD", tone: "warn" },
+  ground_floor: { label: "Ground floor", tone: "default" },
+};
+
+export const SORT_OPTIONS: Array<{ value: SortKey | ""; label: string; needsViewer?: boolean }> = [
+  { value: "", label: "Auto" },
+  { value: "distance", label: "Nearest pickup", needsViewer: true },
+  { value: "last_seen", label: "Freshest" },
+  { value: "ready", label: "Ready soonest" },
+  { value: "cf", label: "Biggest (cf)" },
+  { value: "rate", label: "Highest $/cf" },
+  { value: "deliver_by", label: "Deadline soonest" },
+  { value: "newest", label: "Newest" },
+];
+
+export const READY_OPTIONS = [
+  { value: "any", label: "Any" },
+  { value: "now", label: "Ready now" },
+  { value: "by", label: "Ready by date" },
+] as const;
+
+export const SEEN_OPTIONS = [
+  { value: "", label: "Any" },
+  { value: "1", label: "Today" },
+  { value: "3", label: "Last 3 days" },
+  { value: "7", label: "Last 7 days" },
+] as const;

@@ -1,0 +1,366 @@
+"use client";
+
+/**
+ * The one place a phone number reaches the page.
+ *
+ * Everything else about a job is public: the route, the size, the price, the
+ * freshness, the original WhatsApp text. An account buys exactly one thing --
+ * the contact -- so the sign-in step is not a wall in front of the board, it is
+ * an inline step inside the job the driver already decided they want. No
+ * navigation, no modal: the button turns into the step, the step turns into the
+ * number, and the filters, the map viewport and the open drawer are untouched
+ * throughout.
+ *
+ * Owned by Agent B; Agent C mounts it in the job detail's contact section and
+ * nowhere else. It renders its own chrome (the "Contact" label and the name
+ * line), so C mounts this and nothing around it.
+ */
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api } from "@/lib/basePath";
+import { registerHref } from "@/lib/session";
+import type { ContactResponse } from "@/lib/loads/publicView";
+import type { ContactMode } from "@/lib/loads/types";
+
+export interface ContactGateProps {
+  loadId: number;
+  contactName: string | null;
+  /** PublicLoadRow.has_phone. False -> no button at all: there is nothing to gate. */
+  hasPhone: boolean;
+  /** job.group_name, named in the "message the sender in the group" line. */
+  groupName?: string | null;
+  /** "dm" -> the sender asked to be messaged privately; WhatsApp leads. */
+  contactMode: ContactMode;
+  signedIn: boolean;
+  demoMode: boolean;
+  /** The card's Show contact button was used: reveal (or open the step) on mount. */
+  autoOpen?: boolean;
+  /** "sticky" drops the card chrome for the mobile bottom bar. */
+  variant?: "card" | "sticky";
+  /** LoadDetail swaps the masked message for `c.sourceBody`. */
+  onRevealed?: (c: ContactResponse) => void;
+}
+
+type GateState = "idle" | "gate" | "revealing" | "revealed" | "error";
+
+/** Where to come back to after a real (non-demo) registration. */
+function currentPath(): string {
+  if (typeof window === "undefined") return "/";
+  return window.location.pathname + window.location.search;
+}
+
+export function ContactGate({
+  loadId,
+  contactName,
+  hasPhone,
+  groupName,
+  contactMode,
+  signedIn,
+  demoMode,
+  autoOpen,
+  variant = "card",
+  onRevealed,
+}: ContactGateProps) {
+  const router = useRouter();
+  const [state, setState] = useState<GateState>("idle");
+  const [contact, setContact] = useState<ContactResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(!demoMode);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [copied, setCopied] = useState(false);
+  const autoRan = useRef(false);
+
+  const reveal = useCallback(async () => {
+    setState("revealing");
+    setError(null);
+    try {
+      const res = await fetch(api(`/api/loads/${loadId}/contact`), { method: "POST" });
+      if (res.status === 401) {
+        setState("gate");
+        return;
+      }
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error ?? "Could not load the contact");
+      const data = body as ContactResponse;
+      setContact(data);
+      setState("revealed");
+      onRevealed?.(data);
+      // After the reveal, so the header flips to the signed-in view and Board's
+      // `signedIn` prop becomes true. refresh() keeps client state: the drawer,
+      // the filters and the map viewport stay exactly where they were.
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load the contact");
+      setState("error");
+    }
+  }, [loadId, onRevealed, router]);
+
+  // The card's Show contact button opens the detail with autoOpen set.
+  useEffect(() => {
+    if (!autoOpen || autoRan.current || !hasPhone) return;
+    autoRan.current = true;
+    if (signedIn) void reveal();
+    else setState("gate");
+  }, [autoOpen, hasPhone, signedIn, reveal]);
+
+  async function signInDemo() {
+    setError(null);
+    try {
+      const res = await fetch(api("/api/auth/demo"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: "driver" }),
+      });
+      if (!res.ok) throw new Error("Demo sign-in is not available");
+      await reveal();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Demo sign-in is not available");
+    }
+  }
+
+  async function signInWithPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const res = await fetch(api("/api/auth/login"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Wrong email or password");
+      await reveal();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Wrong email or password");
+    }
+  }
+
+  const chrome =
+    variant === "sticky"
+      ? "flex flex-col gap-2"
+      : "card flex flex-col gap-2 p-[var(--sp-4)]";
+
+  // --- 1. Nothing to gate ----------------------------------------------------
+  // A post with no phone (the sender wants to be messaged in the group) shows
+  // no button: the original message is already visible in full, so a gate here
+  // would guard a no-op and read as a broken flow.
+  if (!hasPhone) {
+    return (
+      <section className={chrome}>
+        {variant === "card" && <div className="label">Contact</div>}
+        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          No phone number in this post — the sender wants to be messaged in the group
+          {contactMode === "dm" ? " (privately)" : ""}.
+        </p>
+        {groupName && (
+          <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted-2)" }}>
+            Group: {groupName}
+          </p>
+        )}
+      </section>
+    );
+  }
+
+  // --- 4. Revealed -----------------------------------------------------------
+  if (state === "revealed" && contact) {
+    const c = contact.contact;
+    return (
+      <section className={chrome}>
+        {variant === "card" && <div className="label">Contact</div>}
+        <div className="text-[var(--fs-md)] font-semibold">{c.name ?? contactName ?? "Not named"}</div>
+        {contactMode === "dm" && (
+          <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            The sender asked to be messaged privately.
+          </p>
+        )}
+        {c.incomplete || !c.tel ? (
+          <>
+            <div className="nums text-[var(--fs-lg)] font-semibold">{c.display ?? "—"}</div>
+            <p className="text-[var(--fs-sm)]" style={{ color: "var(--warn)" }}>
+              Area code missing in the post — check the original message.
+            </p>
+          </>
+        ) : (
+          <div className="flex flex-wrap gap-[var(--sp-2)]">
+            {contactMode === "dm" ? (
+              <>
+                {c.whatsapp && (
+                  <a
+                    className="btn btn-primary"
+                    style={{ minHeight: "var(--tap-min)" }}
+                    href={c.whatsapp}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    WhatsApp
+                  </a>
+                )}
+                <a className="btn" style={{ minHeight: "var(--tap-min)" }} href={c.tel}>
+                  Call {c.display}
+                </a>
+              </>
+            ) : (
+              <>
+                <a
+                  className="btn btn-primary"
+                  style={{ minHeight: "var(--tap-min)" }}
+                  href={c.tel}
+                >
+                  Call {c.display}
+                </a>
+                {c.whatsapp && (
+                  <a
+                    className="btn"
+                    style={{ minHeight: "var(--tap-min)" }}
+                    href={c.whatsapp}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    WhatsApp
+                  </a>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm self-start"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(c.summary);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            } catch {
+              setCopied(false);
+            }
+          }}
+        >
+          {copied ? "Copied" : "Copy summary"}
+        </button>
+      </section>
+    );
+  }
+
+  // --- 2. The inline sign-in step -------------------------------------------
+  if (state === "gate") {
+    return (
+      <section className={chrome}>
+        {variant === "card" && <div className="label">Contact</div>}
+        <h3 className="text-[var(--fs-md)] font-semibold">Sign in to see the contact</h3>
+        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          Free. Browsing never needs an account — only contact details do.
+        </p>
+
+        {demoMode && (
+          <button
+            type="button"
+            className="btn btn-primary w-full"
+            style={{ minHeight: "var(--tap-min)" }}
+            onClick={signInDemo}
+          >
+            Sign in as demo driver
+          </button>
+        )}
+
+        {demoMode && !showForm && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm self-start"
+            onClick={() => setShowForm(true)}
+          >
+            or use email and password
+          </button>
+        )}
+
+        {showForm && (
+          <form className="flex flex-col gap-[var(--sp-2)]" onSubmit={signInWithPassword}>
+            <input
+              className="field"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <input
+              className="field"
+              type="password"
+              autoComplete="current-password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <button type="submit" className="btn btn-primary" style={{ minHeight: "var(--tap-min)" }}>
+              Sign in
+            </button>
+          </form>
+        )}
+
+        {error && (
+          <p className="text-[var(--fs-sm)]" style={{ color: "var(--danger)" }}>
+            {error}
+          </p>
+        )}
+
+        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          New here?{" "}
+          <Link
+            href={registerHref("driver", currentPath())}
+            style={{ color: "var(--accent)", fontWeight: 600 }}
+          >
+            Create a driver account
+          </Link>
+        </p>
+
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm self-start"
+          onClick={() => setState("idle")}
+        >
+          Cancel
+        </button>
+      </section>
+    );
+  }
+
+  // --- 1. idle · 3. revealing · 5. error ------------------------------------
+  return (
+    <section className={chrome}>
+      {variant === "card" && <div className="label">Contact</div>}
+      <div className="text-[var(--fs-md)] font-semibold">{contactName ?? "Not named"}</div>
+      {contactMode === "dm" && (
+        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          The sender asked to be messaged privately.
+        </p>
+      )}
+      <button
+        type="button"
+        className="btn btn-primary w-full"
+        style={{ minHeight: "var(--tap-min)" }}
+        disabled={state === "revealing"}
+        onClick={() => (signedIn ? void reveal() : setState("gate"))}
+      >
+        {state === "revealing" ? "One moment…" : "Show contact"}
+      </button>
+      {state === "error" && error && (
+        <p className="text-[var(--fs-sm)]" style={{ color: "var(--danger)" }}>
+          {error}{" "}
+          <button
+            type="button"
+            className="underline"
+            style={{ color: "var(--accent)" }}
+            onClick={() => void reveal()}
+          >
+            Try again
+          </button>
+        </p>
+      )}
+    </section>
+  );
+}
