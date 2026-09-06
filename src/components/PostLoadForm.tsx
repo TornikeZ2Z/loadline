@@ -121,6 +121,11 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
         pickupLng: picked?.lng != null ? String(picked.lng) : "",
         pickupState: picked?.state ?? "",
         pickupZip: picked?.zip ?? "",
+        // How exact the picked place actually is. "Florida — anywhere in the
+        // state" and "north jersey" come back as state/region rows with a
+        // centroid, and dropping this made them look like a pinned city: a
+        // solid arc from the middle of Florida, no "approximate" chip.
+        pickupPrecision: picked?.precision ?? "",
         deliveryState,
         deliveryZip: deliveryZip.trim(),
         deliveryCity: deliveryCity.trim(),
