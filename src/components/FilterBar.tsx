@@ -775,12 +775,10 @@ function Segment({
   return (
     <button
       type="button"
-      className="chip"
+      className="chip chip-button"
       aria-pressed={on}
       onClick={onClick}
       style={{
-        height: 28,
-        cursor: "pointer",
         background: on ? "var(--accent-soft)" : "var(--surface-2)",
         color: on ? "var(--accent)" : "var(--text-2)",
       }}

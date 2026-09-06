@@ -188,7 +188,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 <MenuAutoClose> adds as an enhancement -- see that file. */}
             <details key={currentPath ?? "/"} data-menu className="relative shrink-0">
               <summary
-                className="flex h-[var(--tap-min)] min-w-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:min-w-0 md:px-2 [&::-webkit-details-marker]:hidden"
+                className="tap flex h-[var(--tap-min)] min-w-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:min-w-0 md:px-2 [&::-webkit-details-marker]:hidden"
                 style={
                   active === "site"
                     ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -228,7 +228,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                       <Link
                         key={link.href}
                         href={link.href}
-                        className="-mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
+                        className="tap -mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                         style={{ color: "var(--text-2)" }}
                       >
                         {link.label}
@@ -249,7 +249,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                         <Link
                           key={n.key}
                           href={n.href}
-                          className="-mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
+                          className="tap -mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                           style={{ color: "var(--text-2)" }}
                         >
                           {n.label}

@@ -494,12 +494,17 @@ export function LoadDetail({
 
         {role === "admin" && row.source_message_id != null && (
           <section className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-1)] text-(length:--fs-sm)">
-            <Link href={`/admin/test?message=${row.source_message_id}`} style={{ color: "var(--accent)" }}>
+            <Link
+              href={`/admin/test?message=${row.source_message_id}`}
+              className="flex min-h-[var(--tap-min)] items-center md:min-h-0"
+              style={{ color: "var(--accent)" }}
+            >
               Open in WhatsApp console →
             </Link>
             {row.needs_review && (
               <Link
                 href={`/admin?tab=attention&message=${row.source_message_id}`}
+                className="flex min-h-[var(--tap-min)] items-center md:min-h-0"
                 style={{ color: "var(--accent)" }}
               >
                 Review in admin queue →

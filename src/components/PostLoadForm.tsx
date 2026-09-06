@@ -292,12 +292,10 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
               <button
                 key={text}
                 type="button"
-                className="chip"
+                className="chip chip-button"
                 aria-pressed={priceMode === mode}
                 onClick={() => setPriceMode(mode)}
                 style={{
-                  height: 28,
-                  cursor: "pointer",
                   background: priceMode === mode ? "var(--accent-soft)" : "var(--surface-2)",
                   color: priceMode === mode ? "var(--accent)" : "var(--text-2)",
                 }}
@@ -341,11 +339,11 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
         </Field>
 
         <Field label="Ready">
-          <label className="flex items-center gap-[var(--sp-2)]">
+          <label className="check-row">
             <input type="radio" name="ready" checked={readyNow} onChange={() => setReadyNow(true)} />
             Ready now — already picked up / in the warehouse
           </label>
-          <label className="mt-[var(--sp-1)] flex items-center gap-[var(--sp-2)]">
+          <label className="check-row mt-[var(--sp-1)] flex-wrap">
             <input type="radio" name="ready" checked={!readyNow} onChange={() => setReadyNow(false)} />
             Ready on
             <input
@@ -384,12 +382,10 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
                 <button
                   key={tag}
                   type="button"
-                  className="chip"
+                  className="chip chip-button"
                   aria-pressed={on}
                   onClick={() => setTags(on ? tags.filter((t) => t !== tag) : [...tags, tag])}
                   style={{
-                    height: 26,
-                    cursor: "pointer",
                     background: on ? "var(--accent-soft)" : "var(--surface-2)",
                     color: on ? "var(--accent)" : "var(--text-2)",
                   }}
