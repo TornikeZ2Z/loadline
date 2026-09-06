@@ -14,6 +14,15 @@
  *   S3  E, then "UPDATED LIST" with F's body a day later: full, E delisted;
  *       then a small 3-line post with its own header: full, everything else
  *       delisted -- the latest post wins.
+ *   S4  the same lane at 300 cf yesterday and 350 cf today pairs into one job;
+ *       reprocessing yesterday's post, or receiving it late, never writes 300
+ *       back over it.
+ *   S5  a reprocess that no longer parses as a load post still rebuilds the
+ *       sender: the earlier list comes back instead of staying delisted.
+ *   S6  a sender's expired jobs are not resurrected wholesale by a later
+ *       one-line partial, and their expiry clock is not pushed forward.
+ *   S7  a claim interrupted between claimNext and finish is re-offered, while
+ *       a claim that is still fresh is not stolen.
  */
 process.env.PGLITE_DIR = "memory://";
 
@@ -44,7 +53,7 @@ async function main() {
   const { query, queryOne } = await import("../src/lib/db");
   const { ingestMessage } = await import("../src/lib/pipeline/ingest");
   const { processPending, reprocessMessage } = await import("../src/lib/pipeline/process");
-  const { rebuildSender } = await import("../src/lib/pipeline/reconcile");
+  const { rebuildSender, SENDER_SILENCE_DAYS } = await import("../src/lib/pipeline/reconcile");
   const { expireStaleLoads } = await import("../src/lib/pipeline/expire");
 
   const T0 = new Date();
@@ -161,6 +170,144 @@ async function main() {
   await post(S3, "FROM MIAMI FL:\n300 - GA 30303\n400 - NC 28202", T3, T3);
   const still = await queryOne<{ status: string; status_source: string; seen_count: number }>(`SELECT status, status_source, seen_count FROM loads WHERE id = $1`, [taken!.id]);
   expect(still?.status === "taken" && still.status_source === "manual" && still.seen_count === 2, `a job marked taken stays taken through a repost while last_seen advances (got ${JSON.stringify(still)})`);
+
+  // ------------------------------------------------------------------ S4
+  // An older post is not newer information: reprocessing it, or receiving it
+  // late, must never write its cubic feet and price back over the live job.
+  console.log(`\n${DIM}S4: an older post never rewrites a job's cubic feet or price${RESET}`);
+  const OLD_LIST = "FROM MIAMI FL:\n300 - GA 30303 $3.00";
+  const NEW_LIST = "FROM MIAMI FL:\n350 - GA 30303 $4.00";
+  const live = async (phone: string) =>
+    await queryOne<{ job_key: string; cubic_feet: number; price_per_cf: number; rate_usd: number }>(
+      `SELECT job_key, cubic_feet::int AS cubic_feet, price_per_cf::float8 AS price_per_cf, rate_usd::float8 AS rate_usd
+         FROM loads WHERE sender_key = $1 AND status = 'available'`,
+      [`phone:${phone}`],
+    );
+
+  const S4 = "+17865550401";
+  const oldId = await post(S4, OLD_LIST, new Date(T0.getTime() - DAY), T0);
+  await post(S4, NEW_LIST, T0, T0);
+  c = await counts(S4);
+  let cf = await live(S4);
+  expect(
+    c.total === 1 && cf?.cubic_feet === 350 && cf.price_per_cf === 4,
+    `300 -> 350 on one lane pairs into a single revised job (got ${c.total} row(s), ${JSON.stringify(cf)})`,
+  );
+
+  await reprocessMessage(oldId, { now: T0 });
+  cf = await live(S4);
+  expect(
+    cf?.cubic_feet === 350 && cf.price_per_cf === 4 && cf.rate_usd === 1400,
+    `reprocessing yesterday's post leaves the live job at 350 cf / $4.00 (got ${JSON.stringify(cf)})`,
+  );
+
+  const S4b = "+17865550402";
+  await post(S4b, NEW_LIST, T0, T0);
+  await post(S4b, OLD_LIST, new Date(T0.getTime() - DAY), T0);
+  cf = await live(S4b);
+  c = await counts(S4b);
+  expect(
+    cf?.cubic_feet === 350 && cf.price_per_cf === 4 && c.available === 1 && c.delisted === 1,
+    `yesterday's post arriving late is delisted, not merged backwards (got ${JSON.stringify(cf)}, ${c.available}/${c.delisted})`,
+  );
+
+  // ------------------------------------------------------------------ S5
+  // Dropping the snapshot without rebuilding would leave E's 11 delisted by a
+  // post that no longer exists.
+  console.log(`\n${DIM}S5: a reprocess that yields no jobs still rebuilds the sender${RESET}`);
+  const S5 = "+17865550502";
+  await post(S5, bodyOf("E"), new Date(T0.getTime() - DAY), T0);
+  const f5 = await post(S5, bodyOf("F"), T0, T0);
+  c = await counts(S5);
+  expect(c.delisted === 11 && c.available === 9, `S5 baseline: 11 delisted / 9 available (got ${c.delisted}/${c.available})`);
+
+  await query(`UPDATE raw_messages SET body = $2 WHERE id = $1`, [f5, "thanks everyone"]);
+  const skipped = await reprocessMessage(f5, { now: T0 });
+  expect(skipped.status === "skipped", `the edited message no longer parses as a load post (got ${skipped.status}/${skipped.reason})`);
+  c = await counts(S5);
+  expect(
+    c.available === 11 && c.delisted === 0 && c.total === 11,
+    `E's 11 come back when F stops being a load post (got ${c.available}/${c.delisted}/${c.total})`,
+  );
+  const s5sender = await queryOne<{ last: string; full: string; n: number }>(
+    `SELECT last_snapshot_at::text AS last, last_full_at::text AS full, snapshot_count::int AS n FROM senders WHERE key = $1`,
+    [`phone:${S5}`],
+  );
+  expect(
+    s5sender?.n === 1 && new Date(s5sender.last).getTime() === T0.getTime() - DAY,
+    `the sender's timestamps follow the surviving snapshot (got ${JSON.stringify(s5sender)})`,
+  );
+
+  // ------------------------------------------------------------------ S6
+  // Expiry is per job, not per sender: a one-line post says nothing about the
+  // ten jobs it omits.
+  console.log(`\n${DIM}S6: a one-line partial does not resurrect an expired list${RESET}`);
+  const S6 = "+17865550603";
+  await post(S6, bodyOf("E"), T0, T0);
+  const T5b = new Date(T0.getTime() + 5 * DAY);
+  await expireStaleLoads(T5b);
+  await rebuildSender(`phone:${S6}`, T5b);
+  c = await counts(S6);
+  expect(c.expired === 11 && c.available === 0, `S6 baseline: five silent days expire all 11 (got ${c.expired}/${c.available})`);
+
+  const T10 = new Date(T0.getTime() + 10 * DAY);
+  const late = await post(S6, "still available:\nFROM TUCSON AZ\n200.    PA 16648 $3.25", T10, T10);
+  expect((await kindOf(late)).kind === "partial", "the 1-job post ten days later is partial");
+  c = await counts(S6);
+  expect(
+    c.available === 1 && c.expired === 10 && c.delisted === 0,
+    `only the job it names comes back: 1 available / 10 expired (got ${c.available}/${c.expired}/${c.delisted})`,
+  );
+  const stale = await queryOne<{ expires: string }>(
+    `SELECT expires_at::text AS expires FROM loads WHERE sender_key = $1 AND status = 'expired' ORDER BY id LIMIT 1`,
+    [`phone:${S6}`],
+  );
+  expect(
+    !!stale && new Date(stale.expires).getTime() === T0.getTime() + SENDER_SILENCE_DAYS * DAY,
+    `an unmentioned job keeps its own expiry clock (got ${stale?.expires}, wanted ${new Date(T0.getTime() + SENDER_SILENCE_DAYS * DAY).toISOString()})`,
+  );
+
+  // ------------------------------------------------------------------ S7
+  // A claim with no outcome is a dead worker, not a message to abandon.
+  console.log(`\n${DIM}S7: an interrupted claim is re-offered, a fresh one is not${RESET}`);
+  const S7 = "+17865550704";
+  const strand = async (phone: string, ago: string) => {
+    const { messageId } = await ingestMessage({
+      waMessageId: `lifecycle.${++seq}`,
+      body: bodyOf("F"),
+      sentAt: T0,
+      authorName: "Dispatcher",
+      authorPhone: phone,
+      groupName: "Lifecycle",
+      groupWaId: "lifecycle",
+    });
+    await query(
+      `UPDATE raw_messages SET status = 'processing', attempts = 1, processed_at = now() - $2::interval WHERE id = $1`,
+      [messageId, ago],
+    );
+    return messageId;
+  };
+
+  const dead = await strand(S7, "30 minutes");
+  const recovered = await processPending(5, { now: T0 });
+  expect(
+    recovered.some((r) => r.messageId === dead && r.status === "done"),
+    `a message stranded in 'processing' is claimed again (got ${JSON.stringify(recovered.map((r) => [r.messageId, r.status]))})`,
+  );
+  c = await counts(S7);
+  expect(c.available === 9, `the recovered message produces its 9 jobs (got ${c.available})`);
+
+  const inFlight = await strand("+17865550705", "10 seconds");
+  const stolen = await processPending(5, { now: T0 });
+  expect(stolen.length === 0, `a claim that is still fresh is not stolen (got ${stolen.length} claimed)`);
+  const stillHeld = await queryOne<{ status: string; attempts: number }>(
+    `SELECT status, attempts::int AS attempts FROM raw_messages WHERE id = $1`,
+    [inFlight],
+  );
+  expect(
+    stillHeld?.status === "processing" && stillHeld.attempts === 1,
+    `the in-flight message keeps its claim (got ${JSON.stringify(stillHeld)})`,
+  );
 
   const orphanEvents = await query<{ n: number }>(`SELECT count(*)::int AS n FROM load_events WHERE kind = 'viewed_contact'`);
   expect(orphanEvents[0].n === 0, "no contact reveals were logged by the pipeline");
