@@ -31,3 +31,26 @@ resource "aws_secretsmanager_secret" "cron_secret" {
 # HERE key and every screen still works — and a task definition referencing a
 # secret with no version is a hard startup failure. Add them the day they are
 # actually wanted, together with their values.
+
+# ---------------------------------------------------------------------------
+# HERE_API_KEY — looked up, never created.
+#
+# The block above explains why this stack does not CREATE this secret: a task
+# definition that references a secret with no version is a hard startup
+# failure, so an empty one would take the service down rather than degrade it.
+# But a key that already exists is worth wiring, because without it the live
+# board silently loses the three things HERE is for: real ZIP coordinates (so
+# every destination draws as an "approximate" marker), road miles and drive
+# time, and the vehicle route drawn when a job is opened.
+#
+# Set here_secret_name in terraform.tfvars to the name of the secret that holds
+# the key, then `tofu apply`. Leave it empty and everything behaves exactly as
+# it did before: GEOCODER stays "local" and no HERE variable reaches the task.
+data "aws_secretsmanager_secret" "here_api_key" {
+  count = local.here_enabled ? 1 : 0
+  name  = var.here_secret_name
+}
+
+locals {
+  here_enabled = var.here_secret_name != ""
+}

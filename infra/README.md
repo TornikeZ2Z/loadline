@@ -115,3 +115,39 @@ on host-header and cannot capture `ziptozip.app` traffic.
    first-boot schema creation and seeding, forever). The cost is real and has
    fired: gotcha 6's broken database showed as a healthy target serving 500s.
    When diagnosing, curl `/login`, not `/api/health`.
+
+## Turning the HERE features on
+
+Without a HERE key the board still works, but three things are quietly missing:
+every destination draws as an **approximate** marker (the ZIP is placed by an
+offline in-state guess), a job shows **no road miles or drive time**, and opening
+one draws **no vehicle route**. The map's whole point is the last of those.
+
+The key is NOT created by this stack — a task definition referencing a secret
+with no version is a hard startup failure, so it is looked up, never made. To
+turn it on:
+
+1. Put the key in Secrets Manager if it is not there already:
+
+   ```bash
+   aws secretsmanager create-secret --name loadline/HERE_API_KEY      --secret-string 'YOUR-KEY'
+   ```
+
+2. Name that secret in `terraform.tfvars`:
+
+   ```hcl
+   here_secret_name = "loadline/HERE_API_KEY"
+   ```
+
+3. `tofu apply`. This injects `HERE_API_KEY` into the task, grants the execution
+   role permission to read that one secret, and flips `GEOCODER` from `local` to
+   `here` — all three are needed, and the third is easy to miss: the app reads
+   `GEOCODER` *before* it checks whether a key exists, so a key alone changes
+   nothing about the map's precision.
+
+4. Existing rows keep the coordinates they were created with. Sign in as admin,
+   open **Admin → Map precision**, and run the warm: it walks the distinct ZIPs,
+   asks HERE for each one's real point, caches the answers and upgrades the rows.
+   It is idempotent and costs one call per distinct ZIP, ever.
+
+Leaving `here_secret_name` empty keeps today's behaviour exactly.

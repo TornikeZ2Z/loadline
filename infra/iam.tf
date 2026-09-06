@@ -20,16 +20,21 @@ resource "aws_iam_role_policy_attachment" "task_execution_managed" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Scoped to loadline's three secrets by ARN. The managed policy above grants
-# ECR and logs but NOT Secrets Manager.
+# Scoped to loadline's own secrets by ARN. The managed policy above grants
+# ECR and logs but NOT Secrets Manager. The HERE key joins the list only when
+# here_secret_name names one (see infra/secrets.tf); without this the task
+# would reference a secret it cannot read and fail to start.
 data "aws_iam_policy_document" "task_execution_secrets" {
   statement {
     actions = ["secretsmanager:GetSecretValue"]
-    resources = [
-      aws_secretsmanager_secret.database_url.arn,
-      aws_secretsmanager_secret.session_secret.arn,
-      aws_secretsmanager_secret.cron_secret.arn,
-    ]
+    resources = concat(
+      [
+        aws_secretsmanager_secret.database_url.arn,
+        aws_secretsmanager_secret.session_secret.arn,
+        aws_secretsmanager_secret.cron_secret.arn,
+      ],
+      local.here_enabled ? [data.aws_secretsmanager_secret.here_api_key[0].arn] : [],
+    )
   }
 }
 

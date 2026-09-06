@@ -61,3 +61,12 @@ variable "log_retention_days" {
   type    = number
   default = 14
 }
+
+# Name of an EXISTING Secrets Manager secret holding the HERE API key, e.g.
+# "loadline/HERE_API_KEY". Empty (the default) leaves the app on its offline
+# gazetteer with no road routes. The secret must already hold a value: this
+# stack looks it up, it does not create it. See infra/secrets.tf.
+variable "here_secret_name" {
+  type    = string
+  default = ""
+}

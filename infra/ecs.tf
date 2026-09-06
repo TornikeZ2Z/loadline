@@ -51,18 +51,32 @@ resource "aws_ecs_task_definition" "app" {
         # and change the demo passwords at the same time.
         { name = "DEMO_MODE", value = "on" },
         { name = "LOAD_TZ", value = "America/New_York" },
-        { name = "GEOCODER", value = "local" },
+        # "local" is the offline gazetteer. With a HERE key wired in (see
+        # here_secret_name in variables.tf) the app should ask HERE for a ZIP's
+        # real point instead, which is what turns the map's "approximate"
+        # markers into exact ones. src/lib/geo/geocode.ts reads this variable
+        # BEFORE it checks whether a key exists, so leaving it at "local" would
+        # silently defeat the key.
+        { name = "GEOCODER", value = local.here_enabled ? "here" : "local" },
         # NEXT_PUBLIC_BASE_PATH is deliberately unset: the app is served at
         # the root of its own subdomain. It is a BUILD-time value anyway.
         # WHATSAPP_ALLOW_UNSIGNED is deliberately unset: it must never be
         # set in production.
       ]
 
-      secrets = [
-        { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url.arn },
-        { name = "SESSION_SECRET", valueFrom = aws_secretsmanager_secret.session_secret.arn },
-        { name = "CRON_SECRET", valueFrom = aws_secretsmanager_secret.cron_secret.arn },
-      ]
+      secrets = concat(
+        [
+          { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url.arn },
+          { name = "SESSION_SECRET", valueFrom = aws_secretsmanager_secret.session_secret.arn },
+          { name = "CRON_SECRET", valueFrom = aws_secretsmanager_secret.cron_secret.arn },
+        ],
+        # Only when here_secret_name names a secret that already HOLDS a value.
+        # A task definition pointing at a secret with no version fails to start,
+        # which is why this is opt-in rather than created empty like the others.
+        local.here_enabled
+        ? [{ name = "HERE_API_KEY", valueFrom = data.aws_secretsmanager_secret.here_api_key[0].arn }]
+        : [],
+      )
 
       logConfiguration = {
         logDriver = "awslogs"
