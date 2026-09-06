@@ -61,3 +61,22 @@ variable "log_retention_days" {
   type    = number
   default = 14
 }
+
+# GitHub's ID-QUALIFIED OIDC subject for this repository.
+#
+# GitHub is moving OIDC tokens to a subject that embeds immutable numeric ids
+# instead of the mutable owner/repo names. This repository already presents the
+# qualified form, which is why the plain form alone fails with
+# "Not authorized to perform sts:AssumeRoleWithWebIdentity".
+#
+# Read what your repository actually sends — never assume:
+#   gh api repos/OWNER/REPO/actions/oidc/customization/sub
+#   -> {"sub_claim_prefix": "repo:OWNER@<owner_id>/REPO@<repo_id>"}
+# That prefix, plus ":ref:refs/heads/main", IS the sub claim.
+#
+# Ids confirmed 2026-09-06: owner TornikeZ2Z = 292676605, repo loadline = 1356439321.
+variable "github_repo_qualified" {
+  type        = string
+  description = "OIDC TRUST BOUNDARY, id-qualified form. Immutable: survives a rename of the user or the repository, which the plain form does not."
+  default     = "TornikeZ2Z@292676605/loadline@1356439321"
+}
