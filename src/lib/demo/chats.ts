@@ -158,16 +158,53 @@ const LOAD_COLUMNS = `
 /**
  * Jobs this message is evidence for -- what the pipeline made of that text.
  *
- * PHASE 0a: the snapshot/sighting tables are not written yet, so this is the
- * `source_message_id` fallback only. Phase 1 puts the sighting join in front of
- * it (a repost sights jobs it did not create, and those belong in this list).
+ * The jobs SIGHTED by the message, in line order: a repost sights jobs it did
+ * not create, and those belong in this list. Website and legacy rows have no
+ * sightings, so the `source_message_id` fallback covers them.
  */
 export async function loadsForMessage(messageId: number): Promise<ChatLoad[]> {
+  const sighted = await query<ChatLoad>(
+    `SELECT ${LOAD_COLUMNS}, s.line_no
+       FROM load_sightings s
+       JOIN sender_snapshots sn ON sn.id = s.snapshot_id
+       JOIN loads l ON l.id = s.load_id
+      WHERE sn.message_id = $1
+      ORDER BY s.line_no NULLS LAST, l.id`,
+    [messageId],
+  );
+  if (sighted.length) return sighted;
   return query<ChatLoad>(
     `SELECT ${LOAD_COLUMNS}, NULL::int AS line_no
        FROM loads l
       WHERE l.source_message_id = $1
       ORDER BY l.id`,
     [messageId],
+  );
+}
+
+export interface MessageFilters {
+  status?: string | null;
+  /** An attention code, or "any" for every message that needs attention. */
+  attention?: string | null;
+  flag?: string | null;
+  sender?: string | null;
+  group?: number | null;
+  limit?: number;
+}
+
+/** The admin queue: every row is a true ChatMessage plus processing metadata. */
+export async function queryMessages(f: MessageFilters): Promise<Array<ChatMessage & { processed_at: string | null; attempts: number }>> {
+  const limit = Math.min(Math.max(Number(f.limit ?? 50) || 50, 1), 200);
+  return query<ChatMessage & { processed_at: string | null; attempts: number }>(
+    `SELECT ${MESSAGE_COLUMNS}, m.processed_at::text AS processed_at, m.attempts
+       ${MESSAGE_FROM}
+      WHERE ($1::text IS NULL OR m.status = $1)
+        AND ($2::text IS NULL OR ($2 = 'any' AND m.attention IS NOT NULL) OR m.attention = $2)
+        AND ($3::text IS NULL OR $3 = ANY(coalesce(m.flags, '{}')))
+        AND ($4::text IS NULL OR m.sender_key = $4)
+        AND ($5::bigint IS NULL OR m.group_id = $5)
+      ORDER BY m.sent_at DESC, m.id DESC
+      LIMIT $6`,
+    [f.status || null, f.attention || null, f.flag || null, f.sender || null, f.group ?? null, limit],
   );
 }
