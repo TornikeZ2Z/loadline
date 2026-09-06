@@ -39,6 +39,18 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
    * and gets the real footer at the end of it.
    */
   const appScreen = active === "board" || active === "test";
+  /**
+   * The board is exactly one viewport at every width: its bottom sheet is
+   * fixed, and a page that scrolled behind it would carry the filter bar off
+   * the top. The WhatsApp console is one viewport only where its three panes
+   * fit side by side -- below `lg` they stack, and it scrolls like any page.
+   */
+  const shellClass =
+    active === "board"
+      ? "flex h-screen flex-col"
+      : active === "test"
+        ? "flex min-h-screen flex-col lg:h-screen"
+        : "flex min-h-screen flex-col";
   // Rendered by the nav from `md` up, and by the More menu below it.
   //
   // `short` is only ever used for an admin, and only below `xl`: four nav items
@@ -68,7 +80,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
        bar off the top with it. The height lives here now rather than in each
        screen -- header, body, bar, adding up to 100vh by construction, so no
        screen has to subtract the chrome above it by hand. */
-    <div className={appScreen ? "flex h-screen flex-col" : "flex min-h-screen flex-col"}>
+    <div className={shellClass}>
       <MenuAutoClose />
       <header
         className="bg-surface sticky top-0 z-30 shrink-0 border-b border-border"
@@ -84,7 +96,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
             back -- that 40 px is the difference between a header that fits and a
             page that scrolls sideways. */}
         <div className="mx-auto flex h-full max-w-[1600px] items-center gap-[var(--sp-2)] px-[var(--sp-2)] lg:gap-[var(--sp-5)] lg:px-[var(--sp-4)]">
-          <Link href="/" className="flex shrink-0 items-center gap-2 font-bold tracking-tight">
+          {/* Below `sm` the wordmark is hidden and this is a 24 px badge --
+              the board's only permanent way home, at a 24 x 24 target. The
+              padding grows it to 44 x 44 without moving the badge: the left
+              inset is pulled back by exactly the header's own 8 px padding, so
+              the mark still starts where it did, and the remaining 12 px is
+              taken on the right, where there is nothing to collide with. */}
+          <Link
+            href="/"
+            className="-ml-[var(--sp-2)] flex h-[var(--tap-min)] shrink-0 items-center gap-2 rounded-md pl-[var(--sp-2)] pr-[var(--sp-3)] font-bold tracking-tight sm:ml-0 sm:px-0"
+          >
             <span
               className="grid h-6 w-6 place-items-center rounded-md text-(length:--fs-base) text-white"
               style={{ background: "var(--accent)" }}
@@ -167,7 +188,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 <MenuAutoClose> adds as an enhancement -- see that file. */}
             <details key={currentPath ?? "/"} data-menu className="relative shrink-0">
               <summary
-                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:px-2 [&::-webkit-details-marker]:hidden"
+                className="tap flex h-[var(--tap-min)] min-w-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:min-w-0 md:px-2 [&::-webkit-details-marker]:hidden"
                 style={
                   active === "site"
                     ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -207,7 +228,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                       <Link
                         key={link.href}
                         href={link.href}
-                        className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
+                        className="tap -mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                         style={{ color: "var(--text-2)" }}
                       >
                         {link.label}
@@ -228,7 +249,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                         <Link
                           key={n.key}
                           href={n.href}
-                          className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
+                          className="tap -mx-1 flex min-h-[var(--tap-min)] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                           style={{ color: "var(--text-2)" }}
                         >
                           {n.label}
@@ -269,12 +290,19 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
           the console's panes) can actually scroll instead of stretching this
           flex item past the window; a content page is pushed down so a short
           page still has its footer at the bottom. */}
-      <div className={appScreen ? "min-h-0 flex-1" : "flex-1"}>{children}</div>
+      <div className={active === "board" ? "min-h-0 flex-1" : active === "test" ? "flex-1 lg:min-h-0" : "flex-1"}>
+        {children}
+      </div>
       {appScreen ? (
         // Hidden on a phone, and that is a decision rather than an omission:
         // the board's bottom sheet is fixed to the bottom of the viewport and
         // would cover this strip. The More menu carries the same links there.
-        <div className="hidden shrink-0 md:block">
+        //
+        // Hidden on a short screen for a different reason: a phone lying down
+        // is 390 px tall, and this bar is 34 of them. The same menu carries the
+        // same links, one tap away, at the top of the screen where the thumb
+        // already is.
+        <div className="hidden shrink-0 md:block [@media(max-height:540px)]:hidden">
           <FooterBar />
         </div>
       ) : (

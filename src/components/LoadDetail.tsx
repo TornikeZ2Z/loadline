@@ -205,23 +205,48 @@ export function LoadDetail({
   const revealedLines = revealedBody?.split("\n") ?? null;
   const sourceBody = revealedBody ?? data?.source?.body ?? null;
 
+  /**
+   * The gate. On a phone it is NOT rendered here — see the bar below the
+   * scroller — so this is the desktop copy and the mobile one is the same
+   * element in a different place.
+   */
+  const gate = (
+    <ContactGate
+      loadId={row.id}
+      contactName={row.contact_name}
+      hasPhone={row.has_phone}
+      groupName={row.group_name}
+      contactMode={row.contact_mode}
+      signedIn={signedIn}
+      demoMode={demoMode}
+      autoOpen={autoContact}
+      variant={mobile ? "sticky" : "card"}
+      onRevealed={setRevealed}
+    />
+  );
+
   return (
     <div className="drawer-enter flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {/* 1 — header.
             Sticky, because this drawer is ~1,200 px long and the lane is the
             one thing you need to still know when you are eight sections down
             reading the original post. The way back out travels with it. */}
+        {/* On a phone this header and the contact bar together are 361 px of a
+            464 px sheet, so the drawer's own body gets a hundred. It keeps
+            everything it says and one size step less of saying it. */}
         <section
-          className="sticky top-0 z-10 border-b border-border px-[var(--sp-4)] pb-[var(--sp-3)] pt-[var(--sp-3)]"
+          className="sticky top-0 z-10 border-b border-border px-[var(--sp-4)] pb-[var(--sp-2)] pt-[var(--sp-2)] md:pb-[var(--sp-3)] md:pt-[var(--sp-3)]"
           style={{ background: "var(--surface-glass)", backdropFilter: "blur(8px)" }}
         >
           <BackButton total={totalInList} onClose={onClose} />
-          <h1 className="big mt-[var(--sp-2)] text-(length:--fs-2xl)">{laneLabel(row)}</h1>
-          <p className="text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
+          <h1 className="big mt-[var(--sp-1)] text-(length:--fs-xl) md:mt-[var(--sp-2)] md:text-(length:--fs-2xl)">
+            {laneLabel(row)}
+          </h1>
+          <p className="text-(length:--fs-base) md:text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
             {from.text} → {to.text}
           </p>
-          <div className="mt-[var(--sp-2)] flex flex-wrap gap-[var(--sp-1)]">
+          <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)] md:mt-[var(--sp-2)]">
             <Chip tone={fresh.tone} title={fresh.detail ?? undefined}>
               {fresh.text}
             </Chip>
@@ -376,42 +401,18 @@ export function LoadDetail({
           </section>
         )}
 
-        {/* 6 — the only place a phone number reaches the page */}
-        {/* On a phone this is the sticky bar at the bottom of the sheet (C
-            §1.3): the sheet's half snap shows ~390 px of a ~1,200 px drawer,
-            so a contact block that scrolled with the rest would be two screens
-            below the tap that asked for it. */}
-        <section
-          ref={contactSection}
-          className="mt-[var(--sp-5)]"
-          style={
-            mobile
-              ? {
-                  position: "sticky",
-                  bottom: 0,
-                  marginLeft: "calc(var(--sp-4) * -1)",
-                  marginRight: "calc(var(--sp-4) * -1)",
-                  padding: "var(--sp-3) var(--sp-4)",
-                  background: "var(--surface-glass)",
-                  backdropFilter: "blur(6px)",
-                  borderTop: "1px solid var(--border)",
-                }
-              : undefined
-          }
-        >
-          <ContactGate
-            loadId={row.id}
-            contactName={row.contact_name}
-            hasPhone={row.has_phone}
-            groupName={row.group_name}
-            contactMode={row.contact_mode}
-            signedIn={signedIn}
-            demoMode={demoMode}
-            autoOpen={autoContact}
-            variant={mobile ? "sticky" : "card"}
-            onRevealed={setRevealed}
-          />
-        </section>
+        {/* 6 — the only place a phone number reaches the page.
+            On a phone it is not here at all: it is the bar under this scroller,
+            because `position: sticky` inside a 384 px scrollport could not hold
+            it once the sign-in step doubled its height, and the bottom 13 px of
+            it -- the Cancel button -- was clipped. A flex row outside the
+            scroller cannot be clipped by definition, and it is on screen from
+            the moment the job opens rather than six sections down. */}
+        {!mobile && (
+          <section ref={contactSection} className="mt-[var(--sp-5)]">
+            {gate}
+          </section>
+        )}
 
         {/* 7 — the post it came from */}
         {data?.source && (
@@ -498,12 +499,17 @@ export function LoadDetail({
 
         {role === "admin" && row.source_message_id != null && (
           <section className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-1)] text-(length:--fs-sm)">
-            <Link href={`/admin/test?message=${row.source_message_id}`} style={{ color: "var(--accent)" }}>
+            <Link
+              href={`/admin/test?message=${row.source_message_id}`}
+              className="flex min-h-[var(--tap-min)] items-center md:min-h-0"
+              style={{ color: "var(--accent)" }}
+            >
               Open in WhatsApp console →
             </Link>
             {row.needs_review && (
               <Link
                 href={`/admin?tab=attention&message=${row.source_message_id}`}
+                className="flex min-h-[var(--tap-min)] items-center md:min-h-0"
                 style={{ color: "var(--accent)" }}
               >
                 Review in admin queue →
@@ -513,6 +519,29 @@ export function LoadDetail({
         )}
         </div>
       </div>
+
+      {/* The phone's contact bar: outside the scroller, so it is always the
+          bottom of the sheet and never scrolls away or gets cut off.
+
+          It may shrink, and scrolls inside itself when it does. The bar is
+          269 px tall with the sign-in step open and the sheet is not always
+          that tall: at the shortest snap, or with the on-screen keyboard up,
+          where the whole viewport is 450. `shrink-0` there pushed the Call
+          buttons 77 px past the bottom of the screen with no way to reach
+          them. Shrinking costs nothing at the snaps where it fits. */}
+      {mobile && (
+        <section
+          ref={contactSection}
+          /* `scroll-py`: when the browser scrolls a focused field into this
+             scroller it aligns to the padding box, and without it the field
+             being typed into ends up flush against the bottom edge of the
+             screen with the keyboard directly under it. */
+          className="min-h-0 overflow-y-auto overscroll-contain scroll-py-[var(--sp-4)] border-t border-border px-[var(--sp-4)] py-[var(--sp-3)]"
+          style={{ background: "var(--surface)" }}
+        >
+          {gate}
+        </section>
+      )}
     </div>
   );
 }

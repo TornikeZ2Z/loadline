@@ -85,6 +85,8 @@ export interface LoadMapProps {
   fitKey: string;
   /** Height of the mobile sheet, so the route is fitted into the visible half. */
   bottomPadding?: number;
+  /** The phone layout: the map band is a fraction of its usual height. */
+  compact?: boolean;
   filteredSummary: LoadSummary | null;
   /** The first search has not answered yet; the panel must not report a 0. */
   loading?: boolean;
@@ -306,6 +308,7 @@ export function LoadMap({
   towardHome,
   fitKey,
   bottomPadding = 0,
+  compact = false,
   filteredSummary,
   loading = false,
 }: LoadMapProps) {
@@ -338,6 +341,10 @@ export function LoadMap({
   const priorBounds = useRef<maplibregl.LngLatBounds | null>(null);
   /** The `fitKey` the current viewport was fitted for; null until the first fit. */
   const lastFit = useRef<string | null>(null);
+  /** The `bottomPadding` that fit was computed with. */
+  const lastFitPad = useRef<number | null>(null);
+  /** The viewer has panned or zoomed by hand: their frame outranks ours. */
+  const viewerFramed = useRef(false);
   /**
    * One road geometry per job for the life of the page. The server caches it on
    * the row as well, so even a reload costs no second HERE call -- this only
@@ -445,17 +452,30 @@ export function LoadMap({
 
       let placed = false;
       for (const [dx, dy] of l.fixed ? [[0, 0] as [number, number]] : LABEL_SLOTS) {
-        const ox = l.base[0] + dx;
         const oy = l.base[1] + dy;
-        const cx = at.x + ox;
+        const cx = at.x + l.base[0] + dx;
         const cy = at.y + oy;
-        const left = l.anchor === "left" ? cx : cx - w / 2;
+        const natural = l.anchor === "left" ? cx : cx - w / 2;
         const top = l.anchor === "bottom" ? cy - h : cy - h / 2;
+        // Slide a label that would run past a side back inside, rather than
+        // hiding it or letting it clip. "FL · 4,900 cf" is 90 px on a 390 px
+        // map, so on a phone the whole eastern seaboard is within half a label
+        // of the edge, and hiding all of it is not decluttering. The shift is
+        // applied BEFORE the collision test, so what is checked is where the
+        // label will actually be drawn -- and it applies to the route's two end
+        // labels as well, which are the only ones that may not be hidden and so
+        // were the only ones that could still come out clipped.
+        let shift = 0;
+        if (natural - LABEL_PAD < 2) shift = 2 - (natural - LABEL_PAD);
+        else if (natural + w + LABEL_PAD > vw - 2) shift = vw - 2 - (natural + w + LABEL_PAD);
+        const ox = l.base[0] + dx + shift;
+        const left = natural + shift;
         const box: Box = [left - LABEL_PAD, top - LABEL_PAD, left + w + LABEL_PAD, top + h + LABEL_PAD];
         if (!l.fixed) {
-          // The map column clips, so a label that runs off the edge reads as
-          // broken text rather than as a label. Try another slot, or none.
-          if (box[0] < 2 || box[1] < 2 || box[2] > vw - 2 || box[3] > vh - 2) continue;
+          // Vertically there is nowhere to slide to: the label belongs beside
+          // its point, and a map is taller than one label everywhere it
+          // matters. Try another slot, or none.
+          if (box[1] < 2 || box[3] > vh - 2) continue;
           if (taken.some((t) => overlaps(box, t))) continue;
         }
         l.marker.setOffset([ox, oy]);
@@ -698,6 +718,13 @@ export function LoadMap({
 
       instance.on("zoom", () => setZoom(instance.getZoom()));
 
+      // `originalEvent` is present only when a pointer, a wheel or a key moved
+      // the camera; a fitBounds of ours has none. Once the viewer has framed
+      // the map themselves, nothing but a new search may reframe it.
+      instance.on("movestart", (e) => {
+        if ((e as { originalEvent?: unknown }).originalEvent) viewerFramed.current = true;
+      });
+
       let boundsTimer: ReturnType<typeof setTimeout> | null = null;
       instance.on("moveend", () => {
         measureInView();
@@ -765,8 +792,26 @@ export function LoadMap({
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
-    if (fitKey === lastFit.current) return;
+    // A refit is owed either because the search changed, or because the frame
+    // it was fitted into did. The second case is not hypothetical: on a phone
+    // the layout viewport is still settling while the first rows arrive (a URL
+    // bar collapsing, an emulator applying its metrics), and a fit computed
+    // against the wrong height put the whole country underneath the bottom
+    // sheet and left a driver looking at the Canadian Arctic. Once the viewer
+    // has moved the map themselves, their frame wins and nothing but a new
+    // search touches it.
+    const reframed =
+      lastFitPad.current !== null &&
+      Math.abs(lastFitPad.current - bottomPadding) > 32 &&
+      !viewerFramed.current;
+    if (fitKey === lastFit.current && !reframed) return;
     const padding = { top: 40, right: 40, bottom: 40 + bottomPadding, left: 40 };
+    // A new search snaps; a sheet that has just been dragged to a new stop
+    // eases, because the viewer is watching that half of the screen and a jump
+    // there reads as the map having reloaded.
+    const duration = reframed && fitKey === lastFit.current ? 320 : 0;
+    lastFitPad.current = bottomPadding;
+    viewerFramed.current = false;
 
     // The viewer/home box answers "between me and home", which is the question
     // only while the corridor is on. With the toggle off the map has to frame
@@ -778,20 +823,20 @@ export function LoadMap({
           [Math.min(viewer.lng, home.lng), Math.min(viewer.lat, home.lat)],
           [Math.max(viewer.lng, home.lng), Math.max(viewer.lat, home.lat)],
         ],
-        { padding, duration: 0 },
+        { padding, duration },
       );
       return;
     }
 
     const box = bboxOf(built.groups.map((g) => [g.lng, g.lat] as [number, number]));
-    m.fitBounds(box ?? CONUS, { padding, duration: 0, maxZoom: 9 });
+    m.fitBounds(box ?? CONUS, { padding, duration, maxZoom: 9 });
     // Record the key only once there is something real to frame: before the
     // first response lands `built` is empty because nothing has been fetched
     // yet rather than because the search found nothing, and consuming the key
     // there would leave the first result set unframed.
     if (box || lastFit.current !== null) lastFit.current = fitKey;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [built, ready]);
+  }, [built, ready, bottomPadding]);
 
   // --- hover/selection: highlight one marker, dim the rest -----------------
   useEffect(() => {
@@ -1151,39 +1196,62 @@ export function LoadMap({
   const noRoad = selectedId != null && route?.id === selectedId && route.road.path == null;
 
   return (
-    <div ref={shell} className="relative h-full w-full">
+    <div
+      ref={shell}
+      className="relative h-full w-full"
+      /* On a phone the map now runs the full height of the board and the bottom
+         sheet floats over its lower half, so anything anchored to the bottom of
+         the map -- the legend, and MapLibre's own attribution, which is a
+         licence condition and not decoration -- would be underneath it. This is
+         how far up they have to sit. Capped in CSS at 55vh: past the half snap
+         the map is not what anybody is looking at, and an uncapped value would
+         push the legend out through the top of the screen. */
+      style={{ "--map-inset-b": `${bottomPadding}px` } as React.CSSProperties}
+    >
       <div ref={container} className="h-full w-full" />
 
       {/* Every floating panel carries data-map-chrome: it is opaque, so the
           label placer has to treat it as occupied ground. */}
       <div
         data-map-chrome
-        className="glass absolute left-[var(--sp-3)] top-[var(--sp-3)] max-w-[260px] p-[var(--sp-3)]"
+        /* On a phone this panel is on a map band 261 px tall at the sheet's
+           default snap, and in landscape the whole board is 267 px, so it drops
+           to one line and its own title: everything hidden here is printed
+           again in the list header a thumb's width away, and neither screen
+           can afford to say it twice. */
+        className={`glass absolute left-[var(--sp-3)] top-[var(--sp-3)] max-w-[260px] ${compact ? "p-[var(--sp-2)]" : "p-[var(--sp-3)]"}`}
         title={`Jobs whose ${end} is on screen, and the cubic feet standing there. Hollow markers sit on a state centroid rather than a real address. Jobs without a stated size are counted but add nothing to the total.`}
       >
         {/* The list header counts the whole result; this counts the viewport.
             Saying which is which costs one small line and stops the two
             reading as the same number printed twice. */}
-        <div className="label">On screen</div>
+        {compact ? null : <div className="label">On screen</div>}
         {/* The map is ready long before the first search answers, so `inView`
             is a truthful 0 over an empty map -- and a confident "All 0 jobs"
             is the wrong thing to say to someone who is waiting. */}
         {inView == null || loading ? (
           <>
             <span className="skeleton h-[16px] w-[150px]" />
-            <span className="skeleton mt-[4px] h-[12px] w-[110px]" />
+            {compact ? null : <span className="skeleton mt-[4px] h-[12px] w-[110px]" />}
           </>
         ) : (
           <>
-            <div className="big nums text-(length:--fs-lg)">
+            <div className={compact ? "big nums text-(length:--fs-md)" : "big nums text-(length:--fs-lg)"}>
               {`${allShown ? "All " : ""}${inView.count} job${inView.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
+              {compact && (
+                <span className="font-normal" style={{ color: "var(--muted)" }}>
+                  {" on screen"}
+                </span>
+              )}
             </div>
-            <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-              {totalCf > 0
-                ? truckLine(totalCf, viewer?.truckCf ?? null)
-                : "No stated sizes on screen"}
-              {inView.unsized > 0 && ` · ${inView.unsized} without size`}
-            </div>
+            {compact ? null : (
+              <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                {totalCf > 0
+                  ? truckLine(totalCf, viewer?.truckCf ?? null)
+                  : "No stated sizes on screen"}
+                {inView.unsized > 0 && ` · ${inView.unsized} without size`}
+              </div>
+            )}
           </>
         )}
         {notPlotted > 0 && (
@@ -1196,6 +1264,22 @@ export function LoadMap({
             of {filteredSummary.count} filtered
           </div>
         )}
+
+        {/* Inside this panel rather than floating on its own, which is where it
+            used to be: on a 390 px map three separate glass cards is two too
+            many, and the one it belongs with is this one. The panel answers
+            "what is on screen"; the toggle says "and keep the search tied to
+            it". */}
+        <label
+          className={`check-row border-t border-border text-(length:--fs-sm) font-medium ${compact ? "mt-[var(--sp-1)] pt-[var(--sp-1)]" : "mt-[var(--sp-2)] pt-[var(--sp-2)]"}`}
+        >
+          <input
+            type="checkbox"
+            checked={searchAsMove}
+            onChange={(e) => onSearchAsMoveChange(e.target.checked)}
+          />
+          Search as I move{compact ? "" : " the map"}
+        </label>
       </div>
 
       {noRoad && (
@@ -1208,23 +1292,15 @@ export function LoadMap({
         </div>
       )}
 
-      <label
-        data-map-chrome
-        className="glass absolute right-[var(--sp-3)] top-[calc(var(--sp-3)+80px)] flex cursor-pointer items-center gap-[var(--sp-2)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm) font-medium"
-      >
-        <input
-          type="checkbox"
-          className="h-[15px] w-[15px]"
-          style={{ accentColor: "var(--accent)" }}
-          checked={searchAsMove}
-          onChange={(e) => onSearchAsMoveChange(e.target.checked)}
-        />
-        Search as I move the map
-      </label>
-
+      {/* Hidden on a phone while a job is open, and only then. The visible map
+          band is 261 px at the sheet's default snap, and the two labels naming
+          the route's ends are placed near their points -- so they and this
+          legend both want the bottom-left corner. The labels win: they are what
+          the map is saying right now, and this is reference material. */}
+      {compact && selectedId != null ? null : (
       <div
         data-map-chrome
-        className="glass point-legend absolute bottom-[var(--sp-5)] left-[var(--sp-3)] px-[var(--sp-3)] py-[var(--sp-2)]"
+        className="glass point-legend px-[var(--sp-3)] py-[var(--sp-2)]"
         style={
           {
             "--map-point": end === "pickup" ? "var(--pickup)" : "var(--delivery)",
@@ -1244,6 +1320,7 @@ export function LoadMap({
           </b>
         )}
       </div>
+      )}
     </div>
   );
 }

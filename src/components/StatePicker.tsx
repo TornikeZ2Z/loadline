@@ -96,11 +96,14 @@ export function StatePicker({ label, value, onChange, ghost, fullScreen }: State
   );
 
   return (
-    <span className="inline-flex items-center gap-[var(--sp-1)]">
+    /* `shrink-0`: on a phone this sits in a horizontal scroller, and a flex item
+       that is allowed to shrink turns "Delivery Any ▾" into a sliver. */
+    <span className="inline-flex shrink-0 items-center gap-[var(--sp-1)]">
       <PopoverButton
         label={trigger}
         active={selected.length > 0}
         width={360}
+        triggerClassName="pill shrink-0"
         fullScreen={fullScreen}
         panelTitle={`${label} state`}
         ariaLabel={`${label} state`}

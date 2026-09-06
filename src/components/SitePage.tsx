@@ -34,10 +34,16 @@ export function SitePage({
       >
         {lead}
       </p>
+      {/* A <p>, not a <div>: the line reads as a sentence and its links are
+          inline links inside one, which is what makes their target the line
+          rather than the word. As a block they were 15 px tall. */}
       {meta ? (
-        <div className="mt-[var(--sp-3)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        <p
+          className="mt-[var(--sp-3)] leading-[2] text-(length:--fs-sm)"
+          style={{ color: "var(--muted)" }}
+        >
           {meta}
-        </div>
+        </p>
       ) : null}
       <div className="mt-[var(--sp-8)] flex flex-col gap-[var(--sp-8)]">{children}</div>
     </main>

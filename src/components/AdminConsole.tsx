@@ -209,19 +209,22 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
   }, [toast]);
 
   return (
-    <div className="mx-auto max-w-[1400px] p-[var(--sp-5)]">
+    <div className="mx-auto max-w-[1400px] p-[var(--sp-4)] md:p-[var(--sp-5)]">
       <h1 className="big text-(length:--fs-xl)">Extraction admin</h1>
       <p className="mt-[var(--sp-1)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
         Everything on the board is derived from the raw messages, so a message can always be replayed
         after a rule changes — and a fix saved here survives a database reset.
       </p>
 
-      <div className="mt-[var(--sp-4)] flex gap-[var(--sp-1)] border-b border-border">
+      {/* Six tabs need 494 px and a phone has 390, so the row scrolls sideways
+          rather than the page: the whole console was 26 % wider than the screen
+          and every panel below drifted left as you reached the last tab. */}
+      <div className="-mx-[var(--sp-4)] mt-[var(--sp-4)] flex gap-[var(--sp-1)] overflow-x-auto border-b border-border px-[var(--sp-4)] [scrollbar-width:none] md:mx-0 md:px-0 [&::-webkit-scrollbar]:hidden">
         {TABS.map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className="px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-base) font-semibold"
+            className="min-h-[var(--tap-min)] shrink-0 whitespace-nowrap px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-base) font-semibold"
             style={
               tab === key
                 ? { color: "var(--accent)", borderBottom: "2px solid var(--accent)" }
@@ -624,8 +627,7 @@ function LineActions({
             {PLACEHOLDERS.map((p) => (
               <button
                 key={p}
-                className="chip"
-                style={{ cursor: "pointer" }}
+                className="chip chip-button"
                 onClick={() => setTemplate((t) => `${t} ${p}`.trim())}
               >
                 {p}
@@ -764,8 +766,7 @@ function TryMessage() {
           {EXAMPLES.map((ex) => (
             <button
               key={ex.label}
-              className="chip"
-              style={{ cursor: "pointer" }}
+              className="chip chip-button"
               onClick={() => setText(ex.text)}
             >
               {ex.label}
@@ -1215,11 +1216,10 @@ function FilterChip({
   return (
     <button
       type="button"
-      className="chip"
+      className="chip chip-button"
       aria-pressed={on}
       onClick={onClick}
       style={{
-        cursor: "pointer",
         background: on ? "var(--accent-soft)" : "var(--surface-2)",
         color: on ? "var(--accent)" : "var(--text-2)",
       }}

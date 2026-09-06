@@ -36,7 +36,7 @@ import {
 } from "./FilterBar";
 import { JobList, JobListSkeleton, partitionUnverified } from "./LoadViews";
 import { LoadDetail } from "./LoadDetail";
-import { BottomSheet, SNAP_FRACTION, type SheetSnap } from "./BottomSheet";
+import { BottomSheet, snapHeightPx, type SheetSnap } from "./BottomSheet";
 import { EmptyState } from "./ui";
 
 // The map is client-only: MapLibre touches window at module scope, and a
@@ -113,7 +113,15 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   const [place, setPlace] = useState<{ ids: number[]; label: string } | null>(null);
 
   const [mobile, setMobile] = useState(false);
+  /**
+   * Too short to spend two rows on a filter bar. A phone lying down is 844 x
+   * 390: wide enough for the two-column board, which is the right shape there,
+   * and the full bar was taking 119 of those 390 px on two wrapped rows.
+   */
+  const [shortScreen, setShortScreen] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(0);
+  /** Header + filter bar: the strip the bottom sheet must never cover. */
+  const [topInset, setTopInset] = useState(0);
   const [snap, setSnap] = useState<SheetSnap>("half");
   const [nudged, setNudged] = useState(false);
 
@@ -133,28 +141,54 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   // server and the first client pass disagree.
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
+    const short = window.matchMedia("(max-height: 540px)");
     const apply = () => {
       setMobile(mq.matches);
+      setShortScreen(short.matches);
       setViewportHeight(window.innerHeight);
+      // The header changes height at 768 without the filter row resizing, so
+      // the ResizeObserver below would not hear about it.
+      const bar = filterRow.current;
+      if (bar) setTopInset(Math.round(bar.getBoundingClientRect().bottom));
     };
     apply();
     mq.addEventListener("change", apply);
+    short.addEventListener("change", apply);
     window.addEventListener("resize", apply);
+    // A `resize` event is not the only way the viewport changes shape, and it
+    // is not always the first: a phone collapsing its URL bar, and the layout
+    // viewport shrinking for the on-screen keyboard, both move this number.
+    // Observing the initial containing block catches every case, and catches it
+    // after layout rather than before.
+    const ro =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(apply);
+    ro?.observe(document.documentElement);
     return () => {
       mq.removeEventListener("change", apply);
+      short.removeEventListener("change", apply);
       window.removeEventListener("resize", apply);
+      ro?.disconnect();
     };
   }, []);
 
-  // The filter bar wraps to two rows on a tablet; the grid below has to know
-  // how tall it actually ended up, so measure it rather than guess.
+  // The filter bar wraps to two rows on a tablet, so how far down the screen it
+  // ends is a measurement, not a constant -- and that bottom edge is the ceiling
+  // the bottom sheet must stop at.
+  //
+  // What used to be here wrote the measured height back into `--filters-h`,
+  // which is the same element's own `min-height`. A variable that is set from
+  // the height it controls can only ratchet upwards: once anything made the row
+  // briefly taller -- a control growing to its touch size on the first
+  // paint -- the floor rose to match and never came down. It stuck at 171 px on
+  // a phone, three times the row it was measuring. `--filters-h` is now purely
+  // the token floor it was declared as, and nothing writes to it.
   useEffect(() => {
     const el = filterRow.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      root.current?.style.setProperty("--filters-h", `${Math.round(el.offsetHeight)}px`);
-    });
+    const measure = () => setTopInset(Math.round(el.getBoundingClientRect().bottom));
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
+    measure();
     return () => observer.disconnect();
   }, []);
 
@@ -301,7 +335,9 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   const now = useMemo(() => new Date(), [rows]);
   const selectedJob = ordered.find((j) => j.id === selectedId) ?? null;
   const suggestions = emptyStateSuggestions(filters);
-  const showNudge = hydrated && !current && !nudged && !mobile;
+  // Not on a phone, and not on a landscape phone either: it is a 320 px card
+  // over a 544 x 267 map, which is most of the map.
+  const showNudge = hydrated && !current && !nudged && !mobile && !shortScreen;
 
   /**
    * The list's head, and the board's visual entry point: the one place that
@@ -437,7 +473,13 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         home={home}
         towardHome={filters.towardHome}
         fitKey={visibleQuery}
-        bottomPadding={mobile ? Math.round(viewportHeight * SNAP_FRACTION[snap]) : 0}
+        /* How much of the map the sheet is covering right now: the map frames
+           the jobs into what is left, and lifts its own legend and MapLibre's
+           attribution above it. It re-frames when this changes -- once per
+           snap, never mid-drag, and never after the viewer has panned the map
+           themselves. */
+        bottomPadding={mobile ? snapHeightPx(viewportHeight, snap, topInset) : 0}
+        compact={mobile || shortScreen}
         filteredSummary={summary}
         loading={firstLoad}
       />
@@ -503,7 +545,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         current={current}
         home={home}
         isAdmin={isAdmin}
-        mobile={mobile}
+        compact={mobile || shortScreen}
       />
     </div>
   );
@@ -512,11 +554,20 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     return (
       <div ref={root} className="board flex flex-col" style={{ height: "100%" }}>
         {filterBar}
-        <div className="relative flex-1">
-          <div style={{ height: "48vh" }}>{map}</div>
+        {/* The map fills everything under the filter bar and the sheet floats
+            over it. It used to be a 48vh box with the sheet fixed to the bottom
+            of the window, which left 174 px of empty page between them at the
+            peek snap -- exactly the snap whose whole point is "get the list out
+            of the way and show me the map". `bottomPadding` already told the
+            map how much of itself the sheet covers, so nothing had to be
+            invented to make this work. */}
+        <div className="relative min-h-0 flex-1">
+          {map}
           <BottomSheet
             snap={snap}
             onSnapChange={setSnap}
+            topInset={topInset}
+            padded={detail == null}
             handle={<div className="w-full pt-[var(--sp-2)]">{header}</div>}
           >
             {detail ?? listBody}
@@ -534,9 +585,16 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     >
       {filterBar}
 
+      {/* `minmax(0, 1fr)`, not `minmax(560px, 1fr)`. A phone held sideways is
+          844 px wide -- past the 768 breakpoint, so it gets this layout -- and
+          560 + 340 is 900. The two tracks overflowed by 56 px, `.board`'s
+          `overflow: hidden` clipped the difference, and what got clipped was
+          the right edge of the list column: every card's Show contact button,
+          which is `ml-auto` against exactly that edge. A floor the container
+          cannot honour is not a floor, it is a clipped column. */}
       <div
         className="grid min-h-0 flex-1"
-        style={{ gridTemplateColumns: "minmax(560px, 1fr) var(--list-w)" }}
+        style={{ gridTemplateColumns: "minmax(0, 1fr) var(--list-w)" }}
       >
         <section className="min-w-0 border-r border-border">{map}</section>
 

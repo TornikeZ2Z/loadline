@@ -243,11 +243,16 @@ export interface FilterBarProps {
   current: StoredLocation | null;
   home: StoredLocation | null;
   isAdmin: boolean;
-  /** < 768 px: two big From/To buttons plus a "Filters (n)" sheet. */
-  mobile: boolean;
+  /**
+   * One row -- the map end, the two state pickers, and a "Filters (n)" sheet
+   * holding the rest -- instead of the full bar. True on a phone, and also on
+   * any screen too short to spend two rows on filters: a phone lying down is
+   * 390 px tall, and the full bar was taking 119 of them.
+   */
+  compact: boolean;
 }
 
-export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }: FilterBarProps) {
+export function FilterBar({ filters, onChange, current, home, isAdmin, compact }: FilterBarProps) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
 
   // What a deferred write needs, read when it fires rather than captured when
@@ -301,8 +306,10 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
   const swapButton = (
     <button
       type="button"
-      className="btn btn-ghost"
-      style={{ width: 36, padding: 0 }}
+      /* Square, and as wide as it is tall. `width: 36` on a flex item inside the
+         phone's horizontal scroller rendered it 14 px wide, because nothing
+         stopped it shrinking. */
+      className="btn btn-ghost btn-square shrink-0"
       title="Swap pickup and delivery"
       aria-label="Swap pickup and delivery"
       disabled={filters.pickupState.length === 0 && filters.deliveryState.length === 0}
@@ -345,25 +352,32 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
     </button>
   );
 
-  if (mobile) {
+  if (compact) {
     return (
-      <div className="flex w-full items-center gap-[var(--sp-2)] overflow-x-auto px-[var(--sp-3)]">
-        <MapEndToggle value={filters.mapEnd} onChange={(mapEnd) => set({ mapEnd })} />
-        <StatePicker
-          label="Pickup"
-          value={filters.pickupState}
-          onChange={(v) => set({ pickupState: v })}
-          ghost={pickupGhost}
-          fullScreen
-        />
-        {swapButton}
-        <StatePicker
-          label="Delivery"
-          value={filters.deliveryState}
-          onChange={(v) => set({ deliveryState: v })}
-          ghost={homeGhost}
-          fullScreen
-        />
+      /* Two parts, and the split is the point. The row used to be one scroller
+         holding all five controls: at 390 px it is 542 px wide, so "Filters"
+         -- the way to every other control on the board -- sat at x = 465, off
+         the screen, behind a horizontal scrollbar a phone does not draw. The
+         pickers scroll; the way in does not move. */
+      <div className="flex w-full items-center gap-[var(--sp-2)] px-[var(--sp-3)]">
+        <div className="flex min-w-0 flex-1 items-center gap-[var(--sp-2)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <MapEndToggle value={filters.mapEnd} onChange={(mapEnd) => set({ mapEnd })} />
+          <StatePicker
+            label="Pickup"
+            value={filters.pickupState}
+            onChange={(v) => set({ pickupState: v })}
+            ghost={pickupGhost}
+            fullScreen
+          />
+          {swapButton}
+          <StatePicker
+            label="Delivery"
+            value={filters.deliveryState}
+            onChange={(v) => set({ deliveryState: v })}
+            ghost={homeGhost}
+            fullScreen
+          />
+        </div>
         <PopoverButton
           label={
             <>
@@ -374,6 +388,7 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
             </>
           }
           active={activeCount(filters) > 0}
+          triggerClassName="pill shrink-0"
           fullScreen
           panelTitle="Filters"
           ariaLabel="All filters"
@@ -500,7 +515,7 @@ const MAP_END_OPTIONS: Array<{ value: MapEnd; label: string; title: string }> = 
 
 function MapEndToggle({ value, onChange }: { value: MapEnd; onChange(v: MapEnd): void }) {
   return (
-    <div className="seg" role="group" aria-label="Map points">
+    <div className="seg shrink-0" role="group" aria-label="Map points">
       {MAP_END_OPTIONS.map((o) => (
         <button
           key={o.value}
@@ -587,7 +602,7 @@ function SizePanel({ filters, set }: { filters: Filters; set(p: Partial<Filters>
 
       {/* Plenty of real posts never state a size; hiding them by default would
           quietly drop a third of the board. */}
-      <label className="flex items-center gap-[var(--sp-2)] text-(length:--fs-base)">
+      <label className="check-row">
         <input
           type="checkbox"
           checked={filters.unsized}
@@ -609,7 +624,7 @@ function ReadyPanel({ filters, set }: { filters: Filters; set(p: Partial<Filters
   return (
     <div className="flex flex-col gap-[var(--sp-2)]">
       {READY_OPTIONS.map((o) => (
-        <label key={o.value} className="flex items-center gap-[var(--sp-2)]">
+        <label key={o.value} className="check-row">
           <input
             type="radio"
             name="ready"
@@ -639,7 +654,7 @@ function ListedPanel({ filters, set }: { filters: Filters; set(p: Partial<Filter
   return (
     <div className="flex flex-col gap-[var(--sp-2)]">
       {SEEN_OPTIONS.map((o) => (
-        <label key={o.value || "any"} className="flex items-center gap-[var(--sp-2)]">
+        <label key={o.value || "any"} className="check-row">
           <input
             type="radio"
             name="seenDays"
@@ -695,7 +710,7 @@ function MorePanel({
         />
       </div>
 
-      <label className="flex items-center gap-[var(--sp-2)]">
+      <label className="check-row">
         <input
           type="checkbox"
           checked={filters.hasPrice}
@@ -704,7 +719,7 @@ function MorePanel({
         Has a price
       </label>
 
-      <label className="flex items-center gap-[var(--sp-2)]">
+      <label className="check-row">
         <input
           type="checkbox"
           checked={filters.showInactive}
@@ -714,7 +729,7 @@ function MorePanel({
       </label>
 
       {isAdmin && (
-        <label className="flex items-center gap-[var(--sp-2)]">
+        <label className="check-row">
           <input
             type="checkbox"
             checked={filters.review}
@@ -760,12 +775,10 @@ function Segment({
   return (
     <button
       type="button"
-      className="chip"
+      className="chip chip-button"
       aria-pressed={on}
       onClick={onClick}
       style={{
-        height: 28,
-        cursor: "pointer",
         background: on ? "var(--accent-soft)" : "var(--surface-2)",
         color: on ? "var(--accent)" : "var(--text-2)",
       }}

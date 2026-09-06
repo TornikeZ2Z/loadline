@@ -24,17 +24,46 @@ export const SNAP_FRACTION: Record<SheetSnap, number> = {
   full: 0.92,
 };
 
+/**
+ * How tall the sheet actually is at a snap. Exported because the map has to
+ * know: it is drawn full-height underneath and fits its content into whatever
+ * the sheet leaves showing.
+ */
+export function snapHeightPx(viewportHeight: number, snap: SheetSnap, topInset = 0): number {
+  return Math.min(
+    Math.round(viewportHeight * SNAP_FRACTION[snap]),
+    Math.max(0, viewportHeight - topInset),
+  );
+}
+
 export interface BottomSheetProps {
   snap: SheetSnap;
   onSnapChange(next: SheetSnap): void;
   /** The summary row: it lives in the handle so the peek state says something. */
   handle: React.ReactNode;
+  /**
+   * Pixels of chrome above the sheet that it must never cover -- the header and
+   * the filter bar. 92 % of a 844 px screen is 776, which puts the top of the
+   * sheet at y = 68 and slices the filter bar (52–113) in half: at the tall
+   * snap you could see the state pickers but not press them. The full snap is
+   * whichever is smaller, this or the fraction.
+   */
+  topInset?: number;
+  /** The list pads its own cards; the job detail is full-bleed. */
+  padded?: boolean;
   children: React.ReactNode;
 }
 
 const ORDER: SheetSnap[] = ["peek", "half", "full"];
 
-export function BottomSheet({ snap, onSnapChange, handle, children }: BottomSheetProps) {
+export function BottomSheet({
+  snap,
+  onSnapChange,
+  handle,
+  topInset = 0,
+  padded = true,
+  children,
+}: BottomSheetProps) {
   const [viewportHeight, setViewportHeight] = useState(0);
   const [drag, setDrag] = useState<{ startY: number; startHeight: number; height: number } | null>(
     null,
@@ -44,12 +73,24 @@ export function BottomSheet({ snap, onSnapChange, handle, children }: BottomShee
     const measure = () => setViewportHeight(window.innerHeight);
     measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // Same reason as the board's own viewport effect: the layout viewport can
+    // change without a `resize` event arriving first, and a sheet measured
+    // against a stale height is the wrong height on screen.
+    const ro =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    ro?.observe(document.documentElement);
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
   }, []);
 
+  /** The tallest the sheet may be without covering the filter bar. */
+  const ceiling = Math.max(0, (viewportHeight || 0) - topInset);
+
   const snapHeight = useCallback(
-    (s: SheetSnap) => Math.round((viewportHeight || 0) * SNAP_FRACTION[s]),
-    [viewportHeight],
+    (s: SheetSnap) => snapHeightPx(viewportHeight || 0, s, topInset),
+    [viewportHeight, topInset],
   );
 
   const height = drag ? drag.height : snapHeight(snap);
@@ -82,7 +123,7 @@ export function BottomSheet({ snap, onSnapChange, handle, children }: BottomShee
     if (pointer.current !== e.pointerId || !drag) return;
     const next = Math.max(
       snapHeight("peek") * 0.6,
-      Math.min(viewportHeight * 0.96, drag.startHeight + (drag.startY - e.clientY)),
+      Math.min(ceiling, drag.startHeight + (drag.startY - e.clientY)),
     );
     setDrag({ ...drag, height: next });
   };
@@ -135,8 +176,12 @@ export function BottomSheet({ snap, onSnapChange, handle, children }: BottomShee
       >
         {handle}
       </div>
+      {/* `overscroll-contain` stops a flick that reaches the end of the list
+          from handing the scroll to the page behind the sheet. The padding is
+          the list's, not the sheet's: the job detail brings its own, and with
+          both it was inset 28 px from a 390 px screen. */}
       <div
-        className="overflow-y-auto px-[var(--sp-3)] pb-[var(--sp-6)]"
+        className={`overflow-y-auto overscroll-contain${padded ? " px-[var(--sp-3)] pb-[var(--sp-6)]" : ""}`}
         style={{ height: `calc(100% - var(--sheet-handle-h))` }}
       >
         {children}
