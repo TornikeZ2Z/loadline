@@ -11,3 +11,6 @@ next-env.d.ts
 
 # Design-pass artifacts (large, partly superseded drafts); durable but not published
 .design/
+
+# Dev-server log from the design pass
+.devlog.txt
