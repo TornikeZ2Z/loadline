@@ -4,7 +4,7 @@
 # docs/superpowers/plans/2026-09-06-aws-deployment.md Task 2 for why.
 #
 # Build (for ECR, from any machine):
-#   docker build --platform linux/amd64 -t loadline .
+#   docker build -t loadline .          # native arm64; see infra/README.md
 
 FROM node:22-slim AS deps
 WORKDIR /app
