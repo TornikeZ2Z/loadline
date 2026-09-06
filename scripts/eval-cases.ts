@@ -225,6 +225,40 @@ export const CASES: EvalCase[] = [
     ],
   },
   {
+    name: "two destinations on one line are never two jobs to the first",
+    body: "FROM DALLAS TX\nNC 28202 250 cf + SC 29201 180 cf",
+    expect: null,
+    expectFlags: ["two_places"],
+  },
+  {
+    name: "two destinations on one line, cf written first",
+    body: "FROM DALLAS TX\n400cf FL 33101, 300cf GA 30303",
+    expect: null,
+    expectFlags: ["two_places"],
+  },
+  {
+    name: "two destinations concatenated with no separator",
+    body: "FROM KEARNY NJ\nFL 33101 400 cf GA 30303 300 cf",
+    expect: null,
+    expectFlags: ["two_places"],
+  },
+  {
+    name: "two cf figures for one destination are still two jobs",
+    body: "FROM DALLAS TX\nNC 28202 250 cf + 180 cf",
+    expect: [
+      { origin: "Dallas, TX", dest: "NC 28202", cf: 250 },
+      { origin: "Dallas, TX", dest: "NC 28202", cf: 180 },
+    ],
+  },
+  {
+    name: "x2 multiplier still repeats the same destination",
+    body: "FROM DALLAS TX\nNC 28202 250 cf x2",
+    expect: [
+      { origin: "Dallas, TX", dest: "NC 28202", cf: 250 },
+      { origin: "Dallas, TX", dest: "NC 28202", cf: 250 },
+    ],
+  },
+  {
     name: "deadline word makes a deliver-by date",
     body: "From Kearny NJ\nFL 33435 350cf deliver by 9/12",
     expect: [{ origin: "Kearny, NJ", dest: "FL 33435", cf: 350 }],

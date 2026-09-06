@@ -120,6 +120,8 @@ export interface Evidence {
   onlyDate: boolean;
   unknownNum: boolean;
   keywordHit: boolean;
+  /** Two cubic-feet figures separated by another place: two destinations, not two jobs. */
+  twoDests: boolean;
   wordCount: number;
   flags: string[];
 }
@@ -430,6 +432,15 @@ function acceptStates(toks: ATok[], ev: Evidence) {
   }
 }
 
+/** A ZIP or an accepted state sits strictly between two token indices. */
+function placeBetween(toks: ATok[], a: number, b: number): boolean {
+  const [lo, hi] = a < b ? [a, b] : [b, a];
+  for (let i = lo + 1; i < hi; i++) {
+    if (toks[i].role === "ZIP" || toks[i].st || toks[i].stname) return true;
+  }
+  return false;
+}
+
 function selectCf(toks: ATok[], ev: Evidence) {
   const units = toks.map((t, i) => (t.cls === "CF_UNIT" || t.cls === "CF_PREFIX" || t.cls === "CF_FT" ? i : -1)).filter((i) => i >= 0);
   // A learned CF_UNIT keyword after a bare number.
@@ -454,8 +465,17 @@ function selectCf(toks: ATok[], ev: Evidence) {
     const first = units[0];
     ev.cf = { value: Number(toks[first].value), source: "unit", idx: first };
     if (toks[first].cls === "CF_FT") ev.flags.push("unit_ft");
-    for (const u of units.slice(1)) { ev.extraCf.push(Number(toks[u].value)); toks[u].role = "CF_EXTRA"; }
-    if (units.length > 1) ev.flags.push("multi_job_line");
+    for (const u of units.slice(1)) {
+      // A second CF figure is a second job to the SAME destination only when no
+      // other place stands between the two. "NC 28202 250cf + SC 29201 180cf"
+      // is two destinations written on one line: cloning the first one would
+      // invent a delivery nobody posted and drop a real one, so refuse to guess
+      // and let A10x send the line to the admin queue instead.
+      if (placeBetween(toks, first, u)) { ev.twoDests = true; continue; }
+      ev.extraCf.push(Number(toks[u].value));
+      toks[u].role = "CF_EXTRA";
+    }
+    if (ev.extraCf.length) ev.flags.push("multi_job_line");
     for (const c of cands) { if (!units.includes(c)) { toks[c].role = "NOTE"; ev.flags.push("extra_number"); } }
   } else if (cands.length === 1) {
     ev.cf = { value: Number(toks[cands[0]].value), source: "bare", idx: cands[0] };
@@ -560,7 +580,7 @@ export function annotate(L: ScannedLine, ctx: LineContext): { toks: ATok[]; ev: 
     chatterHit: false, capacityIdx: -1, paymentHit: false, partialHit: null, rfdIdx: [],
     dateReady: -1, dateDeadline: -1, price: null, tags: [], wordsOnly: false, hasComma: false,
     nameOnly: false, onlyCf: false, onlyRfd: false, onlyPrice: false, onlyDate: false,
-    unknownNum: false, keywordHit: false, wordCount: 0, flags: [],
+    unknownNum: false, keywordHit: false, twoDests: false, wordCount: 0, flags: [],
   };
   if (!toks.length) return { toks, ev };
 
@@ -1007,7 +1027,7 @@ export function classifyA(L: Line, ctx: LineContext): void {
   if (isDest && !(bare && !hasTo && !hasCf)) {
     // Two place groups with no separator.
     const placeGroups = ev.states.filter((i) => isWord(toks[i - 1]) && !toks[i - 1].kw).length + (ev.stnames.length && ev.cities.length ? 0 : 0);
-    if (ev.states.length >= 2 && placeGroups >= 2) {
+    if (ev.twoDests || (ev.states.length >= 2 && placeGroups >= 2)) {
       L.flags.push("two_places");
       return set("UNKNOWN", "A10x");
     }
