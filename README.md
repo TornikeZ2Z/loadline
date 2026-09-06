@@ -169,18 +169,24 @@ chatter and availability posts off the board matters as much as extracting well.
 ### Unknown formats are solved once and kept
 
 A message the rules cannot read lands in **/admin → Needs attention** with a per-line
-colour gutter and buttons: *Resolve place*, *Ignore line*, *Add word*, *Teach line*,
-*Sender format*, *Confirm format*. A message that *did* parse, but in a layout never seen
-before, lands there once as `new_format` until an admin confirms it. Each fix is stored as
-a rule, re-runs the message immediately, survives `npm run db:reset`, and is exported into
-the eval fixtures (`npm run rules:export`) so it never regresses.
+colour gutter. Clicking a line offers *Resolve place*, *Ignore line as …*, *Add word* and
+*Teach line*; the message itself carries *Confirm format*, *Accept extraction* and
+*Reprocess*, and a *Sender format* editor sits below its lines. A message that *did* parse,
+but in a layout never seen before, lands there once as `new_format` until an admin confirms
+it. Each fix is stored as a rule, re-runs the message immediately, survives
+`npm run db:reset`, and is exported into the eval fixtures (`npm run rules:export`) so it
+never regresses.
 
 ### Geocoding
 
-Default is **fully offline**: an alias table for how people actually talk (`philly`,
-`socal`, `north jersey`, `EWR`) plus a curated gazetteer and USPS ZIP-prefix ranges. Set
-`GEOCODER=census` (free, keyless) or `GEOCODER=mapbox` to resolve anything it misses;
-results are cached in `places`, so an unknown place costs one lookup ever.
+A place is resolved down a ladder: the `places` cache, an alias table for how people
+actually talk (`philly`, `socal`, `north jersey`, `EWR`), a curated gazetteer and USPS
+ZIP-prefix ranges, and finally a remote provider for what those can only approximate or
+cannot answer at all. `GEOCODER` names that provider and **defaults to `here` when
+`HERE_API_KEY` is set and to `local` otherwise** — `local` meaning no remote call is made,
+so with no key the whole thing is **fully offline**. Set it explicitly to `census` (free,
+keyless) or `mapbox` (needs `MAPBOX_TOKEN`) to override. Results are cached in `places`, so
+an unknown place costs one lookup ever.
 
 Every resolution records a **precision**. A job posted as "somewhere in Florida" is stored
 at state precision and drawn as a dashed route to the state centroid rather than a pinned
@@ -224,6 +230,13 @@ Autocomplete carries no coordinates, so a result is resolved with one `/lookup` 
 suggestion is actually **picked**, never per keystroke. The key is server-side only: the
 browser calls our `/api/places/suggest`, never HERE directly.
 
+**Without a key it degrades rather than breaks.** `/api/places/suggest` answers from the
+local half alone (`"source": "local"`), so `philly`, `socal`, `Miami` and `07102` still
+suggest while address-level and many literal queries — `Miami, FL` among them — return an
+empty list. Typing the place and pressing Save resolves it anyway: `/api/places/resolve`
+falls through to the same offline tables for free text, which is what keeps the demo
+working on a machine with no key at all.
+
 ---
 
 ## The board
@@ -234,9 +247,9 @@ list/table/map toggle. A panel in the corner shows the total cubic feet currentl
 ("11 jobs in view · 3,900 cf ≈ 2.6 truckloads"), and at low zoom each pickup state carries
 a `FL · 6 jobs · 2,300 cf` pill.
 
-Filters are built for the return trip: **Pickup state** and **Delivery state** as two
-prominent pickers with region chips (Tri-State, Southeast…), then Size (cf), Ready,
-Listed, More, an optional **Toward home** corridor, Clear and Sort.
+Filters are built for the return trip: **Pickup** and **Delivery** state as two prominent
+pickers with region chips (Tri-State Area, Southeast…), then Size (cf), Ready, Listed,
+More — which is where the optional **Toward home** corridor lives — Clear and Sort.
 
 ### Search
 
@@ -424,7 +437,8 @@ secrets; the app runs with none of it set.
 | `NEXT_PUBLIC_BASE_PATH` | *(unset)* | Serve under a sub-path, e.g. `/loadline`. Needed at **build** time. |
 | `DEMO_MODE` | `on` | One-click demo sign-in. Set to `off` for real data — see above. |
 | `PGLITE_DIR` | `./.pgdata`, or the temp dir on serverless | Where the embedded database lives |
-| `GEOCODER` | `local` | `local` \| `census` \| `mapbox` |
+| `GEOCODER` | `here` when `HERE_API_KEY` is set, else `local` | Remote geocoder: `local` (none) \| `here` \| `census` \| `mapbox` |
+| `MAPBOX_TOKEN` | — | Required by `GEOCODER=mapbox` only |
 | `HERE_API_KEY` | — | Type-ahead, address geocoding, truck road distance |
 | `HERE_DAILY_BUDGET` | `2000` | Billable HERE calls per UTC day before falling back offline |
 | `WHATSAPP_VERIFY_TOKEN` | — | Webhook handshake |
