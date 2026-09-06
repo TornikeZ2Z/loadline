@@ -135,7 +135,12 @@ export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchRe
   }
 
   // --- readiness / deadline / freshness -------------------------------------
-  if (input.readyOnly) where.push(`(l.ready_now OR l.ready_date <= CURRENT_DATE)`);
+  // `CURRENT_DATE` is the database process's own local date -- under PGlite
+  // that is whatever zone the Node process happens to run in, neither UTC nor
+  // the board's. Every other "today" (the chips, the corridor summary, the
+  // client's `boardDay`) is computed in DEFAULT_TZ, so this one is too, bound
+  // as a date rather than left to the server's clock.
+  if (input.readyOnly) where.push(`(l.ready_now OR l.ready_date <= ${p.add(localToday())}::date)`);
   if (input.readyBy) where.push(`(l.ready_now OR l.ready_date <= ${p.add(input.readyBy)}::date)`);
   if (input.deliverBy) {
     where.push(`(l.deliver_by IS NULL OR l.deliver_by <= ${p.add(input.deliverBy)}::date)`);
@@ -265,18 +270,21 @@ async function summarize(
   whereSql: string,
   whereValues: unknown[],
 ): Promise<LoadSummary> {
+  // The board's calendar, not the database process's: the same date the chips
+  // underneath this headline are measured against (see the readiness filter).
+  const today = `$${whereValues.length + 1}`;
   const row = await queryOne<LoadSummary>(
     `SELECT count(*)::int AS "count",
             coalesce(sum(l.cubic_feet),0)::int AS "totalCf",
             count(l.cubic_feet)::int AS "withCf",
-            count(*) FILTER (WHERE l.ready_now OR l.ready_date <= CURRENT_DATE)::int AS "readyNow",
+            count(*) FILTER (WHERE l.ready_now OR l.ready_date <= ${today}::date)::int AS "readyNow",
             count(*) FILTER (WHERE l.last_seen_at > now() - interval '24 hours')::int AS "freshToday",
             count(*) FILTER (WHERE l.price_per_cf IS NOT NULL OR l.price_flat IS NOT NULL)::int AS "priced",
             percentile_cont(0.5) WITHIN GROUP (ORDER BY ${PER_CF_SQL}::float8)
               FILTER (WHERE l.price_per_cf IS NOT NULL OR (l.price_flat IS NOT NULL AND l.cubic_feet > 0)) AS "medianPricePerCf"
        ${fromSql}
        ${whereSql}`,
-    whereValues,
+    [...whereValues, localToday()],
   );
   return (
     row ?? {
@@ -528,12 +536,15 @@ function clamp(n: number, lo: number, hi: number): number {
  * a ceiling: `?limit=1.5` and `?offset=1e21` are both finite, and both make the
  * driver reject the statement -- a 500 with a raw database message where the
  * caller should simply have got the nearest sensible page.
+ *
+ * Exported because every paged query has the same problem: the admin message
+ * feed pages its own table and needs the same rounding with a smaller ceiling.
  */
-function pageLimit(limit: number | undefined): number {
-  return Number.isFinite(limit) ? clamp(Math.round(limit!), 1, 500) : 50;
+export function pageLimit(limit: number | undefined, max = 500): number {
+  return Number.isFinite(limit) ? clamp(Math.round(limit!), 1, max) : Math.min(50, max);
 }
 
-function pageOffset(offset: number | undefined): number {
+export function pageOffset(offset: number | undefined): number {
   return Number.isFinite(offset) ? clamp(Math.round(offset!), 0, 100_000) : 0;
 }
 

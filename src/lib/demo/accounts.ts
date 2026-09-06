@@ -7,8 +7,9 @@
  * the sample WhatsApp corpus through the real pipeline.
  *
  * `ensureDemoData()` is cheap to call repeatedly -- one count query when the
- * database is already populated -- and is awaited by the sign-in page and the
- * demo sign-in route.
+ * database is already populated -- and is awaited by every entry point that
+ * could be the first page of a cold demo: the board, a deep-linked job, the
+ * sign-in page and the demo sign-in route.
  */
 import { query, queryOne } from "@/lib/db";
 import { hashPassword } from "@/lib/password";

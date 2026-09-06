@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { badRequest, handler } from "@/lib/api";
+import { badRequest, handler, rateLimit } from "@/lib/api";
 import { hashPassword, startSession } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import type { Role } from "@/lib/session";
@@ -18,6 +18,12 @@ import type { Role } from "@/lib/session";
  * no reason.
  */
 export const POST = handler(async (req: Request) => {
+  // The one open door that writes a row and hands back a session, and every
+  // call spends a synchronous scrypt on the event loop. A person needs one
+  // account, so ten a minute from one address is already generous -- the same
+  // in-memory speed bump the public read routes sit behind.
+  rateLimit(req, "register", 10);
+
   const body = (await req.json()) as Record<string, string>;
   const email = (body.email ?? "").trim().toLowerCase();
   const password = body.password ?? "";
