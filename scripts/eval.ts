@@ -122,9 +122,23 @@ function main() {
     const before = failures.length;
     const fail = (d: string) => failures.push({ case: tc.name, detail: d });
     const sentAt = new Date(tc.sentAt ?? EVAL_SENT_AT);
+    // A `sender_format` rule reaches the extractor as a hint, not through the
+    // RuleSet (process.ts §"senderHints"). Without this an accepted case whose
+    // origin came from an admin-taught sender default replays as `no_origin`,
+    // so the export → eval round-trip could never confirm the rule that fixed
+    // it. There is no prior snapshot in an eval run, hence lastOrigin: null.
+    const senderKey = senderKeyOf(tc);
+    const format = (senderKey && rules.senderFormats[senderKey]) || null;
     const out = extractInventory(
-      { body: tc.body, authorName: tc.author ?? "Tester", authorPhone: tc.authorPhone ?? null, groupName: "Eval", sentAt },
-      scopedRules(rules, senderKeyOf(tc)),
+      {
+        body: tc.body,
+        authorName: tc.author ?? "Tester",
+        authorPhone: tc.authorPhone ?? null,
+        groupName: "Eval",
+        sentAt,
+        senderHints: { lastOrigin: null, defaultOrigin: format?.default_origin ?? null, format },
+      },
+      scopedRules(rules, senderKey),
     );
 
     if (out.extractor !== "inventory-v1") fail(`extractor is ${out.extractor}`);
