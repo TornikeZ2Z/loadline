@@ -222,7 +222,7 @@ export function TestConsole({
   }
 
   return (
-    <div className="flex flex-col" style={{ height: "100%" }}>
+    <div className="flex flex-col lg:h-full">
       <div
         className="flex flex-wrap items-center gap-[var(--sp-3)] border-b px-[var(--sp-4)] py-[var(--sp-2)] text-(length:--fs-sm)"
         style={{ background: "var(--warn-soft)", borderColor: "var(--border)", color: "var(--warn)" }}
@@ -237,9 +237,14 @@ export function TestConsole({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
+      {/* Three fixed panes side by side need 670 px, so at 390 the page itself
+          scrolled sideways and the inspector -- the pane the whole console is
+          for -- was 280 px off the right edge. Below `lg` they stack into one
+          column and the page scrolls the way it reads: pick a chat, read the
+          transcript, open a message. */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* ---------------- groups ---------------- */}
-        <aside className="w-[240px] shrink-0 overflow-y-auto border-r border-border bg-surface">
+        <aside className="w-full shrink-0 overflow-y-auto border-b border-border bg-surface lg:w-[240px] lg:border-b-0 lg:border-r">
           <div className="label px-[var(--sp-3)] py-[var(--sp-2)]">Imported chats</div>
           <button
             onClick={() => openGroup(null)}
@@ -330,7 +335,7 @@ export function TestConsole({
         </section>
 
         {/* ---------------- inspector ---------------- */}
-        <aside className="w-[430px] shrink-0 overflow-y-auto border-l border-border bg-surface">
+        <aside className="w-full shrink-0 overflow-y-auto border-t border-border bg-surface lg:w-[430px] lg:border-l lg:border-t-0">
           {!selected ? (
             <div className="p-[var(--sp-6)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
               Pick a message to see what the rules made of it, and to edit it.

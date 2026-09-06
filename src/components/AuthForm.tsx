@@ -149,8 +149,11 @@ export function AuthForm({
             )}
 
             {!showForm && (
+              /* A real button rather than an underlined line of 12 px text: it
+                 is the alternative to every demo account above it, and it was
+                 a 17 px tall target. */
               <button
-                className="mt-3 w-full text-center text-(length:--fs-sm) text-muted underline"
+                className="btn btn-ghost mt-3 w-full"
                 onClick={() => setShowForm(true)}
               >
                 or sign in with an email and password
@@ -292,11 +295,17 @@ export function AuthForm({
           </form>
         )}
 
-        <p className="mt-[var(--sp-4)] text-center text-(length:--fs-sm) text-muted">
-          <Link href="/" style={{ color: "var(--accent)" }}>
+        {/* The link is its own line and its own 44 px row: it is the way out of
+            this page, and inside the sentence it was a 15 px tall target. */}
+        <p className="mt-[var(--sp-3)] flex flex-col items-center text-(length:--fs-sm) text-muted">
+          <Link
+            href="/"
+            className="flex min-h-[var(--tap-min)] items-center px-[var(--sp-2)] font-semibold"
+            style={{ color: "var(--accent)" }}
+          >
             ← Back to the board
-          </Link>{" "}
-          — browsing never needs an account.
+          </Link>
+          <span>Browsing never needs an account.</span>
         </p>
       </div>
     </div>

@@ -243,11 +243,16 @@ export interface FilterBarProps {
   current: StoredLocation | null;
   home: StoredLocation | null;
   isAdmin: boolean;
-  /** < 768 px: two big From/To buttons plus a "Filters (n)" sheet. */
-  mobile: boolean;
+  /**
+   * One row -- the map end, the two state pickers, and a "Filters (n)" sheet
+   * holding the rest -- instead of the full bar. True on a phone, and also on
+   * any screen too short to spend two rows on filters: a phone lying down is
+   * 390 px tall, and the full bar was taking 119 of them.
+   */
+  compact: boolean;
 }
 
-export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }: FilterBarProps) {
+export function FilterBar({ filters, onChange, current, home, isAdmin, compact }: FilterBarProps) {
   const set = (patch: Partial<Filters>) => onChange({ ...filters, ...patch });
 
   // What a deferred write needs, read when it fires rather than captured when
@@ -347,7 +352,7 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
     </button>
   );
 
-  if (mobile) {
+  if (compact) {
     return (
       /* Two parts, and the split is the point. The row used to be one scroller
          holding all five controls: at 390 px it is 542 px wide, so "Filters"

@@ -39,6 +39,18 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
    * and gets the real footer at the end of it.
    */
   const appScreen = active === "board" || active === "test";
+  /**
+   * The board is exactly one viewport at every width: its bottom sheet is
+   * fixed, and a page that scrolled behind it would carry the filter bar off
+   * the top. The WhatsApp console is one viewport only where its three panes
+   * fit side by side -- below `lg` they stack, and it scrolls like any page.
+   */
+  const shellClass =
+    active === "board"
+      ? "flex h-screen flex-col"
+      : active === "test"
+        ? "flex min-h-screen flex-col lg:h-screen"
+        : "flex min-h-screen flex-col";
   // Rendered by the nav from `md` up, and by the More menu below it.
   //
   // `short` is only ever used for an admin, and only below `xl`: four nav items
@@ -68,7 +80,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
        bar off the top with it. The height lives here now rather than in each
        screen -- header, body, bar, adding up to 100vh by construction, so no
        screen has to subtract the chrome above it by hand. */
-    <div className={appScreen ? "flex h-screen flex-col" : "flex min-h-screen flex-col"}>
+    <div className={shellClass}>
       <MenuAutoClose />
       <header
         className="bg-surface sticky top-0 z-30 shrink-0 border-b border-border"
@@ -278,12 +290,19 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
           the console's panes) can actually scroll instead of stretching this
           flex item past the window; a content page is pushed down so a short
           page still has its footer at the bottom. */}
-      <div className={appScreen ? "min-h-0 flex-1" : "flex-1"}>{children}</div>
+      <div className={active === "board" ? "min-h-0 flex-1" : active === "test" ? "flex-1 lg:min-h-0" : "flex-1"}>
+        {children}
+      </div>
       {appScreen ? (
         // Hidden on a phone, and that is a decision rather than an omission:
         // the board's bottom sheet is fixed to the bottom of the viewport and
         // would cover this strip. The More menu carries the same links there.
-        <div className="hidden shrink-0 md:block">
+        //
+        // Hidden on a short screen for a different reason: a phone lying down
+        // is 390 px tall, and this bar is 34 of them. The same menu carries the
+        // same links, one tap away, at the top of the screen where the thumb
+        // already is.
+        <div className="hidden shrink-0 md:block [@media(max-height:540px)]:hidden">
           <FooterBar />
         </div>
       ) : (

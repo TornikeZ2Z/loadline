@@ -113,6 +113,12 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   const [place, setPlace] = useState<{ ids: number[]; label: string } | null>(null);
 
   const [mobile, setMobile] = useState(false);
+  /**
+   * Too short to spend two rows on a filter bar. A phone lying down is 844 x
+   * 390: wide enough for the two-column board, which is the right shape there,
+   * and the full bar was taking 119 of those 390 px on two wrapped rows.
+   */
+  const [shortScreen, setShortScreen] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(0);
   /** Header + filter bar: the strip the bottom sheet must never cover. */
   const [topInset, setTopInset] = useState(0);
@@ -135,8 +141,10 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   // server and the first client pass disagree.
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
+    const short = window.matchMedia("(max-height: 540px)");
     const apply = () => {
       setMobile(mq.matches);
+      setShortScreen(short.matches);
       setViewportHeight(window.innerHeight);
       // The header changes height at 768 without the filter row resizing, so
       // the ResizeObserver below would not hear about it.
@@ -145,6 +153,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     };
     apply();
     mq.addEventListener("change", apply);
+    short.addEventListener("change", apply);
     window.addEventListener("resize", apply);
     // A `resize` event is not the only way the viewport changes shape, and it
     // is not always the first: a phone collapsing its URL bar, and the layout
@@ -156,6 +165,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     ro?.observe(document.documentElement);
     return () => {
       mq.removeEventListener("change", apply);
+      short.removeEventListener("change", apply);
       window.removeEventListener("resize", apply);
       ro?.disconnect();
     };
@@ -532,7 +542,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         current={current}
         home={home}
         isAdmin={isAdmin}
-        mobile={mobile}
+        compact={mobile || shortScreen}
       />
     </div>
   );
@@ -572,9 +582,16 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     >
       {filterBar}
 
+      {/* `minmax(0, 1fr)`, not `minmax(560px, 1fr)`. A phone held sideways is
+          844 px wide -- past the 768 breakpoint, so it gets this layout -- and
+          560 + 340 is 900. The two tracks overflowed by 56 px, `.board`'s
+          `overflow: hidden` clipped the difference, and what got clipped was
+          the right edge of the list column: every card's Show contact button,
+          which is `ml-auto` against exactly that edge. A floor the container
+          cannot honour is not a floor, it is a clipped column. */}
       <div
         className="grid min-h-0 flex-1"
-        style={{ gridTemplateColumns: "minmax(560px, 1fr) var(--list-w)" }}
+        style={{ gridTemplateColumns: "minmax(0, 1fr) var(--list-w)" }}
       >
         <section className="min-w-0 border-r border-border">{map}</section>
 

@@ -56,6 +56,9 @@
 }
 @media (max-width: 1279px) { :root { --list-w: 380px; } }
 @media (max-width: 1099px) { :root { --list-w: 340px; } }
+/* 768-899 is a phone lying down and a small tablet: the two-column board is
+   still the right shape there, but 340 px of it is a third of the screen. */
+@media (max-width: 899px)  { :root { --list-w: 300px; } }
 @media (max-width: 767px)  { :root { --header-h: 52px; --filters-h: 48px; } }
 @media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; --dur-panel: 0ms; --dur-map: 0ms; } }
 
