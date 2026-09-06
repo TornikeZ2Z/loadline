@@ -255,12 +255,15 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
         </Field>
 
         <Field label="Size" required htmlFor="cubicFeet">
+          {/* step="any", not step={50}: real posts carry 1,056 and 950 cf, and a
+              50-step constraint makes the browser reject them ("the two nearest
+              valid values are 1,010 and 1,060") before the form is ever read. */}
           <input
             id="cubicFeet"
             className="field nums"
             type="number"
             min={10}
-            step={50}
+            step="any"
             required
             placeholder="350"
             value={cubicFeet}
@@ -304,7 +307,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
               className="field nums mt-[var(--sp-2)]"
               type="number"
               min={0}
-              step={0.25}
+              step="any"
               placeholder="3.50"
               aria-label="Price per cubic foot"
               value={pricePerCf}
@@ -316,7 +319,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
               className="field nums mt-[var(--sp-2)]"
               type="number"
               min={0}
-              step={50}
+              step="any"
               placeholder="1500"
               aria-label="Flat price"
               value={priceFlat}
@@ -436,7 +439,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
             id="notes"
             className="field"
             rows={3}
-            placeholder="Third floor, no elevator — the driver should know before they call."
+            placeholder="Anything a driver should know before they call."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
