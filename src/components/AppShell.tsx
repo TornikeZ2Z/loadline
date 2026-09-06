@@ -33,9 +33,13 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
    * and gets the real footer at the end of it.
    */
   const appScreen = active === "board" || active === "test";
-  // `short` is what a phone header has room for. Only the two admin items need
-  // one, and only because an admin carries four nav items beside the location
-  // pill; nobody else sees them.
+  // Rendered by the nav from `md` up, and by the More menu below it.
+  //
+  // `short` is only ever used for an admin, and only below `xl`: four nav items
+  // plus a name, a role and a Sign out button need 1012 px, which does not fit
+  // a 1024 px window once the scrollbar has taken its 15 -- and "WhatsApp
+  // console" is 120 px of the reason. Nobody else carries enough items to need
+  // it, so nobody else is shown an abbreviation.
   const nav: Array<{
     key: AppShellProps["active"];
     href: string;
@@ -57,10 +61,15 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
         className="bg-surface sticky top-0 z-30 border-b border-border"
         style={{ height: "var(--header-h)" }}
       >
-        {/* Everything stays reachable on a phone rather than folding into a
-            hamburger: the word mark, the name and the role label are what get
-            dropped, because they are the only parts nobody taps. */}
-        <div className="mx-auto flex h-full max-w-[1600px] items-center gap-[var(--sp-2)] px-[var(--sp-2)] md:gap-[var(--sp-5)] md:px-[var(--sp-4)]">
+        {/* What a phone header drops, in order: the word mark, the account name
+            and the role label -- the parts nobody taps -- and then the nav,
+            which the More menu picks up. What it never drops: the board (the
+            logo links to it), the location control, and the way in. */}
+        {/* The roomier gap and padding wait for `lg`, not `md`. They are worth
+            40 px across the row, and at 768 -- the width at which the nav comes
+            back -- that 40 px is the difference between a header that fits and
+            a page that scrolls sideways. */}
+        <div className="mx-auto flex h-full max-w-[1600px] items-center gap-[var(--sp-2)] px-[var(--sp-2)] lg:gap-[var(--sp-5)] lg:px-[var(--sp-4)]">
           <Link href="/" className="flex shrink-0 items-center gap-2 font-bold tracking-tight">
             <span
               className="grid h-6 w-6 place-items-center rounded-md text-[var(--fs-base)] text-white"
@@ -71,20 +80,31 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
             <span className="hidden sm:inline">LoadLine</span>
           </Link>
 
-          {/* Hidden below `sm`, and this is a change of mind that a measurement
+          {/* Hidden below `md`, and this is a change of mind that measurements
               forced. The nav used to be a horizontal scroller on a phone. But
               the nav is `flex-1` with a zero basis, so its width is whatever the
               pinned group on the right leaves over -- at 390 px that group (menu
               + location pill + "Sign in · contacts") is 306 px, leaving 28 px,
               which renders the word "Board" as "Bo" under a scrollbar nobody can
-              see. Folding the nav into the More menu instead costs one tap and
-              buys a header that is not broken. The board stays first: the word
-              mark links to it, and it is the first item in the menu.
+              see. And from `sm` up the nav does not scroll at all, so at 640 and
+              768 the whole header row simply overflowed the page instead.
 
-              From `sm` up there is room, so the nav is a real nav again and
-              nothing here opens a popover -- which is why clipping it was safe
-              in the first place, and why the More menu is NOT in it. */}
-          <nav className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex sm:flex-none sm:shrink-0 sm:overflow-x-visible">
+              Folding the nav into the More menu below `md` costs one tap and
+              buys a header that is not broken at any width a visitor is likely
+              to have. The board stays first: the word mark links to it, and it
+              is the first item in the menu. Nothing here opens a popover, which
+              is why the More menu is NOT in this row. */}
+          <nav
+            className={
+              // An admin carries four items instead of two, which is 230 px
+              // more than a 768 px window has to spare, so their nav waits for
+              // `lg`. Two literal strings rather than a computed class name:
+              // Tailwind only emits what it can see in the source.
+              isAdmin
+                ? "hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex lg:flex-none lg:shrink-0 lg:overflow-x-visible"
+                : "hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex md:flex-none md:shrink-0 md:overflow-x-visible"
+            }
+          >
             {nav
               .filter((n) => n.show)
               .map((n) => (
@@ -98,10 +118,10 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                       : { color: "var(--text-2)" }
                   }
                 >
-                  {n.short ? (
+                  {isAdmin && n.short ? (
                     <>
-                      <span className="sm:hidden">{n.short}</span>
-                      <span className="hidden sm:inline">{n.label}</span>
+                      <span className="xl:hidden">{n.short}</span>
+                      <span className="hidden xl:inline">{n.label}</span>
                     </>
                   ) : (
                     n.label
@@ -111,7 +131,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
 
           </nav>
 
-          <div className="ml-auto flex shrink-0 items-center gap-[var(--sp-2)] md:gap-[var(--sp-3)]">
+          <div className="ml-auto flex shrink-0 items-center gap-[var(--sp-2)] lg:gap-[var(--sp-3)]">
             {/* The rest of the site, in a menu rather than six more nav items:
                 the board has to stay first, and a phone header has no room.
 
@@ -128,7 +148,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 link leaves the menu closed behind it. */}
             <details key={currentPath ?? "/"} className="relative shrink-0">
               <summary
-                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-[var(--fs-base)] font-semibold sm:h-[var(--control-h)] sm:px-2 [&::-webkit-details-marker]:hidden"
+                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-[var(--fs-base)] font-semibold md:h-[var(--control-h)] md:px-2 [&::-webkit-details-marker]:hidden"
                 style={
                   active === "site"
                     ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -137,17 +157,18 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 title="About, how it works, contact and legal"
                 aria-label="More pages"
               >
-                <span className="hidden sm:inline">More</span>
-                {/* Three dots on a phone, where the word does not fit beside the
-                    location pill and the sign-in button. */}
+                <span className="hidden md:inline">More</span>
+                {/* Three dots wherever the nav is folded in here, because the
+                    word does not fit beside the location pill and the sign-in
+                    button; the word from `md`, beside a visible nav. */}
                 <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                  <g className="sm:hidden" fill="currentColor">
+                  <g className="md:hidden" fill="currentColor">
                     <circle cx="3" cy="7" r="1.4" />
                     <circle cx="7" cy="7" r="1.4" />
                     <circle cx="11" cy="7" r="1.4" />
                   </g>
                   <path
-                    className="hidden sm:inline"
+                    className="hidden md:inline"
                     d="M3.5 5.5 7 9l3.5-3.5"
                     fill="none"
                     stroke="currentColor"
@@ -176,11 +197,11 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                   </div>
                 ))}
 
-                {/* The nav is hidden on a phone, so the two admin screens would
-                    otherwise be unreachable there. Above `sm` the nav has them
-                    and this block would only duplicate it. */}
+                {/* An admin's nav is hidden below `lg`, so the two admin screens
+                    would otherwise be unreachable there. From `lg` the nav has
+                    them and this block would only duplicate it. */}
                 {isAdmin ? (
-                  <div className="sm:hidden">
+                  <div className="lg:hidden">
                     <div className="label">Admin</div>
                     {nav
                       .filter((n) => n.show && (n.key === "admin" || n.key === "test"))
