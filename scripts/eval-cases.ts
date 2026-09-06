@@ -225,6 +225,111 @@ export const CASES: EvalCase[] = [
     ],
   },
   {
+    name: "an origin the gazetteer does not know never inherits a block state silently",
+    body: "FROM CHICAGO IL\nFL 33101 350cf\n\nFROM ELLENWOOD\nGA 30303 400cf",
+    expect: [
+      { origin: "Chicago, IL", dest: "FL 33101", cf: 350 },
+      { origin: "Ellenwood, IL", dest: "GA 30303", cf: 400, flagsInclude: ["origin_state_assumed", "needs_review"] },
+    ],
+  },
+  {
+    name: "a known city keeps its own state, unflagged",
+    body: "FROM CHICAGO IL\nFL 33101 350cf\n\nFROM DENVER\nGA 30303 400cf",
+    expect: [
+      { origin: "Chicago, IL", dest: "FL 33101", cf: 350 },
+      { origin: "Denver, CO", dest: "GA 30303", cf: 400 },
+    ],
+    expectNotFlags: ["origin_state_assumed"],
+  },
+  {
+    name: "a ZIP in front of a cubic-feet word stays a ZIP",
+    body: "From Newark NJ\nState FL Zip 33101 Cube 350",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+  },
+  {
+    name: "a ZIP in front of a cf prefix stays a ZIP",
+    body: "From Newark NJ\nDest: FL 33101 CF: 350",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+  },
+  {
+    name: "five figures of cf still work with a thousands separator",
+    body: "From Newark NJ\nFL 33101 12,000 cf",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 12000 }],
+  },
+  {
+    name: "an insurance minimum is not a destination",
+    body: "FROM NEWARK NJ\nFL 33101 350cf\nCargo insurance 25000 required",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+    expectRequirements: 1,
+  },
+  {
+    name: "an MC or DOT number is not a destination",
+    body: "FROM NEWARK NJ\nFL 33101 350cf\nMust have DOT 12345\nMC# 45678",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+  },
+  {
+    name: "a payment note with five digits is not a destination",
+    body: "FROM NEWARK NJ\nFL 33101 350cf\nZelle only 12345",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+  },
+  {
+    name: "a city with a ZIP and no written state is still a destination",
+    body: "From Kearny NJ\nFL 33435 350cf\nMiami 33101",
+    expect: [
+      { origin: "Kearny, NJ", dest: "FL 33435", cf: 350 },
+      { origin: "Kearny, NJ", dest: "FL 33101", cf: null, flagsInclude: ["cfless_destination"] },
+    ],
+  },
+  {
+    name: "stacked FROM markers stay out of the origin city",
+    body: "Loading out of Houston TX 77002\nAustin TX 78701 250 cf",
+    expect: [{ origin: "Houston, TX 77002", dest: "TX 78701", cf: 250 }],
+  },
+  {
+    name: "a marker tail of connector words never becomes the city",
+    body: "Loading up in Houston TX 77002\nAustin TX 78701 250 cf",
+    expect: [{ origin: "Houston, TX 77002", dest: "TX 78701", cf: 250 }],
+  },
+  {
+    name: "a real leading place word after FROM survives",
+    body: "From Warehouse District, Houston TX 77002\nAustin TX 78701 250 cf",
+    expect: [{ origin: "Warehouse District, TX 77002", dest: "TX 78701", cf: 250 }],
+  },
+  {
+    name: "two destinations on one line are never two jobs to the first",
+    body: "FROM DALLAS TX\nNC 28202 250 cf + SC 29201 180 cf",
+    expect: null,
+    expectFlags: ["two_places"],
+  },
+  {
+    name: "two destinations on one line, cf written first",
+    body: "FROM DALLAS TX\n400cf FL 33101, 300cf GA 30303",
+    expect: null,
+    expectFlags: ["two_places"],
+  },
+  {
+    name: "two destinations concatenated with no separator",
+    body: "FROM KEARNY NJ\nFL 33101 400 cf GA 30303 300 cf",
+    expect: null,
+    expectFlags: ["two_places"],
+  },
+  {
+    name: "two cf figures for one destination are still two jobs",
+    body: "FROM DALLAS TX\nNC 28202 250 cf + 180 cf",
+    expect: [
+      { origin: "Dallas, TX", dest: "NC 28202", cf: 250 },
+      { origin: "Dallas, TX", dest: "NC 28202", cf: 180 },
+    ],
+  },
+  {
+    name: "x2 multiplier still repeats the same destination",
+    body: "FROM DALLAS TX\nNC 28202 250 cf x2",
+    expect: [
+      { origin: "Dallas, TX", dest: "NC 28202", cf: 250 },
+      { origin: "Dallas, TX", dest: "NC 28202", cf: 250 },
+    ],
+  },
+  {
     name: "deadline word makes a deliver-by date",
     body: "From Kearny NJ\nFL 33435 350cf deliver by 9/12",
     expect: [{ origin: "Kearny, NJ", dest: "FL 33435", cf: 350 }],

@@ -313,7 +313,7 @@ export function assemble(lines: Line[], pass: MessagePass, ctx: MessageContext):
     const REVIEW = new Set([
       "zip_state_mismatch", "ambiguous_la", "ambiguous_city", "cfless_destination", "dest_unresolved_city",
       "state_header_ambiguous", "origin_inherited", "origin_default", "truncated_suspect", "price_ambiguous",
-      "large_number", "state_only_destination", "header_without_jobs",
+      "large_number", "state_only_destination", "header_without_jobs", "origin_state_assumed",
     ]);
     const needsReview = confidence < 0.5 || prec === "state" || prec === "none" || p.cf == null || jobFlags.some((f) => REVIEW.has(f));
     if (needsReview && !jobFlags.includes("needs_review")) jobFlags.push("needs_review");

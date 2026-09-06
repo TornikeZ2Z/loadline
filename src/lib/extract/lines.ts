@@ -120,6 +120,8 @@ export interface Evidence {
   onlyDate: boolean;
   unknownNum: boolean;
   keywordHit: boolean;
+  /** Two cubic-feet figures separated by another place: two destinations, not two jobs. */
+  twoDests: boolean;
   wordCount: number;
   flags: string[];
 }
@@ -430,6 +432,15 @@ function acceptStates(toks: ATok[], ev: Evidence) {
   }
 }
 
+/** A ZIP or an accepted state sits strictly between two token indices. */
+function placeBetween(toks: ATok[], a: number, b: number): boolean {
+  const [lo, hi] = a < b ? [a, b] : [b, a];
+  for (let i = lo + 1; i < hi; i++) {
+    if (toks[i].role === "ZIP" || toks[i].st || toks[i].stname) return true;
+  }
+  return false;
+}
+
 function selectCf(toks: ATok[], ev: Evidence) {
   const units = toks.map((t, i) => (t.cls === "CF_UNIT" || t.cls === "CF_PREFIX" || t.cls === "CF_FT" ? i : -1)).filter((i) => i >= 0);
   // A learned CF_UNIT keyword after a bare number.
@@ -454,8 +465,17 @@ function selectCf(toks: ATok[], ev: Evidence) {
     const first = units[0];
     ev.cf = { value: Number(toks[first].value), source: "unit", idx: first };
     if (toks[first].cls === "CF_FT") ev.flags.push("unit_ft");
-    for (const u of units.slice(1)) { ev.extraCf.push(Number(toks[u].value)); toks[u].role = "CF_EXTRA"; }
-    if (units.length > 1) ev.flags.push("multi_job_line");
+    for (const u of units.slice(1)) {
+      // A second CF figure is a second job to the SAME destination only when no
+      // other place stands between the two. "NC 28202 250cf + SC 29201 180cf"
+      // is two destinations written on one line: cloning the first one would
+      // invent a delivery nobody posted and drop a real one, so refuse to guess
+      // and let A10x send the line to the admin queue instead.
+      if (placeBetween(toks, first, u)) { ev.twoDests = true; continue; }
+      ev.extraCf.push(Number(toks[u].value));
+      toks[u].role = "CF_EXTRA";
+    }
+    if (ev.extraCf.length) ev.flags.push("multi_job_line");
     for (const c of cands) { if (!units.includes(c)) { toks[c].role = "NOTE"; ev.flags.push("extra_number"); } }
   } else if (cands.length === 1) {
     ev.cf = { value: Number(toks[cands[0]].value), source: "bare", idx: cands[0] };
@@ -549,6 +569,15 @@ function tagTags(toks: ATok[], ev: Evidence, lex: Lexicon) {
 }
 
 const FOOTER_RE = /^\s*(all|every|everything|todos?|jobs|loads)\b.*\b(ready|rfd|available|listo)/i;
+/**
+ * Words that can follow a FROM marker but can never start a place name. Only
+ * the first FROM phrase on a line sets fromAt, so a stacked marker ("Loading
+ * out of Houston", "Pickup from Houston") leaves its tail in front of the
+ * place text; without this the header parses as the city "Out Of Houston",
+ * which is both the wrong label and a different origin key for the same
+ * warehouse. No US city name is one of these words.
+ */
+const FROM_CONNECTOR = new Set(["out", "of", "in", "from", "at", "up"]);
 const FOOTER_FILLER = new Set(["all", "jobs", "loads", "are", "is", "everything", "todo", "todos", "for", "delivery", "now", "the", "these", "them", "ready"]);
 
 export function annotate(L: ScannedLine, ctx: LineContext): { toks: ATok[]; ev: Evidence } {
@@ -560,7 +589,7 @@ export function annotate(L: ScannedLine, ctx: LineContext): { toks: ATok[]; ev: 
     chatterHit: false, capacityIdx: -1, paymentHit: false, partialHit: null, rfdIdx: [],
     dateReady: -1, dateDeadline: -1, price: null, tags: [], wordsOnly: false, hasComma: false,
     nameOnly: false, onlyCf: false, onlyRfd: false, onlyPrice: false, onlyDate: false,
-    unknownNum: false, keywordHit: false, wordCount: 0, flags: [],
+    unknownNum: false, keywordHit: false, twoDests: false, wordCount: 0, flags: [],
   };
   if (!toks.length) return { toks, ev };
 
@@ -603,6 +632,13 @@ export function annotate(L: ScannedLine, ctx: LineContext): { toks: ATok[]; ev: 
   // "1 more" as a partial marker.
   for (let i = 0; i + 1 < toks.length; i++) {
     if (toks[i].cls === "NUM" && Number(toks[i].value) === 1 && isWord(toks[i + 1]) && toks[i + 1].norm === "more" && !ev.partialHit) ev.partialHit = "1 more";
+  }
+  if (ev.hasFrom) {
+    for (const t of toks) {
+      if (t.start < ev.fromAt || t.cls === "PUNCT") continue;
+      if (t.cls !== "WORD" || !FROM_CONNECTOR.has(t.norm)) break;
+      ev.fromAt = t.end;
+    }
   }
   if (L.pin && !ev.hasFrom) ev.fromAt = 0;
 
@@ -979,27 +1015,33 @@ export function classifyA(L: Line, ctx: LineContext): void {
 
   const hasCf = !!ev.cf;
   const hasZip = ev.zips.length > 0;
+  const capCity = ev.cities.find((i) => toks[i].isUpper || /^\p{Lu}/u.test(toks[i].raw) || kindOf(prevNonPunct(toks, i), "TO"));
+  const hasTo = ev.toIdx.length > 0;
+  // Five digits alone prove nothing: an insurance minimum, an MC number or a
+  // reference number all look like a ZIP. Only a ZIP with a state, a state
+  // name, a capitalized city, a cubic-feet figure or a TO marker beside it
+  // means the line names a place -- otherwise "Cargo insurance 25000 required"
+  // becomes a delivery to WV 25000 that nobody posted.
+  const placeZip = hasZip && (hasCf || hasTo || ev.states.length > 0 || ev.stnames.length > 0 || capCity !== undefined);
 
   // A9 FOOTER_FLAG (before chatter: "All jobs are ready for delivery" starts with a chatter word).
-  if (ev.footerHit && !hasZip && !hasCf) {
+  if (ev.footerHit && !placeZip && !hasCf) {
     // An RFD-only line directly under a destination is that job's continuation (B16).
     if (ev.onlyRfd && L.prevIsDestination) return set("UNKNOWN", "A9→B");
     return set("FOOTER_FLAG", "A9");
   }
   // A6 REQUIREMENT
-  if (ev.reqHit && !hasZip && !ev.cfUnits.length) return set("REQUIREMENT", "A6");
+  if (ev.reqHit && !placeZip && !ev.cfUnits.length) return set("REQUIREMENT", "A6");
   // A5 CHATTER
   if (ev.capacityIdx >= 0 && !hasZip && (!ev.cf || ev.capacityIdx < ev.cf.idx)) return set("CHATTER", "A5c");
-  if ((ev.chatterHit || ev.paymentHit) && !hasZip && !hasCf) return set("CHATTER", "A5");
+  if ((ev.chatterHit || ev.paymentHit) && !placeZip && !hasCf) return set("CHATTER", "A5");
   // A8 TITLE
   const hasPlace = hasZip || ev.states.length > 0 || ev.stnames.length > 0 || ev.cities.some((i) => toks[i].isUpper || /^\p{Lu}/u.test(toks[i].raw));
   if (ev.titleHit && !hasZip && !hasCf && !hasPlace) return set("TITLE", "A8");
 
   // A10 DESTINATION
-  const capCity = ev.cities.find((i) => toks[i].isUpper || /^\p{Lu}/u.test(toks[i].raw) || kindOf(prevNonPunct(toks, i), "TO"));
-  const hasTo = ev.toIdx.length > 0;
   const isDest =
-    hasZip ||
+    placeZip ||
     (ev.states.length > 0 && hasCf) ||
     (capCity !== undefined && hasCf) ||
     (hasTo && (hasZip || ev.states.length > 0 || capCity !== undefined || ev.stnames.length > 0));
@@ -1007,7 +1049,7 @@ export function classifyA(L: Line, ctx: LineContext): void {
   if (isDest && !(bare && !hasTo && !hasCf)) {
     // Two place groups with no separator.
     const placeGroups = ev.states.filter((i) => isWord(toks[i - 1]) && !toks[i - 1].kw).length + (ev.stnames.length && ev.cities.length ? 0 : 0);
-    if (ev.states.length >= 2 && placeGroups >= 2) {
+    if (ev.twoDests || (ev.states.length >= 2 && placeGroups >= 2)) {
       L.flags.push("two_places");
       return set("UNKNOWN", "A10x");
     }
@@ -1111,7 +1153,10 @@ export function classifyB(lines: Line[], i: number, ctx: LineContext): void {
 
   // B12 DESTINATION (cf null): "Denver CO" right under jobs; "Orlando FL 32801"
   // anywhere mid-list (a ZIP with no comma and no blank line above is a job).
-  if (bare && bare.state && !bare.stateOnly && !ev.hasComma && !ev.stnames.length && L.s.emojiCount === 0 && !L.s.blankBefore &&
+  // The state has to be written or the city has to be a real one: a state read
+  // off a lone 5-digit number is no evidence that "USDOT 12345" is a place.
+  if (bare && bare.state && !bare.stateOnly && (bare.stateExplicit || ev.cities.length > 0) &&
+      !ev.hasComma && !ev.stnames.length && L.s.emojiCount === 0 && !L.s.blankBefore &&
       ((prev && (prev.cls === "DESTINATION" || prev.cls === "HEADER" || prev.cls === "LANE")) || bare.zip)) {
     L.dest = parseDestination(toks, ev, 0, toks.length, ctx);
     if (!L.dest.state) { L.dest.state = bare.state; L.dest.written = bare.city ? `${bare.city}, ${bare.state}` : bare.state!; L.dest.city = bare.city; L.dest.stateOnly = !bare.city; }
