@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { BoundsInput, SortKey } from "@/lib/loads/types";
+import type { BoundsInput, MapEnd, SortKey } from "@/lib/loads/types";
 import type { StoredLocation } from "@/lib/location";
 import { homeQuery, useViewerLocation, viewerQuery } from "@/lib/location";
 import { CF_PRESETS, READY_OPTIONS, SEEN_OPTIONS, SORT_OPTIONS } from "@/lib/loads/present";
@@ -24,15 +24,12 @@ import { StatePicker, tokenLabel } from "./StatePicker";
 import { PopoverButton } from "./ui";
 
 /**
- * Which end of the lane the map plots.
- *
- * Not a filter -- it changes nothing about which jobs match -- but it lives in
- * `Filters` because it belongs in the URL for the same reason everything else
- * here does: a link to "FL pickups" and a link to "NJ deliveries" are different
- * views of the board and both are worth sending to somebody.
+ * `mapEnd` is not a filter -- it changes nothing about which jobs match -- but
+ * it lives in `Filters` because it belongs in the URL for the same reason
+ * everything else here does: a link to "FL pickups" and a link to "NJ
+ * deliveries" are different views of the board, and both are worth sending to
+ * somebody.
  */
-export type MapEnd = "pickup" | "delivery";
-
 export interface Filters {
   /** "pickup" (default) plots where jobs load; "delivery" where they drop. */
   mapEnd: MapEnd;

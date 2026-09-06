@@ -47,14 +47,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Feature, FeatureCollection, Point as GeoPoint } from "geojson";
-import type { BoundsInput, LoadSummary } from "@/lib/loads/types";
+import type { FeatureCollection, Point as GeoPoint } from "geojson";
+import type { BoundsInput, LoadSummary, MapEnd } from "@/lib/loads/types";
 import type { PublicLoadRow } from "@/lib/loads/publicView";
 import type { StoredLocation } from "@/lib/location";
 import { STATE_BY_ABBR } from "@/lib/geo/states";
 import { api } from "@/lib/basePath";
-import { formatCf, jobSummary, placeLabel, truckLine } from "@/lib/loads/present";
-import type { MapEnd } from "./FilterBar";
+import { formatCf, jobSummary, truckLine } from "@/lib/loads/present";
+import {
+  buildGroups,
+  endLabelText,
+  endPoint,
+  groupSummary,
+  idsOf,
+  type PointGroup,
+} from "@/lib/geo/points";
 
 export interface LoadMapProps {
   jobs: PublicLoadRow[];
@@ -79,32 +86,6 @@ export interface LoadMapProps {
   /** Height of the mobile sheet, so the route is fitted into the visible half. */
   bottomPadding?: number;
   filteredSummary: LoadSummary | null;
-}
-
-/** One drawn marker: every job whose selected end sits on the same spot. */
-interface PointGroup {
-  /** Rounded "lng,lat" -- the feature id, and the key everything syncs on. */
-  key: string;
-  lng: number;
-  lat: number;
-  ids: number[];
-  /** Total stated cubic feet standing here; drives the marker's size. */
-  cf: number;
-  /** Jobs here whose post never stated a size, so the total can be honest. */
-  unsized: number;
-  label: string;
-  state: string | null;
-}
-
-interface PointProps {
-  key: string;
-  label: string;
-  count: number;
-  cf: number;
-  unsized: number;
-  approx: boolean;
-  /** Comma-joined ids: MapLibre feature properties survive round trips best flat. */
-  ids: string;
 }
 
 /** What `/api/loads/:id/route` answers with. */
@@ -201,120 +182,6 @@ const DIM_OPACITY: maplibregl.ExpressionSpecification = [
   0.92,
 ];
 
-/**
- * Where a job's chosen end goes: its own coordinate, or its state's centroid.
- *
- * The centroid fallback is flagged approximate and drawn as such. It exists
- * because a post that says "delivering to FL" is real inventory a driver may
- * want, and hiding it would make the board quietly incomplete.
- */
-function endPoint(
-  job: PublicLoadRow,
-  end: MapEnd,
-): { lng: number; lat: number; approx: boolean } | null {
-  const lat = end === "pickup" ? job.pickup_lat : job.delivery_lat;
-  const lng = end === "pickup" ? job.pickup_lng : job.delivery_lng;
-  const precision = end === "pickup" ? job.pickup_precision : job.delivery_precision;
-  if (lat != null && lng != null) {
-    return { lng, lat, approx: precision === "state" || precision === "region" };
-  }
-  const st = end === "pickup" ? job.pickup_state : job.delivery_state;
-  const info = st ? STATE_BY_ABBR.get(st) : null;
-  return info ? { lng: info.lng, lat: info.lat, approx: true } : null;
-}
-
-/** "Rochester, MN" -- the place, not the post's raw wording. */
-function endLabelText(job: PublicLoadRow, end: MapEnd): string {
-  const city = end === "pickup" ? job.pickup_city : job.delivery_city;
-  const state = end === "pickup" ? job.pickup_state : job.delivery_state;
-  if (city && state) return `${city}, ${state}`;
-  if (city) return city;
-  return placeLabel(job, end).text;
-}
-
-/**
- * Jobs -> markers.
- *
- * Grouped on three decimal places (~110 m): five decimals would split a city
- * from its own ZIP centroid into two dots sitting on each other, which is the
- * pile this view exists to remove.
- */
-function buildGroups(
-  jobs: PublicLoadRow[],
-  end: MapEnd,
-): {
-  groups: PointGroup[];
-  features: FeatureCollection<GeoPoint, PointProps>;
-  keyByJob: Map<number, string>;
-  plotted: number;
-} {
-  const byKey = new Map<string, PointGroup & { approx: boolean }>();
-  const keyByJob = new Map<number, string>();
-  let plotted = 0;
-
-  for (const job of jobs) {
-    const at = endPoint(job, end);
-    if (!at) continue;
-    plotted += 1;
-
-    const key = `${at.lng.toFixed(3)},${at.lat.toFixed(3)}`;
-    keyByJob.set(job.id, key);
-
-    const existing = byKey.get(key);
-    if (existing) {
-      existing.ids.push(job.id);
-      existing.cf += job.cubic_feet ?? 0;
-      if (job.cubic_feet == null) existing.unsized += 1;
-      // Only a group where EVERY member is a guess is drawn as one.
-      existing.approx &&= at.approx;
-      continue;
-    }
-
-    byKey.set(key, {
-      key,
-      lng: at.lng,
-      lat: at.lat,
-      ids: [job.id],
-      cf: job.cubic_feet ?? 0,
-      unsized: job.cubic_feet == null ? 1 : 0,
-      label: endLabelText(job, end),
-      state: end === "pickup" ? job.pickup_state : job.delivery_state,
-      approx: at.approx,
-    });
-  }
-
-  const groups = [...byKey.values()];
-  const features: Feature<GeoPoint, PointProps>[] = groups.map((g) => ({
-    type: "Feature",
-    geometry: { type: "Point", coordinates: [g.lng, g.lat] },
-    properties: {
-      key: g.key,
-      label: g.label,
-      count: g.ids.length,
-      cf: g.cf,
-      unsized: g.unsized,
-      approx: g.approx,
-      ids: g.ids.join(","),
-    },
-  }));
-
-  return {
-    groups,
-    features: { type: "FeatureCollection", features },
-    keyByJob,
-    plotted,
-  };
-}
-
-/** "Rochester, MN · 11 jobs · 6,006 cf" */
-function groupSummary(g: PointGroup): string {
-  const jobs = `${g.ids.length} job${g.ids.length === 1 ? "" : "s"}`;
-  const size = g.cf > 0 ? formatCf(g.cf) : "size not stated";
-  const unsized =
-    g.unsized > 0 && g.cf > 0 ? ` (${g.unsized} without a size)` : "";
-  return `${g.label} · ${jobs} · ${size}${unsized}`;
-}
-
 /** A 12 px right-pointing triangle, registered as an SDF so icon-color works. */
 function chevronImage(): ImageData | null {
   if (typeof document === "undefined") return null;
@@ -403,10 +270,6 @@ export function LoadMap({
   const roadCache = useRef(new Map<number, RoadRouteResponse>());
 
   const built = useMemo(() => buildGroups(jobs, end), [jobs, end]);
-  const groupByKey = useMemo(
-    () => new Map(built.groups.map((g) => [g.key, g])),
-    [built],
-  );
   // Read by the map's own event handlers, which are registered once and must
   // not close over a stale result set.
   const groups = useRef(built.groups);
@@ -780,7 +643,7 @@ export function LoadMap({
     popup.current = null;
 
     const key = hoverKey ?? (hoveredId != null ? built.keyByJob.get(hoveredId) : undefined);
-    const group = key ? groupByKey.get(key) : undefined;
+    const group = key ? built.byKey.get(key) : undefined;
     if (!group) return;
 
     // One job gets its own line -- lane, size, price, readiness -- because that
@@ -791,7 +654,7 @@ export function LoadMap({
       .setLngLat([group.lng, group.lat])
       .setText(single ? jobSummary(single) : groupSummary(group))
       .addTo(m);
-  }, [hoverKey, hoveredId, jobs, built, groupByKey, ready]);
+  }, [hoverKey, hoveredId, jobs, built, ready]);
 
   // --- the selected job's road --------------------------------------------
   // One request per job, answered from `loads.road_path` after the first, so
@@ -1105,15 +968,6 @@ export function LoadMap({
       </div>
     </div>
   );
-}
-
-/** "12,15,19" -> [12, 15, 19]; anything else -> []. */
-function idsOf(raw: unknown): number[] {
-  if (typeof raw !== "string" || !raw) return [];
-  return raw
-    .split(",")
-    .map((s) => Number(s))
-    .filter((n) => Number.isFinite(n));
 }
 
 /** A small white label pinned to one end of the selected route. */

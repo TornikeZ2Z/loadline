@@ -7,6 +7,12 @@
  * component.
  */
 export type LoadStatus = "available" | "delisted" | "pending" | "taken" | "expired" | "cancelled";
+/**
+ * Which end of a lane the map plots. Not a search parameter -- it changes
+ * nothing about which jobs match -- but it travels in the URL beside them, so
+ * it lives with the shapes rather than inside a component.
+ */
+export type MapEnd = "pickup" | "delivery";
 export type StatusSource = "derived" | "manual";
 export type ReadySource = "line" | "header" | "footer" | "title" | "assumed";
 export type ContactMode = "public" | "dm";
