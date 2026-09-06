@@ -14,7 +14,11 @@
     "seed": "tsx scripts/seed.ts",
     "process": "tsx scripts/process.ts",
     "expire": "tsx scripts/expire.ts",
-    "geocache:clear": "tsx scripts/clear-geocache.ts"
+    "geocache:clear": "tsx scripts/clear-geocache.ts",
+    "eval:lifecycle": "tsx scripts/eval-lifecycle.ts",
+    "rules:export": "tsx scripts/rules-export.ts",
+    "zips:warm": "tsx scripts/warm-zips.ts",
+    "check:redact": "tsx scripts/check-redact.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
