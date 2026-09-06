@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { isSafeNext } from "@/lib/session";
 import { AuthForm } from "@/components/AuthForm";
+import { FooterBar } from "@/components/Footer";
 import { DEMO_ACCOUNTS, demoModeEnabled, ensureDemoData } from "@/lib/demo/accounts";
 
 export const dynamic = "force-dynamic";
@@ -38,5 +39,12 @@ export default async function LoginPage({
         .map(({ key, name, role, blurb }) => ({ key, name, role, blurb }))
     : [];
 
-  return <AuthForm mode="login" next={next} demoAccounts={accounts} />;
+  // The auth screens carry no shell, so they get the footer directly -- the
+  // legal pages have to be reachable from the one screen that asks for details.
+  return (
+    <>
+      <AuthForm mode="login" next={next} demoAccounts={accounts} />
+      <FooterBar />
+    </>
+  );
 }
