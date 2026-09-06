@@ -90,7 +90,12 @@ const RE = {
     "iy",
   ),
   cfPrefix: /(?<![\p{L}])(?:cf|c\/f|cubic\s*(?:feet|ft)|cubes?)\s*[:=]\s*(\d{1,3}(?:,\d{3})+|\d{1,5})(?!\d)/iuy,
-  cfUnit: /(?<![\d.])(\d{1,3}(?:,\d{3})+|\d{1,5})\s*\.?\s*(c\s*\/\s*f|c\.f\.?|cf|cu\.?\s*ft\.?|cuft|cubic(?:\s*(?:feet|ft|foot))?|cubes?|cubos?|pies(?:\s*c[uú]bicos)?|cu)(?![\p{L}])/iuy,
+  // Four digits, not five: "33101 CF" would otherwise be eaten whole as 33101
+  // cubic feet before the scanner ever reaches the ZIP, and a five-digit run's
+  // ZIP-vs-CF question belongs to lines.ts, which has the whole line to read.
+  // The comma form keeps five figures working ("12,000 cf"), and a bare number
+  // over 5000 is already refused as cubic feet in classifyNumbers.
+  cfUnit: /(?<![\d.])(\d{1,3}(?:,\d{3})+|\d{1,4})\s*\.?\s*(c\s*\/\s*f|c\.f\.?|cf|cu\.?\s*ft\.?|cuft|cubic(?:\s*(?:feet|ft|foot))?|cubes?|cubos?|pies(?:\s*c[uú]bicos)?|cu)(?![\p{L}])/iuy,
   cfFt: /(?<![\d.])(\d{3,4})\s*(?:ft|feet)(?![\p{L}])/iuy,
   weight: /(?<![\d.])(\d{1,3}(?:,\d{3})+|\d{1,6})\s*(?:lbs?|pounds?|kgs?|kilos?)(?![\p{L}])/iuy,
   length: /(?<![\d.])(\d{2})\s*(?:ft|feet|')(?![\p{L}\d])/iuy,

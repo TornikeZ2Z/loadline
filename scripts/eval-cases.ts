@@ -225,6 +225,21 @@ export const CASES: EvalCase[] = [
     ],
   },
   {
+    name: "a ZIP in front of a cubic-feet word stays a ZIP",
+    body: "From Newark NJ\nState FL Zip 33101 Cube 350",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+  },
+  {
+    name: "a ZIP in front of a cf prefix stays a ZIP",
+    body: "From Newark NJ\nDest: FL 33101 CF: 350",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+  },
+  {
+    name: "five figures of cf still work with a thousands separator",
+    body: "From Newark NJ\nFL 33101 12,000 cf",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 12000 }],
+  },
+  {
     name: "an insurance minimum is not a destination",
     body: "FROM NEWARK NJ\nFL 33101 350cf\nCargo insurance 25000 required",
     expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
