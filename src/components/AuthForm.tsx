@@ -4,48 +4,64 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/basePath";
+import { isSafeNext, loginHref, registerHref, type Role } from "@/lib/session";
 
 export interface DemoOption {
-  key: string;
+  key: Role;
   name: string;
-  role: string;
+  role: Role;
   blurb: string;
 }
 
 /**
- * Sign-in. When demo accounts are offered, they lead -- a demo should not open
- * with a password prompt and a credential to copy. The real form stays
- * underneath for anyone who wants it, and is all that renders once
- * `DEMO_MODE=off`.
+ * Sign-in and registration.
+ *
+ * This page is not the front door -- the board is, and it needs no account.
+ * That is the first thing the copy says, because someone who arrives here from
+ * a bookmark should not conclude the product is behind a login. When demo
+ * accounts are offered they lead: a demo should not open with a password prompt
+ * and a credential to copy. The real form stays underneath for anyone who wants
+ * it, and is all that renders once `DEMO_MODE=off`.
  */
 export function AuthForm({
   mode,
+  next,
+  as,
   demoAccounts = [],
 }: {
   mode: "login" | "register";
+  /** Where to land afterwards; anything not a same-origin app path is ignored. */
+  next?: string | null;
+  /** Which kind of account the person came here for. */
+  as?: "driver" | "poster";
   demoAccounts?: DemoOption[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(demoAccounts.length === 0);
+  const [role, setRole] = useState<"driver" | "poster">(as ?? "driver");
   const isLogin = mode === "login";
 
-  async function enterAsDemo(role: string) {
-    setBusy(role);
+  function done() {
+    router.replace(isSafeNext(next) ? next : "/");
+    router.refresh();
+  }
+
+  async function enterAsDemo(key: string) {
+    setBusy(key);
     setError(null);
     const res = await fetch(api("/api/auth/demo"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ role: key }),
     });
     if (!res.ok) {
       setError(((await res.json()) as { error?: string }).error ?? "Could not start the demo");
       setBusy(null);
       return;
     }
-    router.replace("/");
-    router.refresh();
+    done();
   }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -65,8 +81,7 @@ export function AuthForm({
       setBusy(null);
       return;
     }
-    router.replace("/");
-    router.refresh();
+    done();
   }
 
   return (
@@ -81,7 +96,7 @@ export function AuthForm({
           </div>
           <h1 className="text-[22px] font-bold tracking-tight">LoadLine</h1>
           <p className="mt-1 text-[13px] text-muted">
-            The freight in your WhatsApp groups, searchable by route, radius and date.
+            Backhaul jobs for movers, pulled out of WhatsApp.
           </p>
         </div>
 
@@ -89,7 +104,8 @@ export function AuthForm({
           <div className="card p-5">
             <div className="mb-1 text-[15px] font-bold">Try the demo</div>
             <p className="mb-3 text-[12px] text-muted">
-              No sign-up. Pick a role and go — every account sees the same sample data.
+              Browsing the board needs no account. Sign in to see contacts, post a job, or run the
+              admin console.
             </p>
 
             <div className="space-y-2">
@@ -108,8 +124,8 @@ export function AuthForm({
                     {a.name.charAt(0)}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-semibold capitalize">
-                      Sign in as {a.role}
+                    <span className="block text-[13px] font-semibold">
+                      Sign in as demo {a.key}
                     </span>
                     <span className="block text-[12px] text-muted">{a.blurb}</span>
                   </span>
@@ -141,11 +157,48 @@ export function AuthForm({
         )}
 
         {showForm && (
-          <form onSubmit={submit} className={`card space-y-3 p-5 ${demoAccounts.length ? "mt-3" : ""}`}>
+          <form
+            onSubmit={submit}
+            className={`card space-y-3 p-5 ${demoAccounts.length ? "mt-3" : ""}`}
+          >
+            {!isLogin && (
+              <div>
+                <label className="label">I want to</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { value: "driver", title: "See contacts on jobs" },
+                      { value: "poster", title: "Post jobs from the website" },
+                    ] as const
+                  ).map((opt) => (
+                    <label
+                      key={opt.value}
+                      className="cursor-pointer rounded-lg border p-3 text-[12px]"
+                      style={
+                        role === opt.value
+                          ? { borderColor: "var(--accent)", background: "var(--accent-soft)" }
+                          : { borderColor: "var(--border-strong)" }
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="role"
+                        value={opt.value}
+                        checked={role === opt.value}
+                        onChange={() => setRole(opt.value)}
+                        className="sr-only"
+                      />
+                      {opt.title}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {!isLogin && (
               <div>
                 <label className="label">Your name</label>
-                <input name="name" className="field" required placeholder="Dan Carrier" />
+                <input name="name" className="field" required placeholder="Dan Driver" />
               </div>
             )}
 
@@ -175,23 +228,12 @@ export function AuthForm({
             {!isLogin && (
               <>
                 <div>
-                  <label className="label">I am a</label>
-                  <select name="role" className="field" defaultValue="carrier">
-                    <option value="carrier">Carrier / driver — I search for loads</option>
-                    <option value="broker">Broker / dispatcher — I post loads</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Home base</label>
-                  <input name="homeLocation" className="field" placeholder="Newark, NJ" />
-                  <p className="mt-1 text-[11px] text-muted">
-                    Used for &ldquo;loads near me&rdquo; so the board is useful the moment you sign
-                    in.
-                  </p>
-                </div>
-                <div>
                   <label className="label">Phone (optional)</label>
                   <input name="phone" className="field" placeholder="(973) 555-1234" />
+                </div>
+                <div>
+                  <label className="label">Company (optional)</label>
+                  <input name="company" className="field" placeholder="Kaz Moving LLC" />
                 </div>
               </>
             )}
@@ -213,14 +255,22 @@ export function AuthForm({
               {isLogin ? (
                 <>
                   No account yet?{" "}
-                  <Link href="/register" className="font-semibold" style={{ color: "var(--accent)" }}>
+                  <Link
+                    href={registerHref("driver", next)}
+                    className="font-semibold"
+                    style={{ color: "var(--accent)" }}
+                  >
                     Create one
                   </Link>
                 </>
               ) : (
                 <>
                   Already registered?{" "}
-                  <Link href="/login" className="font-semibold" style={{ color: "var(--accent)" }}>
+                  <Link
+                    href={loginHref(next)}
+                    className="font-semibold"
+                    style={{ color: "var(--accent)" }}
+                  >
                     Sign in
                   </Link>
                 </>
@@ -228,6 +278,13 @@ export function AuthForm({
             </p>
           </form>
         )}
+
+        <p className="mt-4 text-center text-[12px] text-muted">
+          <Link href="/" style={{ color: "var(--accent)" }}>
+            ← Back to the board
+          </Link>{" "}
+          — browsing never needs an account.
+        </p>
       </div>
     </div>
   );

@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
-import { AppShell } from "@/components/AppShell";
-import { Board } from "@/components/Board";
 
+/**
+ * The board moved to "/". This keeps every link that was ever shared, and the
+ * console's "See it on the board", working -- with the search intact, which is
+ * the part a bare redirect to "/" would have thrown away.
+ */
 export const dynamic = "force-dynamic";
 
 export default async function LoadsPage({
@@ -10,19 +12,12 @@ export default async function LoadsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-
-  // Pass the incoming query through so a shared link opens the same search.
   const sp = new URLSearchParams();
   for (const [key, value] of Object.entries(await searchParams)) {
     if (typeof value === "string") sp.set(key, value);
     else value?.forEach((v) => sp.append(key, v));
   }
 
-  return (
-    <AppShell user={user} active="loads">
-      <Board user={user} initialQuery={sp.toString()} />
-    </AppShell>
-  );
+  const qs = sp.toString();
+  redirect(qs ? `/?${qs}` : "/");
 }

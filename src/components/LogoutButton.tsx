@@ -15,7 +15,10 @@ export function LogoutButton() {
       onClick={async () => {
         setBusy(true);
         await fetch(api("/api/auth/logout"), { method: "POST" });
-        router.replace("/login");
+        // Back to the board, not to a login page: signing out is leaving the
+        // account, not leaving the product. The stored location stays -- it was
+        // never tied to the session.
+        router.replace("/");
         router.refresh();
       }}
     >
