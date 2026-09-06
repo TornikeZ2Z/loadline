@@ -6,25 +6,15 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { queryOne } from "@/lib/db";
+import type { Role, SessionUser } from "./session";
 
 export { hashPassword, verifyPassword } from "@/lib/password";
+// `Role` and `SessionUser` live in the client-safe `./session`; re-exported here
+// so server code keeps importing them from `@/lib/auth`.
+export type { Role, SessionUser } from "./session";
 
 const COOKIE = "lb_session";
 const SESSION_DAYS = 30;
-
-export type Role = "carrier" | "broker" | "admin";
-
-export interface SessionUser {
-  id: number;
-  email: string;
-  name: string;
-  role: Role;
-  phone: string | null;
-  company: string | null;
-  home_label: string | null;
-  home_lat: number | null;
-  home_lng: number | null;
-}
 
 function secret(): string {
   const s = process.env.SESSION_SECRET;
@@ -88,8 +78,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   const id = decode(jar.get(COOKIE)?.value);
   if (id == null) return null;
   return queryOne<SessionUser>(
-    `SELECT id, email, name, role, phone, company, home_label, home_lat, home_lng
-       FROM users WHERE id = $1`,
+    `SELECT id, email, name, role, phone, company FROM users WHERE id = $1`,
     [id],
   );
 }

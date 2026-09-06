@@ -12,47 +12,41 @@
  */
 import { query, queryOne } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
-import type { Role } from "@/lib/auth";
+import type { Role } from "@/lib/session";
 import { resetDemoData } from "./reset";
 
 export interface DemoAccount {
-  key: "carrier" | "broker" | "admin";
+  /** "driver" | "poster" | "admin" -- the one-click sign-in key, equal to the role. */
+  key: Role;
   email: string;
   name: string;
   role: Role;
   company: string | null;
   phone: string | null;
-  homeLabel: string;
-  homeLat: number;
-  homeLng: number;
-  /** Shown on the sign-in buttons. */
+  /** Shown under the sign-in button. */
   blurb: string;
 }
 
+// Driver stays first: `findDemoAccount(role ?? "driver")` and the contact gate
+// rely on the driver default. `/login` re-sorts the buttons poster · admin · driver.
 export const DEMO_ACCOUNTS: DemoAccount[] = [
   {
-    key: "carrier",
-    email: "carrier@example.com",
-    name: "Dan Carrier",
-    role: "carrier",
-    company: "Kaz Trucking LLC",
+    key: "driver",
+    email: "driver@example.com",
+    name: "Dan Driver",
+    role: "driver",
+    company: "Kaz Moving LLC",
     phone: "+19735550000",
-    homeLabel: "Newark, NJ",
-    homeLat: 40.7357,
-    homeLng: -74.1724,
-    blurb: "Search loads by route, radius and date",
+    blurb: "See the phone number on any job",
   },
   {
-    key: "broker",
-    email: "broker@example.com",
-    name: "Rosa Broker",
-    role: "broker",
-    company: "Rosa Logistics",
+    key: "poster",
+    email: "poster@example.com",
+    name: "Rosa Poster",
+    role: "poster",
+    company: "Sunshine Movers",
     phone: "+19085557788",
-    homeLabel: "Philadelphia, PA",
-    homeLat: 39.9526,
-    homeLng: -75.1652,
-    blurb: "Post loads and mark them taken",
+    blurb: "Post a job from the website and mark it taken",
   },
   {
     key: "admin",
@@ -61,10 +55,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     role: "admin",
     company: null,
     phone: null,
-    homeLabel: "Newark, NJ",
-    homeLat: 40.7357,
-    homeLng: -74.1724,
-    blurb: "Inspect the pipeline and data quality",
+    blurb: "Pipeline, needs-attention queue and the WhatsApp console",
   },
 ];
 
@@ -82,20 +73,10 @@ export function demoModeEnabled(): boolean {
 export async function createDemoAccounts(): Promise<void> {
   for (const a of DEMO_ACCOUNTS) {
     await query(
-      `INSERT INTO users (email, password_hash, name, role, phone, company, home_label, home_lat, home_lng)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO users (email, password_hash, name, role, phone, company)
+       VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (email) DO NOTHING`,
-      [
-        a.email,
-        hashPassword(DEMO_PASSWORD),
-        a.name,
-        a.role,
-        a.phone,
-        a.company,
-        a.homeLabel,
-        a.homeLat,
-        a.homeLng,
-      ],
+      [a.email, hashPassword(DEMO_PASSWORD), a.name, a.role, a.phone, a.company],
     );
   }
 }
