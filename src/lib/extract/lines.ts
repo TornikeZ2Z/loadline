@@ -1015,27 +1015,33 @@ export function classifyA(L: Line, ctx: LineContext): void {
 
   const hasCf = !!ev.cf;
   const hasZip = ev.zips.length > 0;
+  const capCity = ev.cities.find((i) => toks[i].isUpper || /^\p{Lu}/u.test(toks[i].raw) || kindOf(prevNonPunct(toks, i), "TO"));
+  const hasTo = ev.toIdx.length > 0;
+  // Five digits alone prove nothing: an insurance minimum, an MC number or a
+  // reference number all look like a ZIP. Only a ZIP with a state, a state
+  // name, a capitalized city, a cubic-feet figure or a TO marker beside it
+  // means the line names a place -- otherwise "Cargo insurance 25000 required"
+  // becomes a delivery to WV 25000 that nobody posted.
+  const placeZip = hasZip && (hasCf || hasTo || ev.states.length > 0 || ev.stnames.length > 0 || capCity !== undefined);
 
   // A9 FOOTER_FLAG (before chatter: "All jobs are ready for delivery" starts with a chatter word).
-  if (ev.footerHit && !hasZip && !hasCf) {
+  if (ev.footerHit && !placeZip && !hasCf) {
     // An RFD-only line directly under a destination is that job's continuation (B16).
     if (ev.onlyRfd && L.prevIsDestination) return set("UNKNOWN", "A9→B");
     return set("FOOTER_FLAG", "A9");
   }
   // A6 REQUIREMENT
-  if (ev.reqHit && !hasZip && !ev.cfUnits.length) return set("REQUIREMENT", "A6");
+  if (ev.reqHit && !placeZip && !ev.cfUnits.length) return set("REQUIREMENT", "A6");
   // A5 CHATTER
   if (ev.capacityIdx >= 0 && !hasZip && (!ev.cf || ev.capacityIdx < ev.cf.idx)) return set("CHATTER", "A5c");
-  if ((ev.chatterHit || ev.paymentHit) && !hasZip && !hasCf) return set("CHATTER", "A5");
+  if ((ev.chatterHit || ev.paymentHit) && !placeZip && !hasCf) return set("CHATTER", "A5");
   // A8 TITLE
   const hasPlace = hasZip || ev.states.length > 0 || ev.stnames.length > 0 || ev.cities.some((i) => toks[i].isUpper || /^\p{Lu}/u.test(toks[i].raw));
   if (ev.titleHit && !hasZip && !hasCf && !hasPlace) return set("TITLE", "A8");
 
   // A10 DESTINATION
-  const capCity = ev.cities.find((i) => toks[i].isUpper || /^\p{Lu}/u.test(toks[i].raw) || kindOf(prevNonPunct(toks, i), "TO"));
-  const hasTo = ev.toIdx.length > 0;
   const isDest =
-    hasZip ||
+    placeZip ||
     (ev.states.length > 0 && hasCf) ||
     (capCity !== undefined && hasCf) ||
     (hasTo && (hasZip || ev.states.length > 0 || capCity !== undefined || ev.stnames.length > 0));
@@ -1147,7 +1153,10 @@ export function classifyB(lines: Line[], i: number, ctx: LineContext): void {
 
   // B12 DESTINATION (cf null): "Denver CO" right under jobs; "Orlando FL 32801"
   // anywhere mid-list (a ZIP with no comma and no blank line above is a job).
-  if (bare && bare.state && !bare.stateOnly && !ev.hasComma && !ev.stnames.length && L.s.emojiCount === 0 && !L.s.blankBefore &&
+  // The state has to be written or the city has to be a real one: a state read
+  // off a lone 5-digit number is no evidence that "USDOT 12345" is a place.
+  if (bare && bare.state && !bare.stateOnly && (bare.stateExplicit || ev.cities.length > 0) &&
+      !ev.hasComma && !ev.stnames.length && L.s.emojiCount === 0 && !L.s.blankBefore &&
       ((prev && (prev.cls === "DESTINATION" || prev.cls === "HEADER" || prev.cls === "LANE")) || bare.zip)) {
     L.dest = parseDestination(toks, ev, 0, toks.length, ctx);
     if (!L.dest.state) { L.dest.state = bare.state; L.dest.written = bare.city ? `${bare.city}, ${bare.state}` : bare.state!; L.dest.city = bare.city; L.dest.stateOnly = !bare.city; }

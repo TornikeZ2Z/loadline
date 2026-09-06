@@ -225,6 +225,30 @@ export const CASES: EvalCase[] = [
     ],
   },
   {
+    name: "an insurance minimum is not a destination",
+    body: "FROM NEWARK NJ\nFL 33101 350cf\nCargo insurance 25000 required",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+    expectRequirements: 1,
+  },
+  {
+    name: "an MC or DOT number is not a destination",
+    body: "FROM NEWARK NJ\nFL 33101 350cf\nMust have DOT 12345\nMC# 45678",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+  },
+  {
+    name: "a payment note with five digits is not a destination",
+    body: "FROM NEWARK NJ\nFL 33101 350cf\nZelle only 12345",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33101", cf: 350 }],
+  },
+  {
+    name: "a city with a ZIP and no written state is still a destination",
+    body: "From Kearny NJ\nFL 33435 350cf\nMiami 33101",
+    expect: [
+      { origin: "Kearny, NJ", dest: "FL 33435", cf: 350 },
+      { origin: "Kearny, NJ", dest: "FL 33101", cf: null, flagsInclude: ["cfless_destination"] },
+    ],
+  },
+  {
     name: "stacked FROM markers stay out of the origin city",
     body: "Loading out of Houston TX 77002\nAustin TX 78701 250 cf",
     expect: [{ origin: "Houston, TX 77002", dest: "TX 78701", cf: 250 }],
