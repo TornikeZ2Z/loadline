@@ -17,7 +17,7 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/basePath";
 import { formatDuration } from "@/lib/geo/here";
 import type { PublicDetailResponse, PublicLoadRow, ContactResponse } from "@/lib/loads/publicView";
@@ -86,6 +86,7 @@ export function LoadDetail({
   const [revealed, setRevealed] = useState<ContactResponse | null>(null);
   const [fullMessage, setFullMessage] = useState(false);
   const [busy, setBusy] = useState(false);
+  const contactSection = useRef<HTMLElement>(null);
 
   const load = useCallback(async () => {
     const sp = new URLSearchParams();
@@ -136,6 +137,25 @@ export function LoadDetail({
   const canManage =
     row != null &&
     (role === "admin" || (role === "poster" && userId != null && row.posted_by === userId));
+
+  // The card's Show contact button opens the drawer scrolled to the top, and
+  // the gate is the sixth section down -- below the fold on a laptop, two
+  // screens down on a phone -- so without this the one CTA on the card looks
+  // like it did nothing. On a phone the gate is pinned to the bottom of the
+  // sheet instead (see section 6), where it is already in view.
+  const gateShown = row != null;
+  useEffect(() => {
+    if (!autoContact || mobile || !gateShown) return;
+    // Next frame, not this one: ContactGate's own autoOpen effect runs first
+    // (children before parents) and swaps its button for the taller sign-in
+    // step, so centring before that commit centres the collapsed version. And
+    // again on `data`, because the sections above the gate are still growing
+    // until the detail fetch lands and would push it back off the fold.
+    const frame = requestAnimationFrame(() =>
+      contactSection.current?.scrollIntoView({ block: "center" }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [autoContact, mobile, gateShown, jobId, data]);
 
   async function setStatus(status: ManualStatus) {
     if (!row) return;
@@ -332,7 +352,28 @@ export function LoadDetail({
         )}
 
         {/* 6 — the only place a phone number reaches the page */}
-        <section className="mt-[var(--sp-4)]">
+        {/* On a phone this is the sticky bar at the bottom of the sheet (C
+            §1.3): the sheet's half snap shows ~390 px of a ~1,200 px drawer,
+            so a contact block that scrolled with the rest would be two screens
+            below the tap that asked for it. */}
+        <section
+          ref={contactSection}
+          className="mt-[var(--sp-4)]"
+          style={
+            mobile
+              ? {
+                  position: "sticky",
+                  bottom: 0,
+                  marginLeft: "calc(var(--sp-4) * -1)",
+                  marginRight: "calc(var(--sp-4) * -1)",
+                  padding: "var(--sp-3) var(--sp-4)",
+                  background: "var(--surface-glass)",
+                  backdropFilter: "blur(6px)",
+                  borderTop: "1px solid var(--border)",
+                }
+              : undefined
+          }
+        >
           <ContactGate
             loadId={row.id}
             contactName={row.contact_name}
