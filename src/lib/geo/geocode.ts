@@ -6,7 +6,9 @@
  *   2. explicit "lat,lng"    (map clicks, browser geolocation)
  *   3. alias table           ("philly", "socal", "north jersey")
  *   4. offline gazetteer     ("Newark, NJ", "07102", bare state, region)
- *   5. remote provider       (Census or Mapbox, only if GEOCODER says so)
+ *   5. remote provider       (HERE whenever HERE_API_KEY is set and today's
+ *                             budget is unspent; Census or Mapbox only when
+ *                             GEOCODER names one of them)
  *
  * `precision` records how specific the answer is, so the UI can be honest:
  * a load posted as "somewhere in Florida" gets a state centroid and is not

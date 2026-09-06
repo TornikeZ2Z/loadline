@@ -12,7 +12,7 @@ import { query } from "../src/lib/db";
 async function main() {
   const rows = await query<{ query: string }>(`DELETE FROM places RETURNING query`);
   console.log(`cleared ${rows.length} cached place lookups`);
-  console.log("re-run affected messages from /admin -> Message feed -> Re-run");
+  console.log("re-run affected messages from /admin -> Needs attention -> pick a message -> Reprocess");
 }
 
 main().then(() => process.exit(0), (e) => { console.error(e); process.exit(1); });
