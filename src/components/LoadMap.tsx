@@ -429,6 +429,10 @@ export function LoadMap({
 
     const ordered = [...labels.current].sort((a, b) => b.weight - a.weight);
     for (const l of ordered) {
+      // A marker group whose effect bailed before re-registering its labels can
+      // leave an entry pointing at a removed element. Measuring one would give
+      // a zero-width box that quietly lets a real label overlap something.
+      if (!l.el.isConnected) continue;
       const at = m.project([l.lng, l.lat]);
       const [w, h] = sizeOf(l);
       // Off screen entirely: nothing to draw and nothing to reserve. Generous
