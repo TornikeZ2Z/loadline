@@ -7,7 +7,7 @@ import { listGroups } from "@/lib/demo/chats";
 
 export const dynamic = "force-dynamic";
 
-const TABS = ["attention", "try", "messages", "senders", "rules", "groups"] as const;
+const TABS = ["attention", "try", "messages", "senders", "rules", "groups", "map"] as const;
 type Tab = (typeof TABS)[number];
 
 /**

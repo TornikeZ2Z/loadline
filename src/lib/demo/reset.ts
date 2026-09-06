@@ -11,6 +11,7 @@ import { exec, query, queryOne } from "@/lib/db";
 import { ingestMessage } from "@/lib/pipeline/ingest";
 import { processPending } from "@/lib/pipeline/process";
 import { expireStaleLoads } from "@/lib/pipeline/expire";
+import { warmBoardZips, WARM_BATCH_MAX } from "@/lib/geo/zips";
 import { GROUPS, MESSAGES } from "./sample-messages";
 
 export interface ResetSummary {
@@ -26,6 +27,8 @@ export interface ResetSummary {
   attention: number;
   /** Available jobs from FL to NJ -- the README walkthrough's first filter. */
   flNj: number;
+  /** Job endpoints moved off an approximate point by the post-reset warm. */
+  precisePlaces: number;
 }
 
 /** The truncate list every reset shares (rules and pattern cases are kept). */
@@ -63,6 +66,7 @@ export async function resetDemoData(): Promise<ResetSummary> {
 
   const results = await processPending(MESSAGES.length + 10);
   const { expired } = await expireStaleLoads();
+  const precisePlaces = await warmPlaces();
 
   const counts = await queryOne<{ senders: number; delisted: number; attention: number; fl_nj: number }>(
     `SELECT (SELECT count(*) FROM senders)::int AS senders,
@@ -82,5 +86,36 @@ export async function resetDemoData(): Promise<ResetSummary> {
     delisted: counts?.delisted ?? 0,
     attention: counts?.attention ?? 0,
     flNj: counts?.fl_nj ?? 0,
+    precisePlaces,
   };
+}
+
+/**
+ * Upgrade any job the replay could only place approximately.
+ *
+ * The reset truncates `places`, so every ZIP is geocoded from scratch. With a
+ * HERE key that happens inside the pipeline and the map comes out precise; with
+ * no key — which is exactly how the deployed demo runs — `geocodeZip` stores
+ * the in-state approximation and every destination draws as a hollow
+ * "approximate" marker. This closes the gap in the one case that is left: a key
+ * added after the data was built.
+ *
+ * `onlyCoarse` keeps the bill honest. It asks about a ZIP only when a job is
+ * visibly sitting on the wrong point, so on a reset that already had a key it
+ * finds nothing to do and spends nothing.
+ *
+ * Nothing here is allowed to fail the reset. A reset that dies half-way leaves
+ * no board at all, which is far worse than a board with approximate markers —
+ * so a missing key, a spent budget or a router outage is logged and swallowed,
+ * and the admin console's "Map precision" control can finish the job later.
+ */
+async function warmPlaces(): Promise<number> {
+  if (!process.env.HERE_API_KEY) return 0;
+  try {
+    const r = await warmBoardZips({ limit: WARM_BATCH_MAX, onlyCoarse: true });
+    return r.loadsUpdated;
+  } catch (err) {
+    console.error("[reset] could not warm the board's ZIPs; the map stays approximate:", err);
+    return 0;
+  }
 }

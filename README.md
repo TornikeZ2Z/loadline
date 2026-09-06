@@ -195,6 +195,12 @@ address. Presenting a centroid as a real pickup is how a board loses a driver's 
 > After changing aliases or the gazetteer, run `npm run geocache:clear` — otherwise places
 > resolved badly before the fix stay resolved badly.
 
+A ZIP resolved while no geocoder was reachable keeps that approximation until something
+asks again — nothing re-fetches on its own, because a cache that expires costs money on a
+schedule. `npm run zips:warm` is that "ask again" locally, and
+[Making a fresh deployment's map precise](#making-a-fresh-deployments-map-precise) is the
+same sweep for a deployment.
+
 ### Road distance and drive time (HERE)
 
 With `HERE_API_KEY` set, opening a job shows the **truck** road distance and drive time for
@@ -386,6 +392,62 @@ produces an app whose pages load and whose every button 404s.
 > else. Turning it off leaves the ordinary email/password form and the self-serve
 > `/register`; change the demo passwords at the same time.
 
+### Making a fresh deployment's map precise
+
+A new deployment's map draws almost every destination as a hollow **approximate**
+marker, and that is the pipeline working as designed rather than a bug. A job is stored
+the moment it is read; if no geocoder can be reached, `geocodeZip` falls back to the
+nearest gazetteer city inside the ZIP's own state and records that honestly as `state`
+precision. The deployed task has no `HERE_API_KEY` (see `infra/secrets.tf` — it is
+deliberately not created), so *every* ZIP takes that path.
+
+Locally this is fixed by `npm run zips:warm`. Production cannot run a script against its
+own database: RDS lives in the VPC and nothing outside reaches it. So the same sweep is
+exposed as an admin route, and both call one function in `src/lib/geo/zips.ts`.
+
+Two steps, in order:
+
+1. **Give the task a HERE key.** Create the secret, reference it from the task
+   definition's `secrets` block in `infra/ecs.tf`, and roll a new task. Without a key
+   there is nothing better to fetch and the control says so instead of pretending.
+   (`GEOCODER=local` in `infra/ecs.tf` does *not* need changing: it steers the free-text
+   resolver only, and ZIP warming calls HERE directly.)
+2. **Sign in as admin → Extraction admin → Map precision → "Make the map precise."**
+   The panel first shows the survey — distinct ZIPs, how many are real answers versus
+   in-state approximations, and how many job endpoints are still drawn approximate —
+   then sweeps the board in batches and reports what moved.
+
+Or by hand, with an admin session cookie:
+
+```bash
+curl -s  -b cookies.txt https://loadline.ziptozip.app/api/admin/geocode          # survey only, nothing billable
+curl -sX POST -b cookies.txt 'https://loadline.ziptozip.app/api/admin/geocode?limit=40'
+# → { "examined": 40, "fetched": 38, "upgraded": 0, "loadsUpdated": 61,
+#     "nextAfter": "33180", "remaining": 58, "done": false, ... }
+curl -sX POST -b cookies.txt 'https://loadline.ziptozip.app/api/admin/geocode?after=33180'
+```
+
+One call visits at most `limit` ZIPs (default 40, max 200) and hands back a cursor, so a
+board with thousands of jobs is walked by a caller that can stop rather than by one
+request held open for minutes. It is **idempotent**: a ZIP that already has a real answer
+is skipped without an API call and a job already at zip/city/address precision is never
+touched, so a second run reports zeroes. Every fetch goes through `geocodeZip`, so
+`HERE_DAILY_BUDGET` still applies and a spent budget degrades to "nothing upgraded"
+rather than an error.
+
+It moves coordinates, precision and — where the stored city was itself part of the
+approximation — the city, recomputes `trip_miles`, and drops the cached road route for
+any job whose point moved, because that route was measured to the old point. It does
+**not** reprocess messages: re-running the extractor would rebuild labels, flags and
+review state from rules that may have moved since, which is a much larger blast radius
+than "this marker is in the wrong place".
+
+**Restore demo data** warms on its way out for the same reason, when a key is
+configured and only for jobs that are visibly approximate — so a reset on a keyed
+deployment costs nothing extra, and a reset on a keyless one still finishes. That warm
+can never fail the reset: a reset that dies half-way leaves no board at all, which is
+worse than a board with approximate markers.
+
 ---
 
 ## Configuration
@@ -440,7 +502,7 @@ scripts/                   eval + cases, scorer, seed, reprocess, expire, mainte
 | `npm run seed` | Demo accounts, groups, sample traffic, full pipeline run |
 | `npm run process` | Drain the pending message queue |
 | `npm run expire` | Run the expiry sweep |
-| `npm run zips:warm` | Pre-resolve the ZIPs in the corpus |
+| `npm run zips:warm` | Pre-resolve the board's ZIPs and re-place the jobs waiting on them |
 | `npm run db:reset` | Truncate everything, keep the schema and the learned rules |
 | `npm run geocache:clear` | Drop cached place lookups after a geo change |
 | `npm run typecheck` | |
