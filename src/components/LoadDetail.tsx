@@ -180,7 +180,7 @@ export function LoadDetail({
     return (
       <div className="drawer-enter flex h-full flex-col p-[var(--sp-4)]">
         <BackButton total={totalInList} onClose={onClose} />
-        <p className="mt-[var(--sp-4)] text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+        <p className="mt-[var(--sp-4)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
           {error ?? "Opening job…"}
         </p>
       </div>
@@ -207,12 +207,18 @@ export function LoadDetail({
 
   return (
     <div className="drawer-enter flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-[var(--sp-4)]">
-        {/* 1 — header */}
-        <section>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* 1 — header.
+            Sticky, because this drawer is ~1,200 px long and the lane is the
+            one thing you need to still know when you are eight sections down
+            reading the original post. The way back out travels with it. */}
+        <section
+          className="sticky top-0 z-10 border-b border-border px-[var(--sp-4)] pb-[var(--sp-3)] pt-[var(--sp-3)]"
+          style={{ background: "var(--surface-glass)", backdropFilter: "blur(8px)" }}
+        >
           <BackButton total={totalInList} onClose={onClose} />
-          <h1 className="big mt-[var(--sp-3)] text-[var(--fs-2xl)]">{laneLabel(row)}</h1>
-          <p className="text-[var(--fs-md)]" style={{ color: "var(--text-2)" }}>
+          <h1 className="big mt-[var(--sp-2)] text-(length:--fs-2xl)">{laneLabel(row)}</h1>
+          <p className="text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
             {from.text} → {to.text}
           </p>
           <div className="mt-[var(--sp-2)] flex flex-wrap gap-[var(--sp-1)]">
@@ -232,35 +238,46 @@ export function LoadDetail({
           </div>
         </section>
 
-        {/* 2 — size and price */}
-        <section className="mt-[var(--sp-4)] grid grid-cols-2 gap-[var(--sp-3)]">
+        <div className="p-[var(--sp-4)]">
+
+        {/* 2 — size and price. The two numbers a driver decides on, at the
+            size that says so. A price the post never gave is NOT one of them,
+            so it drops out of the display scale rather than being set in
+            20 px grey and wrapping over two lines. */}
+        <section className="grid grid-cols-2 gap-[var(--sp-3)]">
           <div>
             <div className="label">Size</div>
-            <div
-              className="big text-[var(--fs-3xl)]"
-              style={row.cubic_feet == null ? { color: "var(--approx)", fontSize: "var(--fs-lg)" } : undefined}
-            >
-              {row.cubic_feet != null ? formatCf(row.cubic_feet) : "Size not stated"}
-            </div>
+            {row.cubic_feet != null ? (
+              <div className="big text-(length:--fs-3xl)">{formatCf(row.cubic_feet)}</div>
+            ) : (
+              <div className="text-(length:--fs-md)" style={{ color: "var(--approx)" }}>
+                Size not stated
+              </div>
+            )}
           </div>
           <div>
             <div className="label">Price</div>
-            <div
-              className="big text-[var(--fs-xl)]"
-              style={{ color: price.tone === "muted" ? "var(--muted)" : "var(--ok)" }}
-            >
-              {price.tone === "muted" ? "Price not stated — ask" : price.headline}
-            </div>
-            {price.sub && price.tone !== "muted" && (
-              <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
-                {price.sub}
+            {price.tone === "muted" ? (
+              <div className="text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
+                Not stated — ask
               </div>
+            ) : (
+              <>
+                <div className="big text-(length:--fs-xl)" style={{ color: "var(--ok)" }}>
+                  {price.headline}
+                </div>
+                {price.sub && (
+                  <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                    {price.sub}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </section>
 
         {/* 3 — timeline */}
-        <section className="mt-[var(--sp-4)]">
+        <section className="mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]">
           <Stop
             label="Pickup"
             place={from.text}
@@ -269,7 +286,7 @@ export function LoadDetail({
             noteTitle={ready.title}
           />
           <div
-            className="my-[var(--sp-1)] ml-[5px] border-l border-dashed pl-[var(--sp-4)] text-[var(--fs-sm)]"
+            className="my-[var(--sp-1)] ml-[5px] border-l border-dashed pl-[var(--sp-4)] text-(length:--fs-sm)"
             style={{ borderColor: "var(--border-strong)", color: "var(--muted)", minHeight: 28 }}
           >
             {trip
@@ -289,7 +306,7 @@ export function LoadDetail({
         </section>
 
         {/* 4 — facts */}
-        <section className="mt-[var(--sp-4)] grid grid-cols-2 gap-[var(--sp-2)]">
+        <section className="mt-[var(--sp-5)] grid grid-cols-2 gap-[var(--sp-2)]">
           <Fact label="From you">
             {toPickup ? (
               <span className="nums">
@@ -315,7 +332,7 @@ export function LoadDetail({
 
           <Fact label="Ready">
             <span title={ready.title ?? undefined}>{ready.text}</span>
-            <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               {row.ready_source === "assumed"
                 ? "assumed — no marker in the post"
                 : row.ready_source
@@ -336,7 +353,7 @@ export function LoadDetail({
           <section className="mt-[var(--sp-4)]">
             <div className="label">Sender&apos;s requirements</div>
             {requirement && <Chip title={requirement.title}>{requirement.label}</Chip>}
-            <p className="mt-[var(--sp-1)] text-[var(--fs-base)]">{maskPhones(row.requirements)}</p>
+            <p className="mt-[var(--sp-1)] text-(length:--fs-base)">{maskPhones(row.requirements)}</p>
           </section>
         )}
 
@@ -355,7 +372,7 @@ export function LoadDetail({
                 })}
               </div>
             )}
-            {row.job_notes && <p className="text-[var(--fs-base)]">{maskPhones(row.job_notes)}</p>}
+            {row.job_notes && <p className="text-(length:--fs-base)">{maskPhones(row.job_notes)}</p>}
           </section>
         )}
 
@@ -366,7 +383,7 @@ export function LoadDetail({
             below the tap that asked for it. */}
         <section
           ref={contactSection}
-          className="mt-[var(--sp-4)]"
+          className="mt-[var(--sp-5)]"
           style={
             mobile
               ? {
@@ -398,9 +415,9 @@ export function LoadDetail({
 
         {/* 7 — the post it came from */}
         {data?.source && (
-          <section className="mt-[var(--sp-4)]">
+          <section className="mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]">
             <div className="label">Original WhatsApp message</div>
-            <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               {data.source.author_name ?? "Unnamed sender"}
               {data.source.group_name ? ` · ${data.source.group_name}` : ""}
               {" · "}
@@ -413,7 +430,7 @@ export function LoadDetail({
             </p>
 
             <div
-              className="card mt-[var(--sp-2)] whitespace-pre-wrap p-[var(--sp-3)] text-[var(--fs-sm)]"
+              className="card mt-[var(--sp-2)] whitespace-pre-wrap p-[var(--sp-3)] text-(length:--fs-sm)"
               style={{ background: "var(--surface-2)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
             >
               {fullMessage || !excerpt
@@ -443,7 +460,7 @@ export function LoadDetail({
             )}
 
             {row.confidence < 0.5 && (
-              <p className="mt-[var(--sp-1)] text-[var(--fs-sm)]" style={{ color: "var(--warn)" }}>
+              <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--warn)" }}>
                 Read out of the message automatically with low confidence — confirm the details on the call.
               </p>
             )}
@@ -451,7 +468,7 @@ export function LoadDetail({
         )}
 
         {(data?.duplicates?.length ?? 0) > 0 && (
-          <p className="mt-[var(--sp-2)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          <p className="mt-[var(--sp-2)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
             Also posted by another sender
           </p>
         )}
@@ -473,14 +490,14 @@ export function LoadDetail({
                 </button>
               ))}
             </div>
-            <p className="mt-[var(--sp-1)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               Marking Taken sticks even if the sender re-posts it.
             </p>
           </section>
         )}
 
         {role === "admin" && row.source_message_id != null && (
-          <section className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-1)] text-[var(--fs-sm)]">
+          <section className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-1)] text-(length:--fs-sm)">
             <Link href={`/admin/test?message=${row.source_message_id}`} style={{ color: "var(--accent)" }}>
               Open in WhatsApp console →
             </Link>
@@ -494,6 +511,7 @@ export function LoadDetail({
             )}
           </section>
         )}
+        </div>
       </div>
     </div>
   );
@@ -528,11 +546,11 @@ function Stop({
         style={{ background: label === "Pickup" ? "var(--pickup)" : "var(--delivery)" }}
       />
       <div className="min-w-0">
-        <div className="text-[var(--fs-xs)] font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
+        <div className="text-(length:--fs-xs) font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
           {label}
         </div>
-        <div className="text-[var(--fs-md)] font-semibold">{place}</div>
-        <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }} title={noteTitle ?? undefined}>
+        <div className="text-(length:--fs-md) font-semibold">{place}</div>
+        <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }} title={noteTitle ?? undefined}>
           {note}
         </div>
         <PrecisionNote precision={precision} />
@@ -545,7 +563,7 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   return (
     <div className="card p-[var(--sp-3)]">
       <div className="label">{label}</div>
-      <div className="text-[var(--fs-base)]">{children}</div>
+      <div className="text-(length:--fs-base)">{children}</div>
     </div>
   );
 }

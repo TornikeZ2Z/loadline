@@ -3,6 +3,7 @@ import type { SessionUser } from "@/lib/auth";
 import { ROLE_LABEL, loginHref } from "@/lib/session";
 import { LogoutButton } from "./LogoutButton";
 import { CurrentLocation } from "./CurrentLocation";
+import { MenuAutoClose } from "./MenuAutoClose";
 import { Footer, FooterBar, SITE_SECTIONS } from "./Footer";
 
 export interface AppShellProps {
@@ -12,8 +13,13 @@ export interface AppShellProps {
    * Which nav item is lit. `site` is the six content pages (/about,
    * /how-it-works, /contact, /privacy, /terms, /cookies): they light the More
    * menu instead of a nav item, because none of them is the board.
+   *
+   * `auth` is /login and /register. Nothing is lit -- neither page is a
+   * destination, both are a door someone is already standing in -- and the
+   * "Sign in · contacts" button is dropped, because a button that links to
+   * the page it is drawn on is furniture, not a way in.
    */
-  active: "board" | "post" | "admin" | "test" | "site";
+  active: "board" | "post" | "admin" | "test" | "site" | "auth";
   /**
    * Path + query of the page rendering the shell, for `loginHref(next)`.
    * Every page passes it ("/" + query, "/jobs/:id" + query, "/post", "/admin",
@@ -56,9 +62,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
   ];
 
   return (
-    <div className={appScreen ? undefined : "flex min-h-screen flex-col"}>
+    /* An app screen is exactly one viewport tall, and until now it was one
+       viewport PLUS the footer bar: the board measured 934 px in a 900 px
+       window, so opening a job scrolled the whole page and took the filter
+       bar off the top with it. The height lives here now rather than in each
+       screen -- header, body, bar, adding up to 100vh by construction, so no
+       screen has to subtract the chrome above it by hand. */
+    <div className={appScreen ? "flex h-screen flex-col" : "flex min-h-screen flex-col"}>
+      <MenuAutoClose />
       <header
-        className="bg-surface sticky top-0 z-30 border-b border-border"
+        className="bg-surface sticky top-0 z-30 shrink-0 border-b border-border"
         style={{ height: "var(--header-h)" }}
       >
         {/* What a narrow header drops, in order: the word mark, the account name
@@ -73,12 +86,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
         <div className="mx-auto flex h-full max-w-[1600px] items-center gap-[var(--sp-2)] px-[var(--sp-2)] lg:gap-[var(--sp-5)] lg:px-[var(--sp-4)]">
           <Link href="/" className="flex shrink-0 items-center gap-2 font-bold tracking-tight">
             <span
-              className="grid h-6 w-6 place-items-center rounded-md text-[var(--fs-base)] text-white"
+              className="grid h-6 w-6 place-items-center rounded-md text-(length:--fs-base) text-white"
               style={{ background: "var(--accent)" }}
             >
               L
             </span>
-            <span className="hidden sm:inline">LoadLine</span>
+            {/* At the body size the wordmark read as another nav item. One
+                step up is enough to make it the mark; two would start
+                crowding the pinned group at 640-767 px, where the header is
+                already tight. */}
+            <span className="hidden text-(length:--fs-md) sm:inline">LoadLine</span>
           </Link>
 
           {/* Hidden below `md`, and this is a change of mind that measurements
@@ -112,7 +129,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 <Link
                   key={n.key}
                   href={n.href}
-                  className="whitespace-nowrap rounded-md px-2 py-1.5 text-[var(--fs-base)] font-semibold md:px-3"
+                  className="whitespace-nowrap rounded-md px-2 py-1.5 text-(length:--fs-base) font-semibold md:px-3"
                   style={
                     active === n.key
                       ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -145,10 +162,12 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 interactive thing in an otherwise server-rendered shell, and a
                 disclosure widget needs no JavaScript to open, close, take focus
                 or answer the keyboard. `key` remounts it per route, so a tapped
-                link leaves the menu closed behind it. */}
-            <details key={currentPath ?? "/"} className="relative shrink-0">
+                link leaves the menu closed behind it. The one thing the element
+                will not do by itself is close on a click somewhere else, which
+                <MenuAutoClose> adds as an enhancement -- see that file. */}
+            <details key={currentPath ?? "/"} data-menu className="relative shrink-0">
               <summary
-                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-[var(--fs-base)] font-semibold md:h-[var(--control-h)] md:px-2 [&::-webkit-details-marker]:hidden"
+                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:px-2 [&::-webkit-details-marker]:hidden"
                 style={
                   active === "site"
                     ? { background: "var(--accent-soft)", color: "var(--accent)" }
@@ -188,7 +207,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                       <Link
                         key={link.href}
                         href={link.href}
-                        className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-[var(--fs-base)] font-medium"
+                        className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                         style={{ color: "var(--text-2)" }}
                       >
                         {link.label}
@@ -209,7 +228,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                         <Link
                           key={n.key}
                           href={n.href}
-                          className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-[var(--fs-base)] font-medium"
+                          className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) font-medium"
                           style={{ color: "var(--text-2)" }}
                         >
                           {n.label}
@@ -227,14 +246,14 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
             {user ? (
               <>
                 <div className="hidden text-right leading-tight sm:block">
-                  <div className="text-[var(--fs-base)] font-semibold">{user.name}</div>
-                  <div className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+                  <div className="text-(length:--fs-base) font-semibold">{user.name}</div>
+                  <div className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
                     {ROLE_LABEL[user.role]}
                   </div>
                 </div>
                 <LogoutButton />
               </>
-            ) : (
+            ) : active === "auth" ? null : (
               <Link
                 className="btn"
                 href={loginHref(currentPath ?? "/")}
@@ -246,15 +265,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
           </div>
         </div>
       </header>
-      {/* An app screen sets its own height and must not be wrapped in a flex
-          item that could shrink it; a content page is pushed down so a short
-          page still has its footer at the bottom of the window. */}
-      {appScreen ? children : <div className="flex-1">{children}</div>}
+      {/* `min-h-0` so the app screen's own scrollers (the board's list column,
+          the console's panes) can actually scroll instead of stretching this
+          flex item past the window; a content page is pushed down so a short
+          page still has its footer at the bottom. */}
+      <div className={appScreen ? "min-h-0 flex-1" : "flex-1"}>{children}</div>
       {appScreen ? (
         // Hidden on a phone, and that is a decision rather than an omission:
         // the board's bottom sheet is fixed to the bottom of the viewport and
         // would cover this strip. The More menu carries the same links there.
-        <div className="hidden md:block">
+        <div className="hidden shrink-0 md:block">
           <FooterBar />
         </div>
       ) : (

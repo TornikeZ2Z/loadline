@@ -19,7 +19,6 @@ import type { PublicLoadRow } from "@/lib/loads/publicView";
 import {
   boardDay,
   deliverByLabel,
-  formatCf,
   formatPrice,
   freshnessLabel,
   laneLabel,
@@ -110,6 +109,36 @@ export function JobList({ jobs, selectedId, hoveredId, now, onSelect, onHover }:
   );
 }
 
+/**
+ * The list while the first request is in flight.
+ *
+ * Deliberately the card's own silhouette rather than a spinner or a line of
+ * "Loading jobs…": the list column is 420 px of empty grey otherwise, and the
+ * page then jumps a full screen when the rows land. The bars are sized from
+ * the real card -- 16 px lane, 13 px places, 22 px chips -- so nothing moves
+ * when the skeleton is replaced.
+ */
+export function JobListSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <ul className="flex flex-col gap-[var(--sp-2)]" aria-hidden="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <li key={i} className="card p-[var(--sp-3)]" style={{ opacity: 1 - i * 0.13 }}>
+          <div className="flex items-baseline justify-between gap-[var(--sp-2)]">
+            <span className="skeleton h-[16px] w-[96px]" />
+            <span className="skeleton h-[16px] w-[54px]" />
+          </div>
+          <span className="skeleton mt-[var(--sp-2)] h-[13px] w-[72%]" />
+          <div className="mt-[var(--sp-2)] flex gap-[var(--sp-2)]">
+            <span className="skeleton h-[22px] w-[80px] rounded-[var(--radius-pill)]" />
+            <span className="skeleton h-[22px] w-[64px] rounded-[var(--radius-pill)]" />
+          </div>
+          <span className="skeleton mt-[var(--sp-3)] h-[12px] w-[58%]" />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobCardProps) {
   const today = boardDay(now);
   const from = placeLabel(job, "pickup");
@@ -174,31 +203,46 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
       onMouseEnter={() => onHover(job.id)}
       onFocus={() => onHover(job.id)}
       className={`card card-hover cursor-pointer p-[var(--sp-3)]${selected ? " card-selected" : ""}`}
-      style={{
-        opacity: inactive ? 0.7 : 1,
-        ...(hovered && !selected ? { borderColor: "var(--border-strong)" } : null),
-      }}
+      /* An attribute rather than an inline borderColor. `hovered` is also set
+         by the MAP -- hovering a marker lights its card without the pointer
+         ever being over it -- so it cannot just be :hover; but as an inline
+         style it also beat the focus ring's border, and a card you had tabbed
+         to looked hovered instead of focused. */
+      data-hovered={hovered && !selected ? "" : undefined}
+      style={{ opacity: inactive ? 0.7 : 1 }}
     >
+      {/* Band 1 — what a driver scans. The lane and the size are the only two
+          things at full ink; everything below them steps down in size, weight
+          or colour so this row wins the first glance. */}
       <div className="flex items-baseline justify-between gap-[var(--sp-2)]">
-        <span className="big text-[var(--fs-lg)]">{laneLabel(job)}</span>
-        <span
-          className="big text-[var(--fs-lg)]"
-          style={job.cubic_feet == null ? { color: "var(--approx)", fontSize: "var(--fs-sm)" } : undefined}
-          title={
-            job.cubic_feet != null && job.cubic_feet < 100
-              ? `Small job as posted (${job.cubic_feet} cf)`
-              : undefined
-          }
-        >
-          {job.cubic_feet != null ? formatCf(job.cubic_feet) : "Size not stated"}
-        </span>
+        <span className="big text-(length:--fs-lg) truncate">{laneLabel(job)}</span>
+        {job.cubic_feet != null ? (
+          <span
+            className="big text-(length:--fs-lg) shrink-0"
+            title={
+              job.cubic_feet < 100 ? `Small job as posted (${job.cubic_feet} cf)` : undefined
+            }
+          >
+            {job.cubic_feet.toLocaleString("en-US")}
+            {/* The unit is not a number. Dropping it a size and a shade lets the
+                figure itself carry the comparison down a column of cards. */}
+            <span className="text-(length:--fs-sm) font-medium" style={{ color: "var(--muted)" }}>
+              {" cf"}
+            </span>
+          </span>
+        ) : (
+          <Chip tone="approx" className="shrink-0" title="The post never stated a size">
+            size not stated
+          </Chip>
+        )}
       </div>
 
-      <div className="mt-[2px] text-[var(--fs-base)]" style={{ color: "var(--text-2)" }}>
+      <div className="mt-[1px] truncate text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
         {from.text} → {to.text}
       </div>
 
-      <div className="mt-[var(--sp-2)] flex flex-wrap items-center gap-[var(--sp-2)]">
+      {/* Band 2 — the terms. */}
+      <div className="mt-[var(--sp-2)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
         {inactive ? (
           <StatusChip status={job.status} />
         ) : (
@@ -206,21 +250,24 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
             {ready.text}
           </Chip>
         )}
-        <span
-          className="nums text-[var(--fs-base)] font-semibold"
-          style={{ color: price.tone === "muted" ? "var(--muted)" : "var(--ok)" }}
-        >
-          {price.headline}
-          {price.sub && (
-            <span className="font-normal" style={{ color: "var(--muted)" }}>
-              {" · "}
-              {price.sub}
-            </span>
-          )}
-        </span>
+        {price.tone === "muted" ? (
+          <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+            {price.headline}
+          </span>
+        ) : (
+          <span className="nums text-(length:--fs-base) font-semibold" style={{ color: "var(--ok)" }}>
+            {price.headline}
+            {price.sub && (
+              <span className="font-normal" style={{ color: "var(--muted)" }}>
+                {" · "}
+                {price.sub}
+              </span>
+            )}
+          </span>
+        )}
         {deliverBy && (
           <span
-            className="text-[var(--fs-sm)]"
+            className="text-(length:--fs-sm)"
             style={{ color: deliverBy.tone === "warn" ? "var(--warn)" : "var(--muted)" }}
           >
             {deliverBy.text}
@@ -229,37 +276,48 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
       </div>
 
       {visibleChips.length > 0 && (
-        <div className="mt-[var(--sp-2)] flex flex-wrap gap-[var(--sp-1)]">
+        <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
           {visibleChips}
           {hiddenChips > 0 && <Chip tone="muted">+{hiddenChips}</Chip>}
         </div>
       )}
 
+      {/* Band 3 — provenance and the way out of the card. Ruled off, because
+          none of it is about the freight: it is about the listing. */}
       <div
-        className="mt-[var(--sp-2)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)] text-[var(--fs-sm)]"
+        className="mt-[var(--sp-2)] flex items-center gap-x-[var(--sp-2)] border-t border-border pt-[var(--sp-2)] text-(length:--fs-sm)"
         style={{ color: "var(--muted)" }}
       >
-        <span
-          title={fresh.detail ?? undefined}
-          style={fresh.tone === "fresh" ? { color: "var(--fresh)", fontWeight: 600 } : undefined}
-        >
-          {fresh.text}
+        <span className="flex min-w-0 flex-wrap items-center gap-x-[var(--sp-1)]">
+          {/* Emphasis by ink, not by colour. Freshness used to be accent blue
+              and bold, which put a second blue on the same line as the only
+              button and, since most of the board is listed today, painted the
+              whole column. Colour on a card now means one thing: you can act
+              on it. */}
+          <span
+            title={fresh.detail ?? undefined}
+            style={
+              fresh.tone === "fresh" ? { color: "var(--text-2)", fontWeight: 500 } : undefined
+            }
+          >
+            {fresh.text}
+          </span>
+          <span aria-hidden>·</span>
+          <span className="truncate">{senderLine(job)}</span>
+          {job.distance_miles != null && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="nums whitespace-nowrap" title="Straight line from where you are">
+                {Math.round(job.distance_miles)} mi away
+              </span>
+            </>
+          )}
         </span>
-        <span>·</span>
-        <span className="truncate">{senderLine(job)}</span>
-        {job.distance_miles != null && (
-          <>
-            <span>·</span>
-            <span className="nums" title="Straight line from where you are">
-              {Math.round(job.distance_miles)} mi from you
-            </span>
-          </>
-        )}
         {job.has_phone && (
           <button
             type="button"
-            className="btn btn-ghost btn-sm ml-auto"
-            style={{ color: "var(--accent)" }}
+            className="btn btn-ghost btn-sm ml-auto shrink-0"
+            style={{ color: "var(--accent)", padding: "0 6px", marginRight: -6 }}
             onClick={(e) => {
               e.stopPropagation();
               open({ contact: true });

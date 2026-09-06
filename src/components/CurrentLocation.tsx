@@ -207,7 +207,7 @@ function LocationPopover({
       style={{ background: "var(--surface)", borderColor: "var(--border-strong)" }}
     >
       <div className="label">{isCurrent ? "Where are you?" : "Where are you heading back to?"}</div>
-      <p className="mb-2 text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+      <p className="mb-2 text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
         {isCurrent
           ? "Where will you be when you're empty? Jobs get sorted by distance to pickup and show drive time."
           : "A state is fine — it pre-selects the delivery filter and powers Toward home."}
@@ -244,7 +244,7 @@ function LocationPopover({
       )}
 
       {error && (
-        <p className="mt-2 text-[var(--fs-xs)]" style={{ color: "var(--danger)" }}>
+        <p className="mt-2 text-(length:--fs-xs)" style={{ color: "var(--danger)" }}>
           {error}
         </p>
       )}
@@ -290,7 +290,7 @@ function LocationPopover({
         </span>
       )}
 
-      <p className="mt-3 text-[11px]" style={{ color: "var(--muted-2)" }}>
+      <p className="mt-3 text-(length:--fs-xs)" style={{ color: "var(--muted-2)" }}>
         Stays on this device. Sent only with your searches.
       </p>
     </div>

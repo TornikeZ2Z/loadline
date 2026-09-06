@@ -34,7 +34,7 @@ import {
   LIFECYCLE_NOTE,
   type Filters,
 } from "./FilterBar";
-import { JobList, partitionUnverified } from "./LoadViews";
+import { JobList, JobListSkeleton, partitionUnverified } from "./LoadViews";
 import { LoadDetail } from "./LoadDetail";
 import { BottomSheet, SNAP_FRACTION, type SheetSnap } from "./BottomSheet";
 import { EmptyState } from "./ui";
@@ -303,19 +303,34 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   const suggestions = emptyStateSuggestions(filters);
   const showNudge = hydrated && !current && !nudged && !mobile;
 
-  const header = (
+  /**
+   * The list's head, and the board's visual entry point: the one place that
+   * says how much freight is on screen before you read a single card. The
+   * count and the cubic feet carry the weight; the truckload equivalent and
+   * the ready/priced tally are the footnote to it, on one quiet line.
+   */
+  const firstLoad = loading && summary == null && rows.length === 0;
+
+  const header = firstLoad ? (
+    // "0 jobs · 0 ready now · 0 priced" is a confident answer to a question
+    // nobody has answered yet, and it is the wrong one often enough to matter.
+    <div aria-hidden="true">
+      <span className="skeleton h-[20px] w-[150px]" />
+      <span className="skeleton mt-[5px] h-[12px] w-[210px]" />
+    </div>
+  ) : (
     <div>
-      <div className="big text-[var(--fs-lg)]">
+      <div className="big nums text-(length:--fs-xl)">
         {shown.count} {shown.count === 1 ? "job" : "jobs"}
-        {shown.totalCf > 0 && ` · ${formatCf(shown.totalCf)}`}
         {shown.totalCf > 0 && (
-          <span className="font-normal" style={{ color: "var(--muted)" }}>
-            {" "}
-            {truckLine(shown.totalCf, current?.truckCf ?? null)}
-          </span>
+          <>
+            <span style={{ color: "var(--border-strong)" }}>{" · "}</span>
+            {formatCf(shown.totalCf)}
+          </>
         )}
       </div>
-      <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+      <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        {shown.totalCf > 0 && `${truckLine(shown.totalCf, current?.truckCf ?? null)} · `}
         {shown.readyNow} ready now · {shown.priced} priced
         {truncated && " · showing first 500"}
       </div>
@@ -336,14 +351,14 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
             {place.label} · {place.ids.length} job{place.ids.length === 1 ? "" : "s"}
             <span aria-hidden>✕</span>
           </button>
-          <span className="text-[var(--fs-xs)]" style={{ color: "var(--muted)" }}>
+          <span className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
             of {(summary ?? summarize(rows)).count} on the map
           </span>
         </div>
       )}
       {notice && (
         <p
-          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
+          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
           style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
         >
           {notice}
@@ -351,7 +366,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       )}
       {error && (
         <p
-          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-[var(--fs-sm)]"
+          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
           style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
         >
           {error}
@@ -359,9 +374,12 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       )}
 
       {loading && rows.length === 0 ? (
-        <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
-          Loading jobs…
-        </p>
+        <>
+          <p className="sr-only" role="status">
+            Loading jobs…
+          </p>
+          <JobListSkeleton />
+        </>
       ) : rows.length === 0 && !error ? (
         <EmptyState title={emptyStateTitle(filters)} hint={LIFECYCLE_NOTE}>
           {suggestions.map((s) => (
@@ -421,12 +439,13 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         fitKey={visibleQuery}
         bottomPadding={mobile ? Math.round(viewportHeight * SNAP_FRACTION[snap]) : 0}
         filteredSummary={summary}
+        loading={firstLoad}
       />
 
       {showNudge && (
         <div className="glass absolute bottom-[var(--sp-6)] left-1/2 w-[320px] -translate-x-1/2 p-[var(--sp-3)]">
           <div className="font-semibold">Where are you now?</div>
-          <p className="mt-[2px] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
             Jobs sort by distance to the pickup, and cards show how far each one is.
           </p>
           <div className="mt-[var(--sp-2)] flex gap-[var(--sp-2)]">
@@ -448,12 +467,16 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         </div>
       )}
 
+      {/* The list beside this already carries the full empty state -- headline,
+          the lifecycle note and a way forward. Printing all three again over
+          the map would be the same paragraph twice on one screen, so this says
+          only what the MAP needs to say (there is nothing here to plot) and
+          offers the one action the list does not. */}
       {rows.length === 0 && !loading && !error && (
-        <div className="glass absolute left-1/2 top-1/2 w-[320px] -translate-x-1/2 -translate-y-1/2 p-[var(--sp-4)] text-center">
-          <div className="font-semibold">{emptyStateTitle(filters)}</div>
-          <p className="mt-[var(--sp-1)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
-            {LIFECYCLE_NOTE}
-          </p>
+        <div className="glass absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-[var(--sp-4)] py-[var(--sp-3)] text-center">
+          <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+            Nothing to plot for this search.
+          </div>
           {!isDefault(filters) && (
             <button
               type="button"
@@ -487,7 +510,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
 
   if (mobile) {
     return (
-      <div ref={root} className="board flex flex-col" style={{ height: "calc(100vh - var(--header-h))" }}>
+      <div ref={root} className="board flex flex-col" style={{ height: "100%" }}>
         {filterBar}
         <div className="relative flex-1">
           <div style={{ height: "48vh" }}>{map}</div>
@@ -507,7 +530,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     <div
       ref={root}
       className="board flex flex-col"
-      style={{ height: "calc(100vh - var(--header-h))" }}
+      style={{ height: "100%" }}
     >
       {filterBar}
 
@@ -522,7 +545,14 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
             detail
           ) : (
             <>
-              <header className="border-b border-border px-[var(--sp-4)] py-[var(--sp-3)]">
+              {/* On --surface, not the tray's --bg: the list gets a head the
+                  way the map has its panel, and the cards below then sit in a
+                  recess rather than floating on the same plane as their own
+                  title. */}
+              <header
+                className="border-b border-border px-[var(--sp-4)] py-[var(--sp-3)]"
+                style={{ background: "var(--surface)" }}
+              >
                 {header}
               </header>
               <div ref={listScroller} className="min-h-0 flex-1 overflow-y-auto p-[var(--sp-3)]">

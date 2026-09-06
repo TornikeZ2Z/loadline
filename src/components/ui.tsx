@@ -82,15 +82,46 @@ export function EmptyState({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="card p-[var(--sp-6)] text-center">
-      <div className="font-semibold">{title}</div>
+    <div className="card px-[var(--sp-5)] py-[var(--sp-6)] text-center">
+      {/* The outline of a card that is not there. No mascot and no shrug: the
+          board is a working screen, and the mark's only job is to stop an
+          empty result reading as a failed one. */}
+      <svg
+        width="40"
+        height="40"
+        viewBox="0 0 40 40"
+        aria-hidden="true"
+        className="mx-auto mb-[var(--sp-3)]"
+      >
+        <rect
+          x="1.5"
+          y="6.5"
+          width="37"
+          height="27"
+          rx="5"
+          fill="none"
+          stroke="var(--border-strong)"
+          strokeWidth="1.5"
+          strokeDasharray="4 4"
+        />
+        <path
+          d="M11 17h18M11 23h11"
+          stroke="var(--border-strong)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className="big text-(length:--fs-lg)">{title}</div>
       {hint && (
-        <div className="mt-[var(--sp-1)] text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+        <div
+          className="mx-auto mt-[var(--sp-2)] max-w-[38ch] text-(length:--fs-base) leading-relaxed"
+          style={{ color: "var(--muted)" }}
+        >
           {hint}
         </div>
       )}
       {children && (
-        <div className="mt-[var(--sp-3)] flex flex-wrap justify-center gap-[var(--sp-2)]">{children}</div>
+        <div className="mt-[var(--sp-4)] flex flex-wrap justify-center gap-[var(--sp-2)]">{children}</div>
       )}
     </div>
   );
@@ -226,7 +257,7 @@ export function PopoverButton({
             style={{ background: "var(--surface)" }}
           >
             <div className="mb-[var(--sp-3)] flex items-center justify-between">
-              <span className="big text-[var(--fs-lg)]">{panelTitle ?? ariaLabel}</span>
+              <span className="big text-(length:--fs-lg)">{panelTitle ?? ariaLabel}</span>
               <button type="button" className="btn btn-ghost" onClick={close}>
                 Done
               </button>

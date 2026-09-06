@@ -314,22 +314,24 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
 
   const sortSelect = (
     <label className="inline-flex items-center gap-[var(--sp-2)]">
-      <span className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+      <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
         Sort
       </span>
-      <select
-        className="field"
-        style={{ width: "auto", minWidth: 150 }}
-        value={sortAvailable ? filters.sort : ""}
-        aria-label="Sort jobs"
-        onChange={(e) => set({ sort: e.target.value as SortKey | "" })}
-      >
-        {sortOptions.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      <span className="select-pill">
+        <select
+          className="pill"
+          style={{ minWidth: 150 }}
+          value={sortAvailable ? filters.sort : ""}
+          aria-label="Sort jobs"
+          onChange={(e) => set({ sort: e.target.value as SortKey | "" })}
+        >
+          {sortOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </span>
     </label>
   );
 
@@ -578,14 +580,14 @@ function SizePanel({ filters, set }: { filters: Filters; set(p: Partial<Filters>
           value={filters.maxCf}
           onChange={(e) => set({ maxCf: e.target.value })}
         />
-        <span className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           cf
         </span>
       </div>
 
       {/* Plenty of real posts never state a size; hiding them by default would
           quietly drop a third of the board. */}
-      <label className="flex items-center gap-[var(--sp-2)] text-[var(--fs-base)]">
+      <label className="flex items-center gap-[var(--sp-2)] text-(length:--fs-base)">
         <input
           type="checkbox"
           checked={filters.unsized}
