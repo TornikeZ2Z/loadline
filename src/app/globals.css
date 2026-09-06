@@ -120,7 +120,19 @@ textarea.field { height: auto; padding: 8px 10px; }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
 .btn-sm { height: 28px; padding: 0 10px; font-size: var(--fs-sm); }
-@media (max-width: 767px) { .btn, .field, .pill, .seg { min-height: var(--tap-min); } }
+/* A button whose whole label is one glyph: it has to stay square as the control
+   height changes, and it has to not shrink. */
+.btn-square { width: var(--control-h); min-width: var(--control-h); padding: 0; }
+
+/* A checkbox in a filter panel was whatever the browser drew -- 13 px, system
+   blue, and a 13 px tap target. Sized and coloured here so every one of them
+   belongs to the same control set as .field and .pill. */
+input[type="checkbox"], input[type="radio"] {
+  width: 16px; height: 16px; flex: none; accent-color: var(--accent); cursor: pointer;
+}
+/* The row a checkbox sits in. On a touch screen the whole row is the target,
+   not the 16 px box. */
+.check-row { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-base); cursor: pointer; }
 
 /* A tappable row inside a card: a demo account to sign in as, a choice in a
    list. Big target, quiet until you reach for it. */
@@ -211,7 +223,26 @@ textarea.field { height: auto; padding: 8px 10px; }
 /* The board map plots points, one per place, sized by the cubic feet standing
    there; the road route appears only for the one job a driver has opened. So
    the legend has to say what a dot's SIZE means, which a swatch cannot. */
-.point-legend { display: flex; gap: 12px; align-items: center; font-size: var(--fs-xs); color: var(--muted); }
+/* Anchored to the bottom of the MAP, which on a phone is the bottom of the
+   board with the sheet floating over it -- so --map-inset-b (set by LoadMap
+   from the sheet's current height) lifts it clear. Capped at 55vh so a sheet
+   dragged to full does not push the legend out through the top. */
+.point-legend {
+  position: absolute; left: var(--sp-3);
+  bottom: calc(min(var(--map-inset-b, 0px), 55vh) + var(--sp-3));
+  display: flex; gap: 12px; align-items: center; font-size: var(--fs-xs); color: var(--muted);
+}
+/* MapLibre's attribution rides the same inset: it is a licence condition, and
+   under the sheet it is not shown at all. */
+.maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right {
+  margin-bottom: min(var(--map-inset-b, 0px), 55vh);
+}
+/* Below 768 the legend and the attribution cannot share a row -- 250 px and
+   259 px into 390 -- so the legend takes the row above it. 46 px is the
+   attribution band: two wrapped lines plus MapLibre's own 10 px margin. */
+@media (max-width: 767px) {
+  .point-legend { bottom: calc(min(var(--map-inset-b, 0px), 55vh) + var(--sp-3) + 46px); }
+}
 .point-legend b { display: inline-flex; align-items: center; gap: 3px; font-weight: inherit; }
 .point-legend i { display: inline-block; border-radius: 50%; background: var(--map-point, var(--pickup)); border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(15 23 42 / .18); }
 .point-legend i.sm { width: 9px; height: 9px; }
@@ -241,9 +272,52 @@ button.map-pill:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /* MapLibre chrome */
 .maplibregl-ctrl-group { background: var(--surface); box-shadow: var(--shadow-2); border-radius: var(--radius-sm); }
-.maplibregl-ctrl-attrib { font-size: 10px; }
+.maplibregl-ctrl-attrib { font-size: var(--fs-xs); }
 .maplibregl-popup-content { padding: 6px 10px; border-radius: var(--radius-sm); box-shadow: var(--shadow-2); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
 .maplibregl-popup-tip { display: none; }
 .you-halo { animation: halo 2s ease-out infinite; }
 @keyframes halo { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(3); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .you-halo { animation: none; } }
+
+/* ---------------------------------------------------------------------------
+ * Touch.
+ *
+ * One query, and it is deliberately not just `max-width: 767px`. A phone held
+ * sideways is 844 x 390: wide enough that the width test calls it a desktop,
+ * and still a thumb on glass. So the second half of the condition is "a coarse
+ * pointer on a screen too short to be a laptop", which catches the landscape
+ * phone and matches no mouse-driven window.
+ *
+ * What changes here: every control reaches the 44 px target, and the smallest
+ * step of the type scale stops being 11 px. 11 px is legible on a desk at
+ * 60 cm; it is not legible in a cab in daylight, and --fs-xs is what every chip
+ * on every card is set in.
+ * ------------------------------------------------------------------------- */
+@media (max-width: 767px), (max-height: 540px) and (any-pointer: coarse) {
+  :root { --fs-xs: 12px; }
+
+  .btn, .field, .pill, .seg-option, .select-pill > select, .option-row { min-height: var(--tap-min); }
+  /* .seg is the padding and border AROUND .seg-option, so it has to be the
+     taller box or the button inside it comes out at 38. */
+  .seg { min-height: calc(var(--tap-min) + 6px); }
+  input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
+  .check-row { min-height: var(--tap-min); }
+  .btn-square { width: var(--tap-min); min-width: var(--tap-min); }
+
+  /* MapLibre's own chrome is drawn at desktop sizes: 29 px zoom buttons and a
+     24 px attribution toggle. `!important` because maplibre-gl.css is imported
+     by the component and Next emits it after this file, so an equally specific
+     rule here loses on source order. */
+  .maplibregl-ctrl-group button { width: var(--tap-min) !important; height: var(--tap-min) !important; }
+  .maplibregl-ctrl-attrib-button { width: 32px !important; height: 32px !important; }
+  /* The two attribution links are the licence, so they have to be reachable. */
+  .maplibregl-ctrl-attrib a { display: inline-block; padding: 5px 0; }
+
+  /* A state total on the map is a filter you can press. Growing the pill itself
+     to 44 px would put a row of fat lozenges over the map, so the pill keeps
+     its size and the TARGET grows underneath it. */
+  button.map-pill { position: relative; }
+  button.map-pill::before {
+    content: ""; position: absolute; inset: -11px -8px; border-radius: var(--radius-pill);
+  }
+}
