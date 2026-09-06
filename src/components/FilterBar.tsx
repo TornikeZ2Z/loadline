@@ -16,14 +16,23 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { BoundsInput, SortKey } from "@/lib/loads/types";
+import type { BoundsInput, MapEnd, SortKey } from "@/lib/loads/types";
 import type { StoredLocation } from "@/lib/location";
 import { homeQuery, useViewerLocation, viewerQuery } from "@/lib/location";
 import { CF_PRESETS, READY_OPTIONS, SEEN_OPTIONS, SORT_OPTIONS } from "@/lib/loads/present";
 import { StatePicker, tokenLabel } from "./StatePicker";
 import { PopoverButton } from "./ui";
 
+/**
+ * `mapEnd` is not a filter -- it changes nothing about which jobs match -- but
+ * it lives in `Filters` because it belongs in the URL for the same reason
+ * everything else here does: a link to "FL pickups" and a link to "NJ
+ * deliveries" are different views of the board, and both are worth sending to
+ * somebody.
+ */
 export interface Filters {
+  /** "pickup" (default) plots where jobs load; "delivery" where they drop. */
+  mapEnd: MapEnd;
   pickupState: string[];
   deliveryState: string[];
   minCf: string;
@@ -43,6 +52,9 @@ export interface Filters {
 }
 
 export const EMPTY_FILTERS: Filters = {
+  // A mover with an empty truck is asking "what can I collect near me", so the
+  // map opens on the loading end.
+  mapEnd: "pickup",
   pickupState: [],
   deliveryState: [],
   minCf: "",
@@ -88,6 +100,9 @@ export function filtersToQuery(
   ctx: { current: StoredLocation | null; home: StoredLocation | null; bounds?: BoundsInput | null },
 ): string {
   const sp = new URLSearchParams();
+  // Omitted at the default, so the common URL stays short. The server ignores
+  // it -- which end is drawn changes nothing about which jobs match.
+  if (f.mapEnd === "delivery") sp.set("map", "delivery");
   if (f.pickupState.length) sp.set("pickupState", f.pickupState.join(","));
   if (f.deliveryState.length) sp.set("deliveryState", f.deliveryState.join(","));
   if (f.minCf) sp.set("minCf", f.minCf);
@@ -136,6 +151,7 @@ export function hydrate(qs: string): Filters {
   const seen = sp.get("seenDays");
   const sort = sp.get("sort");
   return {
+    mapEnd: sp.get("map") === "delivery" ? "delivery" : "pickup",
     pickupState: list(sp.get("pickupState")),
     deliveryState: list(sp.get("deliveryState")),
     minCf: sp.get("minCf") ?? "",
@@ -177,9 +193,13 @@ export function isDefault(f: Filters): boolean {
   );
 }
 
-/** Everything Clear resets, leaving sort alone. */
+/**
+ * Everything Clear resets, leaving sort alone -- and the map end with it. Clear
+ * resets the search, not how the results are ordered or which end of the lane
+ * the viewer is looking at.
+ */
 export function clearedFilters(f: Filters): Filters {
-  return { ...EMPTY_FILTERS, sort: f.sort };
+  return { ...EMPTY_FILTERS, sort: f.sort, mapEnd: f.mapEnd };
 }
 
 /** "No jobs from FL to NJ." — the empty state says what was actually asked. */
@@ -326,6 +346,7 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
   if (mobile) {
     return (
       <div className="flex w-full items-center gap-[var(--sp-2)] overflow-x-auto px-[var(--sp-3)]">
+        <MapEndToggle value={filters.mapEnd} onChange={(mapEnd) => set({ mapEnd })} />
         <StatePicker
           label="Pickup"
           value={filters.pickupState}
@@ -393,6 +414,10 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
 
   return (
     <div className="flex w-full flex-wrap items-center gap-[var(--sp-2)] px-[var(--sp-4)]">
+      {/* The map end sits at the left edge, beside the two state pickers: it is
+          the same question they answer -- which end of the lane am I looking
+          at -- and putting it on the map itself would hide it under the pins. */}
+      <MapEndToggle value={filters.mapEnd} onChange={(mapEnd) => set({ mapEnd })} />
       <StatePicker
         label="Pickup"
         value={filters.pickupState}
@@ -458,6 +483,38 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
 }
 
 /* ------------------------------- the panels ------------------------------- */
+
+/**
+ * `Pickups | Deliveries` — what the map plots.
+ *
+ * Two words rather than an icon: "the map is showing delivery points" is not a
+ * state anybody should have to infer from a colour, and a driver who misreads
+ * it drives the wrong way.
+ */
+const MAP_END_OPTIONS: Array<{ value: MapEnd; label: string; title: string }> = [
+  { value: "pickup", label: "Pickups", title: "Plot every job where it loads" },
+  { value: "delivery", label: "Deliveries", title: "Plot every job where it delivers" },
+];
+
+function MapEndToggle({ value, onChange }: { value: MapEnd; onChange(v: MapEnd): void }) {
+  return (
+    <div className="seg" role="group" aria-label="Map points">
+      {MAP_END_OPTIONS.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          className="seg-option"
+          data-on={value === o.value || undefined}
+          aria-pressed={value === o.value}
+          title={o.title}
+          onClick={() => onChange(o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

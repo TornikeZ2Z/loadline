@@ -104,7 +104,16 @@ textarea.field { height: auto; padding: 8px 10px; }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
 .btn-sm { height: 28px; padding: 0 10px; font-size: var(--fs-sm); }
-@media (max-width: 767px) { .btn, .field, .pill { min-height: var(--tap-min); } }
+@media (max-width: 767px) { .btn, .field, .pill, .seg { min-height: var(--tap-min); } }
+
+/* segmented control — one question, two mutually exclusive answers (Pickups /
+   Deliveries). Distinct from .pill on purpose: a pill is an independent filter
+   that can be on or off, this is a choice that is always making one. */
+.seg { display: inline-flex; align-items: center; gap: 2px; height: var(--control-h); padding: 2px; border-radius: var(--radius-pill); border: 1px solid var(--border-strong); background: var(--surface-2); }
+.seg-option { display: inline-flex; align-items: center; height: calc(100% - 0px); padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--muted); font-size: var(--fs-base); font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.seg-option:hover { color: var(--text); }
+.seg-option[data-on] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-1); }
+.seg-option:focus-visible { outline: none; box-shadow: var(--focus); }
 
 /* filter triggers */
 .pill { display: inline-flex; align-items: center; gap: 6px; height: var(--control-h); padding: 0 12px; border-radius: var(--radius-pill); border: 1px solid var(--border-strong); background: var(--surface); font-size: var(--fs-base); font-weight: 500; color: var(--text); cursor: pointer; white-space: nowrap; }
@@ -133,15 +142,28 @@ textarea.field { height: auto; padding: 8px 10px; }
 .sheet-handle::before { content: ""; position: absolute; top: 8px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--border-strong); }
 
 /* map legend + line gutter */
-.route-legend { display: flex; gap: 12px; align-items: center; font-size: var(--fs-xs); color: var(--muted); }
-.route-legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--route-start), var(--route-end)); }
-.route-legend i.approx { background: var(--approx); height: 0; border-top: 2px dashed var(--approx); }
+/* The board map plots points, one per place, sized by the cubic feet standing
+   there; the road route appears only for the one job a driver has opened. So
+   the legend has to say what a dot's SIZE means, which a swatch cannot. */
+.point-legend { display: flex; gap: 12px; align-items: center; font-size: var(--fs-xs); color: var(--muted); }
+.point-legend b { display: inline-flex; align-items: center; gap: 3px; font-weight: inherit; }
+.point-legend i { display: inline-block; border-radius: 50%; background: var(--map-point, var(--pickup)); border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(15 23 42 / .18); }
+.point-legend i.sm { width: 9px; height: 9px; }
+.point-legend i.lg { width: 17px; height: 17px; }
+.point-legend i.approx { width: 13px; height: 13px; background: var(--surface); border: 2px solid var(--approx); box-shadow: none; }
+.point-legend i.road { width: 18px; height: 0; border: 0; border-top: 3px solid var(--accent); border-radius: 0; box-shadow: none; }
 .line-gutter { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-sm); }
 .line-gutter > div { border-left: 3px solid var(--border-strong); padding-left: 8px; }
 .line-gutter > .l-header { border-color: var(--accent); } .line-gutter > .l-dest { border-color: var(--ok); }
 .line-gutter > .l-contact { border-color: var(--you); } .line-gutter > .l-req { border-color: var(--warn); }
 .line-gutter > .l-unknown { border-color: var(--danger); background: var(--danger-soft); }
 .line-gutter > .l-hit { background: var(--accent-soft); }
+
+/* The count on a marker that stands for more than one job. Pointer events are
+   off so the click still lands on the circle underneath, which is the thing
+   that knows which jobs it holds. */
+.map-count { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: var(--radius-pill); background: var(--surface-glass); border: 1px solid var(--border); box-shadow: var(--shadow-1); color: var(--text); font: 600 11px/1.5 var(--font-sans, system-ui); white-space: nowrap; pointer-events: none; }
+.map-count[data-approx] { color: var(--approx); }
 
 /* MapLibre chrome */
 .maplibregl-ctrl-group { background: var(--surface); box-shadow: var(--shadow-2); border-radius: var(--radius-sm); }
