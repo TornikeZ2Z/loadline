@@ -173,6 +173,119 @@ export function groupSummary(g: PointGroup): string {
   return `${g.label} · ${jobs} · ${size}${unsized}`;
 }
 
+/* ------------------------------ marker size -------------------------------
+ *
+ * The radius lives here rather than only inside LoadMap's paint expression
+ * because two things need the same number: the circle layer, and whatever has
+ * to sit clear of the circle -- today the count badge, which used a fixed
+ * 12 px offset and so was swallowed by any marker bigger than that.
+ *
+ * On the square root, so the AREA of the dot tracks the volume: a marker twice
+ * the radius of another reads as four times the freight, which is what the eye
+ * actually compares.
+ */
+
+/** `sqrt(cf)` -> radius in px at zoom 4, as [input, output] pairs. */
+export const RADIUS_STOPS: Array<[number, number]> = [
+  [0, 5],
+  [20, 8],
+  [45, 11],
+  [80, 15],
+  [120, 19],
+];
+
+/** Radius grows with zoom over this span, matching the layer's own curve. */
+export const RADIUS_ZOOM: Array<[number, number]> = [
+  [3, 0.85],
+  [7, 1.25],
+];
+
+function lerpStops(stops: Array<[number, number]>, at: number): number {
+  const first = stops[0]!;
+  if (at <= first[0]) return first[1];
+  for (let i = 1; i < stops.length; i++) {
+    const [x1, y1] = stops[i]!;
+    const [x0, y0] = stops[i - 1]!;
+    if (at <= x1) return y0 + ((at - x0) / (x1 - x0)) * (y1 - y0);
+  }
+  return stops[stops.length - 1]![1];
+}
+
+/** The drawn radius of a group's marker, in CSS px, at a given zoom. */
+export function pointRadius(cf: number, zoom: number): number {
+  return lerpStops(RADIUS_STOPS, Math.sqrt(Math.max(0, cf))) * lerpStops(RADIUS_ZOOM, zoom);
+}
+
+/* --------------------------- the lane on hover ---------------------------- */
+
+/** One lane out of a place: where it goes, and how much of the place it is. */
+export interface Lane {
+  from: { lng: number; lat: number };
+  to: { lng: number; lat: number };
+  /** "Fort Lauderdale, FL" -- the far end's place name. */
+  label: string;
+  /** Cubic feet moving on this lane. */
+  cf: number;
+  /** How many of the group's jobs travel it. */
+  jobs: number;
+  /** Distinct destinations this place ships to, this lane included. */
+  destinations: number;
+}
+
+/**
+ * The single lane a hovered marker draws.
+ *
+ * A marker is a PLACE, and a place can hold twenty jobs going to eleven
+ * different towns. Drawing all of them is the picture the arcs-everywhere map
+ * was rejected for, in miniature, so exactly one curve is drawn: the heaviest
+ * one, destinations grouped by coordinate the same way the markers themselves
+ * are, chosen by cubic feet because a driver is filling a truck. `destinations`
+ * comes back with it so the hover card can say the curve is one of several
+ * rather than implying it is the whole story.
+ *
+ * Ties -- every job unsized, so every lane is 0 cf -- fall to the lane with the
+ * most jobs and then to the first seen, which is stable across renders because
+ * `jobs` arrives in a stable order.
+ */
+export function dominantLane(
+  group: PointGroup,
+  jobs: PublicLoadRow[],
+  end: MapEnd,
+): Lane | null {
+  const far: MapEnd = end === "pickup" ? "delivery" : "pickup";
+  const members = new Set(group.ids);
+  const byPlace = new Map<string, Lane>();
+
+  for (const job of jobs) {
+    if (!members.has(job.id)) continue;
+    const to = endPoint(job, far);
+    if (!to) continue;
+    const key = `${to.lng.toFixed(3)},${to.lat.toFixed(3)}`;
+    const hit = byPlace.get(key);
+    if (hit) {
+      hit.cf += job.cubic_feet ?? 0;
+      hit.jobs += 1;
+      continue;
+    }
+    byPlace.set(key, {
+      from: { lng: group.lng, lat: group.lat },
+      to: { lng: to.lng, lat: to.lat },
+      label: endLabelText(job, far),
+      cf: job.cubic_feet ?? 0,
+      jobs: 1,
+      destinations: 0,
+    });
+  }
+
+  let best: Lane | null = null;
+  for (const lane of byPlace.values()) {
+    if (!best || lane.cf > best.cf || (lane.cf === best.cf && lane.jobs > best.jobs)) best = lane;
+  }
+  if (!best) return null;
+  best.destinations = byPlace.size;
+  return best;
+}
+
 /** "12,15,19" -> [12, 15, 19]; anything else -> []. */
 export function idsOf(raw: unknown): number[] {
   if (typeof raw !== "string" || !raw) return [];

@@ -23,13 +23,28 @@
   /* surfaces */
   --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eef0f4; --surface-3: #e3e6ec;
   --surface-glass: rgb(255 255 255 / .92);
+  /* Lighter than --glass on purpose: this backs the labels that float ON the
+     map, where an opaque card would punch a hole in the country under it. */
+  --surface-veil: rgb(255 255 255 / .76);
   --border: #e2e5ea; --border-strong: #c9ced7;
   /* ink */
   --text: #0f172a; --text-2: #334155; --muted: #64748b; --muted-2: #94a3b8; --placeholder: #9aa4b2;
   /* brand + map */
   --accent: #2563eb; --accent-hover: #1d4ed8; --accent-soft: #e8efff;
   --route: #2563eb; --route-start: #2563eb; --route-end: #0f172a; --route-dim: rgb(37 99 235 / .22);
-  --pickup: #2563eb; --delivery: #0f172a; --you: #059669; --home: #0f172a; --approx: #b45309;
+  /* Pickups and deliveries are the same hue two steps apart, not two hues:
+     the board has one accent. --delivery was slate-900, which is ink rather
+     than colour -- fine as a crisp dot, but the map now draws a guessed
+     coordinate as a soft low-opacity cloud, and a soft cloud of ink is
+     indistinguishable from the grey the basemap paints a city in. Navy keeps
+     the depth and gets the hue back. */
+  --pickup: #2563eb; --delivery: #1e3a8a; --you: #059669; --home: #0f172a; --approx: #b45309;
+  /* The paper the basemap is washed onto. The tiles are keyless OpenStreetMap,
+     which is a full-colour map with green woodland and blue water; LoadMap
+     desaturates and lightens them in the raster paint and then blends them
+     into this, which is what gives the country a single cool cast instead of
+     the olive-grey the raw tiles wash down to. */
+  --map-paper: #e6ebf2;
   /* semantics */
   --ok: #059669; --ok-soft: #e6f6ef; --ready: #059669; --ready-soft: #e6f6ef;
   --fresh: #2563eb; --fresh-soft: #e8efff;
@@ -234,7 +249,17 @@ input[type="checkbox"], input[type="radio"] {
 
 /* popovers, glass overlays, drawer, sheet */
 .popover { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-3); padding: var(--sp-4); }
-.glass { background: var(--surface-glass); backdrop-filter: blur(6px); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-2); }
+/* Every .glass in the app floats over the MAP -- the on-screen panel, the
+   legend, the location nudge. A 1 px solid --border plus --shadow-2 drew each
+   of them as a card sitting on a page; over a pale basemap that reads as a
+   hole punched in the country. A hairline of ink at 6% and a shadow in two
+   soft stages instead: the panel still detaches, but it hovers rather than
+   cuts. */
+.glass {
+  background: var(--surface-glass); backdrop-filter: blur(10px) saturate(1.6);
+  border: 0; border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px rgb(15 23 42 / .06), 0 2px 6px rgb(15 23 42 / .07), 0 12px 28px rgb(15 23 42 / .07);
+}
 .drawer-enter { animation: drawer-in var(--dur-panel) var(--ease); }
 @keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; box-shadow: var(--shadow-3); transition: transform var(--dur-panel) var(--ease); will-change: transform; }
@@ -265,11 +290,19 @@ input[type="checkbox"], input[type="radio"] {
 @media (max-width: 767px) {
   .point-legend { bottom: calc(min(var(--map-inset-b, 0px), 55vh) + var(--sp-3) + 46px); }
 }
-.point-legend b { display: inline-flex; align-items: center; gap: 3px; font-weight: inherit; }
-.point-legend i { display: inline-block; border-radius: 50%; background: var(--map-point, var(--pickup)); border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(15 23 42 / .18); }
-.point-legend i.sm { width: 9px; height: 9px; }
-.point-legend i.lg { width: 17px; height: 17px; }
-.point-legend i.approx { width: 13px; height: 13px; background: var(--surface); border: 2px solid var(--approx); box-shadow: none; }
+.point-legend b { display: inline-flex; align-items: center; gap: 4px; font-weight: inherit; }
+/* Each swatch is the mark it stands for, drawn the way the map draws it: a
+   small dot is quiet and thin-ringed, a big one is solid and sits on a soft
+   shadow. Anything else and the legend is explaining a different map. */
+.point-legend i { display: inline-block; border-radius: 50%; background: var(--map-point, var(--pickup)); border: 1.5px solid #fff; }
+.point-legend i.sm { width: 8px; height: 8px; opacity: .8; }
+.point-legend i.lg { width: 16px; height: 16px; border-width: 2px; box-shadow: 0 1px 2px rgb(15 23 42 / .22); }
+/* Approximate is the same mark out of focus -- no ring, no second colour,
+   which is literally what the map draws for a coordinate it had to guess. */
+.point-legend i.approx {
+  width: 13px; height: 13px; border: 0; opacity: .5;
+  filter: blur(1.6px); box-shadow: none;
+}
 .point-legend i.road { width: 18px; height: 0; border: 0; border-top: 3px solid var(--accent); border-radius: 0; box-shadow: none; }
 .line-gutter { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-sm); }
 .line-gutter > div { border-left: 3px solid var(--border-strong); padding-left: 8px; }
@@ -283,20 +316,72 @@ input[type="checkbox"], input[type="radio"] {
    compete for the same pixels and are placed by one collision pass in LoadMap
    -- a label that measured differently from its neighbour would be placed
    against a box that is not its own. */
-.map-pill, .map-count { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--radius-pill); background: var(--surface-glass); backdrop-filter: blur(4px); border: 1px solid var(--border); box-shadow: var(--shadow-1); color: var(--text); white-space: nowrap; font-weight: 600; font-size: var(--fs-xs); line-height: 1.4; }
+/* A label on a map is not a card. The old rule gave every one of them an
+   opaque white body, a full border and a drop shadow, so sixteen state totals
+   read as sixteen little dialogs laid over the country -- heavier than the
+   dots they were annotating. They are veils now: white at 76%, a hairline
+   instead of a border, and the weight carried by the type rather than by the
+   box. A hierarchy inside the label does the rest of the work -- `.k` is the
+   thing (a state, a town), `.v` is its number. */
+.map-pill, .map-count {
+  display: inline-flex; align-items: center; gap: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-veil); backdrop-filter: blur(6px) saturate(1.4);
+  box-shadow: 0 0 0 1px rgb(15 23 42 / .07), 0 1px 3px rgb(15 23 42 / .09);
+  color: var(--text-2); white-space: nowrap;
+  font-weight: 600; font-size: var(--fs-xs); line-height: 1.35;
+  letter-spacing: .005em;
+}
 .map-pill { padding: 3px 9px; }
-.map-count { padding: 1px 7px; pointer-events: none; }
-.map-count[data-approx] { color: var(--approx); }
+.map-pill .k { color: var(--text); }
+.map-pill .v { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+/* How many jobs are standing on this dot. Not a badge -- a numeral.
+ *
+ * As a white lozenge it was a second state pill at the same weight, and two
+ * different kinds of fact looked like one kind. As a filled disc in the dot's
+ * own colour (tried next) it was worse: two blue circles per marker, and no
+ * way to tell at a glance which one was the freight. So it is set as bare
+ * type in the mark's colour, floated over the basemap on the cartographer's
+ * halo -- no box, no border, nothing to compete with the dot it is counting. */
+.map-count {
+  padding: 0; justify-content: center; pointer-events: none;
+  background: none; backdrop-filter: none; box-shadow: none;
+  color: var(--pickup); font-weight: 700; letter-spacing: 0;
+  text-shadow:
+    0 0 3px var(--surface), 0 0 3px var(--surface),
+    -1px -1px 0 var(--surface), 1px -1px 0 var(--surface),
+    -1px 1px 0 var(--surface), 1px 1px 0 var(--surface);
+}
+.map-count[data-end="delivery"] { color: var(--delivery); }
+/* Above the pill zoom the badge carries the place name too, so it stops being
+   a badge and joins the pill family -- with the count in the dot's colour. */
+.map-place .n { color: var(--pickup); font-variant-numeric: tabular-nums; }
+.map-place[data-end="delivery"] .n { color: var(--delivery); }
 /* Only the state totals are buttons; the route's end labels are plain divs. */
-button.map-pill { cursor: pointer; transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease); }
-button.map-pill:hover { color: var(--accent); border-color: var(--accent); }
+button.map-pill { cursor: pointer; transition: color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+button.map-pill:hover { color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 1px 3px rgb(15 23 42 / .12); }
+button.map-pill:hover .k { color: var(--accent); }
 button.map-pill:focus-visible { outline: none; box-shadow: var(--focus); }
+/* The route's two end labels are the one thing the map is asserting while a
+   job is open, so they are the one label allowed to be opaque. */
+.map-pill[data-end-label] { background: var(--surface); box-shadow: 0 0 0 1px rgb(15 23 42 / .1), var(--shadow-2); }
 
 /* MapLibre chrome */
 .maplibregl-ctrl-group { background: var(--surface); box-shadow: var(--shadow-2); border-radius: var(--radius-sm); }
 .maplibregl-ctrl-attrib { font-size: var(--fs-xs); }
-.maplibregl-popup-content { padding: 6px 10px; border-radius: var(--radius-sm); box-shadow: var(--shadow-2); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; }
+.maplibregl-popup-content { padding: 7px 11px; border-radius: var(--radius-md); box-shadow: 0 0 0 1px rgb(15 23 42 / .07), var(--shadow-2); font-size: var(--fs-sm); font-weight: 500; }
 .maplibregl-popup-tip { display: none; }
+/* The hover card. Line one is what the place IS; line two is the lane the map
+   has just drawn out of it, and it has to read as a caption rather than as a
+   second fact of equal weight. */
+.map-hover { display: flex; flex-direction: column; gap: 1px; }
+.map-hover .t { color: var(--text); font-weight: 600; white-space: nowrap; }
+.map-hover .s { color: var(--muted); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
+.map-hover .s b { font-weight: 600; color: var(--text-2); }
+/* Where the caveat about a soft dot lives now: said in words, in amber, to the
+   one person asking about that one dot -- instead of drawn on sixty marks at
+   once as a ring nobody can turn off. */
+.map-hover .q { color: var(--approx); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
 .you-halo { animation: halo 2s ease-out infinite; }
 @keyframes halo { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(3); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .you-halo { animation: none; } }
