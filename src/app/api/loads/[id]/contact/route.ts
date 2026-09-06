@@ -7,7 +7,6 @@ import { revealContact } from "@/lib/pipeline/reconcile";
 import { normalizePhone } from "@/lib/extract/phone";
 import type { ContactResponse } from "@/lib/loads/publicView";
 import type { LoadRow } from "@/lib/loads/types";
-import type { SessionUser } from "@/lib/auth";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -77,7 +76,7 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       summary,
     },
     sourceBody: source?.body ?? null,
-    viewer: { id: user.id, name: user.name, role: (user as SessionUser).role },
+    viewer: { id: user.id, name: user.name, role: user.role },
   };
 
   return NextResponse.json(body);
