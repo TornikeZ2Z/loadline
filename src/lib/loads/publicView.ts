@@ -98,14 +98,24 @@ export interface PublicDetailResponse {
 }
 
 /**
- * `POST /api/loads/:id/contact` -- the one endpoint that returns a phone.
+ * `POST /api/loads/:id/contact` -- the one endpoint that returns a phone, and
+ * the one endpoint that returns a group link.
+ *
+ * The group link is here rather than on `PublicLoadRow` deliberately. An
+ * invite code is not personal data, but the stored link may be a `wa.me` line
+ * for a dispatcher whose "group" is really a DM, and that link IS a phone
+ * number (see `groupLinkCarriesPhone` in ./redact). Publishing the harmless
+ * kind would mean trusting every future caller to tell the two apart, and the
+ * whole point of the gate is that reaching the sender takes an account -- so
+ * both kinds travel only in this response.
+ *
  * The type lives here so client code can import it without reaching a route.
  */
 export interface ContactResponse {
   id: number;
   contact: {
     name: string | null;
-    /** E.164, e.g. "+12015550199". Null when the post carried no usable number. */
+    /** E.164, e.g. "+12015550199". Null when neither the post nor the sender has one. */
     phone: string | null;
     /** "(201) 555-0199", or the 7-digit shorthand exactly as it was written. */
     display: string | null;
@@ -115,9 +125,26 @@ export interface ContactResponse {
     mode: "public" | "dm";
     tel: string | null;
     whatsapp: string | null;
-    /** One line for the clipboard, built server-side. */
-    summary: string;
+    /**
+     * Where the number came from. "post" -- this post carried it. "sender" --
+     * it is this sender's usual line, known from another of their posts or
+     * attached by an admin. Null when there is no number at all. A driver
+     * calling the wrong line wastes a call, so the UI says which it is.
+     */
+    source: "post" | "sender" | null;
   };
+  /**
+   * The group the post was made in, and the only WhatsApp URL that can reach
+   * it. `url` is null unless an admin stored one -- WhatsApp invite links
+   * cannot be derived, and there is NO link to an individual message at all.
+   */
+  group: {
+    name: string | null;
+    url: string | null;
+    kind: "invite" | "wa" | null;
+  };
+  /** The job as plain text, for the clipboard: what a driver pastes into the group. */
+  jobText: string;
   /** The original WhatsApp text, unmasked. */
   sourceBody: string | null;
   viewer: { id: number; name: string; role: Role };

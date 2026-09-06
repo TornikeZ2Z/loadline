@@ -26,12 +26,30 @@ export interface SeedMessage {
   body: string;
 }
 
+/**
+ * `invite` is a group's WhatsApp invite link, the only URL that can reach a
+ * group from a web page (there is none for an individual message). It cannot be
+ * derived -- a group admin generates it -- so it is stored, and an admin sets
+ * it per group in the console.
+ *
+ * Only "Movers Nationwide" has one here, on purpose: it is the group message B
+ * was posted in, the one post in the corpus that carries no phone anywhere, so
+ * the demo shows both halves of §1.4 -- a no-phone job WITH a group link, and
+ * (in the other groups) the same block without one, still offering "Copy the
+ * job". The code is a placeholder shape, not a real invite; a real one is
+ * pasted in at /admin?tab=groups.
+ */
 export const GROUPS = [
-  { waId: "120363011111111111@g.us", name: "Movers Nationwide", description: "HHG backhauls coast to coast" },
+  {
+    waId: "120363011111111111@g.us",
+    name: "Movers Nationwide",
+    description: "HHG backhauls coast to coast",
+    invite: "https://chat.whatsapp.com/DemoMoversNationwide01",
+  },
   { waId: "120363022222222222@g.us", name: "NJ Movers Loads", description: "Tri-State movers, jobs leaving NJ" },
   { waId: "120363033333333333@g.us", name: "FL Movers Backhaul", description: "Florida movers heading north" },
   { waId: "120363044444444444@g.us", name: "West Coast HHG", description: "California, Arizona, Nevada inventories" },
-];
+] as Array<{ waId: string; name: string; description: string; invite?: string }>;
 
 const real = (letter: string) => REAL_MESSAGES.find((m) => m.format.startsWith(letter))!.body;
 

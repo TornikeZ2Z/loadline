@@ -49,6 +49,25 @@ export function isPhoneOnly(text: string | null | undefined): boolean {
 }
 
 /**
+ * A stored group link that IS a phone number.
+ *
+ * `https://chat.whatsapp.com/<code>` is an opaque invite: it names a group, not
+ * a person, and leaks nothing. `https://wa.me/17865550128` is the sender's
+ * number written as a URL -- the exact thing the contact gate exists to
+ * protect, and one `.replace(/\D/g, "")` away from being dialled.
+ *
+ * The deliberate decision (see db/schema.sql and publicView.ts) is that BOTH
+ * kinds stay behind the gate, so no public payload has to be trusted to tell
+ * them apart. This predicate exists so the redaction check can prove the
+ * distinction is understood rather than assumed, and so any future caller
+ * tempted to publish a link has to answer the question explicitly.
+ */
+export function groupLinkCarriesPhone(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return redactPhones(url) !== url;
+}
+
+/**
  * A copy of the row with every phone stripped.
  *
  * `sender_key` goes too: for phone-keyed senders it is literally
