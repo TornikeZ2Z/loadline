@@ -27,7 +27,17 @@ data "aws_iam_policy_document" "deploy_assume_role" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
+      # BOTH forms are listed on purpose. GitHub is transitioning OIDC subjects
+      # from `repo:OWNER/REPO:...` to the id-qualified
+      # `repo:OWNER@<id>/REPO@<id>:...`, and this repository already sends the
+      # latter — matching only the plain form fails with the maddeningly generic
+      # "Not authorized to perform sts:AssumeRoleWithWebIdentity", which AWS
+      # returns for BOTH a trust mismatch and a nonexistent role, so it does not
+      # tell you which. Listing both keeps the role working whichever is sent.
+      values = [
+        "repo:${var.github_repo}:ref:refs/heads/main",
+        "repo:${var.github_repo_qualified}:ref:refs/heads/main",
+      ]
     }
   }
 }
