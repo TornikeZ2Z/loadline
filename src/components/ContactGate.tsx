@@ -45,6 +45,21 @@ export interface ContactGateProps {
 
 type GateState = "idle" | "gate" | "revealing" | "revealed" | "error";
 
+/**
+ * Job ids this tab has already revealed, kept outside React so a remount does
+ * not lose them.
+ *
+ * Signing in here has to refresh the server tree (the header, and Board's
+ * `signedIn`), and that refresh always remounts this component: Board rewrites
+ * the address to /jobs/<id> with `history.replaceState`, so `router.refresh()`
+ * re-fetches a different route than the one currently mounted and React swaps
+ * the whole subtree. Without this the number the viewer just signed in for
+ * vanishes and the gate is back to "Show contact". Only ids live here -- the
+ * number itself is re-requested through POST /api/loads/:id/contact, which
+ * stays the only way one reaches the page.
+ */
+const revealedInTab = new Set<number>();
+
 /** Where to come back to after a real (non-demo) registration. */
 function currentPath(): string {
   if (typeof window === "undefined") return "/";
@@ -73,38 +88,46 @@ export function ContactGate({
   const [copied, setCopied] = useState(false);
   const autoRan = useRef(false);
 
-  const reveal = useCallback(async () => {
-    setState("revealing");
-    setError(null);
-    try {
-      const res = await fetch(api(`/api/loads/${loadId}/contact`), { method: "POST" });
-      if (res.status === 401) {
-        setState("gate");
-        return;
+  const reveal = useCallback(
+    async (opts?: { afterSignIn?: boolean }) => {
+      setState("revealing");
+      setError(null);
+      try {
+        const res = await fetch(api(`/api/loads/${loadId}/contact`), { method: "POST" });
+        if (res.status === 401) {
+          setState("gate");
+          return;
+        }
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.error ?? "Could not load the contact");
+        const data = body as ContactResponse;
+        revealedInTab.add(loadId);
+        setContact(data);
+        setState("revealed");
+        onRevealed?.(data);
+        // Only when this reveal followed a sign-in, so the header flips to the
+        // signed-in view and Board's `signedIn` prop becomes true. Refreshing
+        // on an ordinary reveal would remount this component for nothing --
+        // and the remount that follows a sign-in is why `revealedInTab` exists.
+        if (opts?.afterSignIn) router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not load the contact");
+        setState("error");
       }
-      const body = await res.json();
-      if (!res.ok) throw new Error(body?.error ?? "Could not load the contact");
-      const data = body as ContactResponse;
-      setContact(data);
-      setState("revealed");
-      onRevealed?.(data);
-      // After the reveal, so the header flips to the signed-in view and Board's
-      // `signedIn` prop becomes true. refresh() keeps client state: the drawer,
-      // the filters and the map viewport stay exactly where they were.
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the contact");
-      setState("error");
-    }
-  }, [loadId, onRevealed, router]);
+    },
+    [loadId, onRevealed, router],
+  );
 
-  // The card's Show contact button opens the detail with autoOpen set.
+  // The card's Show contact button opens the detail with autoOpen set; a job
+  // this tab already revealed re-opens itself after the sign-in remount.
   useEffect(() => {
-    if (!autoOpen || autoRan.current || !hasPhone) return;
+    if (autoRan.current || !hasPhone) return;
+    const resume = revealedInTab.has(loadId);
+    if (!autoOpen && !resume) return;
     autoRan.current = true;
     if (signedIn) void reveal();
     else setState("gate");
-  }, [autoOpen, hasPhone, signedIn, reveal]);
+  }, [autoOpen, hasPhone, signedIn, reveal, loadId]);
 
   async function signInDemo() {
     setError(null);
@@ -115,7 +138,7 @@ export function ContactGate({
         body: JSON.stringify({ role: "driver" }),
       });
       if (!res.ok) throw new Error("Demo sign-in is not available");
-      await reveal();
+      await reveal({ afterSignIn: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Demo sign-in is not available");
     }
@@ -132,7 +155,7 @@ export function ContactGate({
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? "Wrong email or password");
-      await reveal();
+      await reveal({ afterSignIn: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Wrong email or password");
     }
