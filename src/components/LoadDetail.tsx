@@ -196,7 +196,14 @@ export function LoadDetail({
   const requirement = requirementChip(row.requirements);
   const trip = data?.distances?.trip ?? null;
   const toPickup = data?.distances?.toPickup ?? null;
-  const sourceBody = revealed?.sourceBody ?? data?.source?.body ?? null;
+  // The public copy of the post is masked by the server and masked again below;
+  // the revealed copy is the original the gate just handed back, so it is shown
+  // as written. Masking that a second time would redact the very number the
+  // reveal granted. `redactPhones` preserves the line count (check:redact
+  // asserts it), so the excerpt's line numbers index the original unchanged.
+  const revealedBody = revealed?.sourceBody ?? null;
+  const revealedLines = revealedBody?.split("\n") ?? null;
+  const sourceBody = revealedBody ?? data?.source?.body ?? null;
 
   return (
     <div className="drawer-enter flex h-full min-h-0 flex-col">
@@ -410,7 +417,7 @@ export function LoadDetail({
               style={{ background: "var(--surface-2)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
             >
               {fullMessage || !excerpt
-                ? maskPhones(sourceBody) || ""
+                ? (revealedBody ?? maskPhones(sourceBody)) || ""
                 : excerpt.lines.map((line) => (
                     <div
                       key={line.n}
@@ -420,7 +427,7 @@ export function LoadDetail({
                           : undefined
                       }
                     >
-                      {maskPhones(line.text) || " "}
+                      {(revealedLines?.[line.n] ?? maskPhones(line.text)) || " "}
                     </div>
                   ))}
             </div>
