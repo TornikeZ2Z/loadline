@@ -1,310 +1,559 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { LoadRow } from "@/lib/loads/types";
-import { formatMiles } from "@/lib/geo/math";
-import { formatDuration } from "@/lib/geo/here";
-import { Chip, PrecisionNote, StatusChip, formatPickupDate, formatTime, formatWeight } from "./ui";
+/**
+ * One job, opened inside the list column.
+ *
+ * A drawer rather than a page, and inside the column rather than over the map,
+ * for one reason: a mover comparing three routes should never lose the map or
+ * the search that produced them. The MapLibre instance is untouched while this
+ * mounts and unmounts.
+ *
+ * The section that matters most is the last one: the original WhatsApp message,
+ * with this job's own line highlighted. Everything above it is our reading of
+ * the post, and a driver about to spend a phone call deserves to check that
+ * reading against the words the sender actually wrote. Phones in that text are
+ * masked -- always, by the server first and by `maskPhones` here again -- until
+ * the contact gate hands back the unmasked body.
+ */
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/basePath";
+import { formatDuration } from "@/lib/geo/here";
+import type { PublicDetailResponse, PublicLoadRow, ContactResponse } from "@/lib/loads/publicView";
+import type { StoredLocation } from "@/lib/location";
+import { OPEN_LOCATION_EVENT } from "@/lib/location";
+import type { Role } from "@/lib/session";
+import {
+  deliverByLabel,
+  formatCf,
+  formatPrice,
+  freshnessLabel,
+  laneLabel,
+  maskPhones,
+  placeLabel,
+  readyLabel,
+  requirementChip,
+  senderLine,
+  TAG_LABELS,
+} from "@/lib/loads/present";
+import { ContactGate } from "./ContactGate";
+import { Chip, PrecisionNote, StatusChip } from "./ui";
 
-interface RoadLeg {
-  miles: number;
-  minutes: number;
+export interface LoadDetailProps {
+  /** Null while a deep link is still loading: the detail fetches by `jobId`. */
+  job: PublicLoadRow | null;
+  jobId: number;
+  totalInList: number;
+  signedIn: boolean;
+  demoMode: boolean;
+  role: Role | null;
+  userId: number | null;
+  viewer: StoredLocation | null;
+  /** The card's Show contact button was used. */
+  autoContact?: boolean;
+  mobile?: boolean;
+  onClose(): void;
+  onStatusChanged(): void;
 }
 
-interface DetailResponse {
-  load: LoadRow;
-  duplicates: LoadRow[];
-  distances?: {
-    trip: RoadLeg | null;
-    toPickup: RoadLeg | null;
-    unavailable: boolean;
-  };
-  source: {
-    body: string;
-    author_name: string | null;
-    sent_at: string;
-    group_name: string | null;
-  } | null;
-}
+/**
+ * The four a person may set. `delisted` and `expired` are derived by the
+ * lifecycle and the server rejects them, so they are not offered.
+ */
+type ManualStatus = "available" | "pending" | "taken" | "cancelled";
+const MANAGE_STATUSES: ManualStatus[] = ["available", "pending", "taken", "cancelled"];
+
+/** How many lines of the original post to show around the job's own line. */
+const CONTEXT_LINES = 3;
 
 export function LoadDetail({
-  load,
+  job,
+  jobId,
+  totalInList,
+  signedIn,
+  demoMode,
+  role,
+  userId,
+  viewer,
+  autoContact,
+  mobile,
   onClose,
-  canManage,
   onStatusChanged,
-}: {
-  load: LoadRow;
-  onClose: () => void;
-  canManage: boolean;
-  onStatusChanged: () => void;
-}) {
-  const [data, setData] = useState<DetailResponse | null>(null);
+}: LoadDetailProps) {
+  const [data, setData] = useState<PublicDetailResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState<ContactResponse | null>(null);
+  const [fullMessage, setFullMessage] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const sp = new URLSearchParams();
+    if (viewer) {
+      sp.set("viewerLat", viewer.lat.toFixed(5));
+      sp.set("viewerLng", viewer.lng.toFixed(5));
+    }
+    const qs = sp.toString();
+    const res = await fetch(api(`/api/loads/${jobId}${qs ? `?${qs}` : ""}`));
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error ?? "Could not open this job");
+    return body as PublicDetailResponse;
+  }, [jobId, viewer]);
 
   useEffect(() => {
     let alive = true;
     setData(null);
-    fetch(api(`/api/loads/${load.id}`))
-      .then((r) => r.json())
-      .then((d: DetailResponse) => alive && setData(d))
-      .catch(() => {});
+    setError(null);
+    setRevealed(null);
+    setFullMessage(false);
+    load()
+      .then((d) => alive && setData(d))
+      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : "Could not open this job"));
     return () => {
       alive = false;
     };
-  }, [load.id]);
+  }, [load]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const current = data?.load ?? load;
-  const date = formatPickupDate(current.pickup_date);
-  const time = formatTime(current.pickup_time, current.pickup_time_note);
-  const weight = formatWeight(current);
+  // The row from the list is shown immediately so the drawer never flashes
+  // empty; the fetched row replaces it and adds the source message.
+  const row = data?.load ?? job;
+  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
 
-  async function setStatus(status: string) {
+  const excerpt = useMemo(
+    () => buildExcerpt(data?.source?.body ?? null, row?.line_text ?? null, row?.pickup_city ?? null),
+    [data?.source?.body, row?.line_text, row?.pickup_city],
+  );
+
+  const canManage =
+    row != null &&
+    (role === "admin" || (role === "poster" && userId != null && row.posted_by === userId));
+
+  async function setStatus(status: ManualStatus) {
+    if (!row) return;
     setBusy(true);
-    await fetch(api(`/api/loads/${current.id}/status`), {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    setBusy(false);
-    onStatusChanged();
-    onClose();
+    try {
+      const res = await fetch(api(`/api/loads/${row.id}/status`), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        onStatusChanged();
+        setData(await load().catch(() => data));
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="flex-1 bg-black/25" onClick={onClose} />
-      <div className="bg-surface flex w-full max-w-[520px] flex-col overflow-y-auto border-l border-border shadow-2xl">
-        <header className="bg-surface sticky top-0 flex items-start gap-3 border-b border-border p-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-[17px] font-bold">
-                {current.pickup_state} → {current.delivery_state ?? "?"}
-              </h2>
-              <StatusChip status={current.status} />
-              {current.load_type && <Chip tone="accent">{current.load_type}</Chip>}
-            </div>
-            {current.group_name && (
-              <p className="mt-0.5 text-[12px] text-muted">Posted in {current.group_name}</p>
-            )}
-          </div>
-          <button className="btn px-2 py-1" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
-        </header>
-
-        <div className="space-y-5 p-4">
-          {/* ------- the lane ------- */}
-          <section className="space-y-3">
-            <Stop
-              kind="Pickup"
-              place={current.pickup_label}
-              precision={current.pickup_precision}
-              when={date.relative ? `${date.relative}, ${date.text}` : date.text}
-              time={time}
-            />
-            <div className="ml-[7px] h-5 border-l-2 border-dotted border-border" />
-            <Stop
-              kind="Delivery"
-              place={current.delivery_label}
-              precision={current.delivery_precision}
-              when={current.delivery_date ? formatPickupDate(current.delivery_date).text : null}
-            />
-          </section>
-
-          {/* ------- facts ------- */}
-          <section className="grid grid-cols-2 gap-3">
-            <Fact
-              label="Trip distance"
-              value={
-                data?.distances?.trip
-                  ? `${data.distances.trip.miles.toLocaleString()} mi`
-                  : current.trip_miles != null
-                    ? `${Math.round(current.trip_miles)} mi`
-                    : "—"
-              }
-              note={
-                data?.distances?.trip
-                  ? `by road · ${formatDuration(data.distances.trip.minutes)} driving`
-                  : data === null
-                    ? "checking road distance…"
-                    : "straight line"
-              }
-            />
-            <Fact
-              label={current.detour_miles != null ? "Extra miles for you" : "Distance from you"}
-              value={
-                current.detour_miles != null
-                  ? `+${current.detour_miles} mi`
-                  : data?.distances?.toPickup
-                    ? `${data.distances.toPickup.miles.toLocaleString()} mi`
-                    : formatMiles(current.distance_miles)
-              }
-              note={
-                data?.distances?.toPickup && current.detour_miles == null
-                  ? `to pickup by road · ${formatDuration(data.distances.toPickup.minutes)}`
-                  : "straight line"
-              }
-            />
-            <Fact label="Freight" value={weight ?? "Not stated"} />
-            <Fact
-              label="Rate"
-              value={current.rate_usd != null ? `$${current.rate_usd.toLocaleString()}` : "Not stated"}
-            />
-          </section>
-
-          {current.notes && (
-            <section>
-              <div className="label">Notes</div>
-              <p className="text-[13px]">{current.notes}</p>
-            </section>
-          )}
-
-          {/* ------- contact ------- */}
-          <section className="card p-3" style={{ background: "var(--accent-soft)", borderColor: "#c9d8ff" }}>
-            <div className="label" style={{ color: "var(--accent)" }}>
-              Contact
-            </div>
-            <div className="text-[15px] font-bold">{current.contact_name ?? "Not named"}</div>
-            {current.contact_phone ? (
-              <div className="mt-2 flex gap-2">
-                <a className="btn btn-primary flex-1" href={`tel:${current.contact_phone}`}>
-                  Call {current.contact_phone}
-                </a>
-                <a
-                  className="btn"
-                  href={`https://wa.me/${current.contact_phone.replace(/\D/g, "")}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  WhatsApp
-                </a>
-              </div>
-            ) : (
-              <p className="mt-1 text-[12px] text-muted">
-                No phone number in the original message — check the source text below.
-              </p>
-            )}
-          </section>
-
-          {/* ------- provenance: the honest bit ------- */}
-          {data?.source && (
-            <section>
-              <div className="label">Original WhatsApp message</div>
-              <blockquote
-                className="card p-3 text-[13px] whitespace-pre-wrap"
-                style={{ background: "var(--surface-2)" }}
-              >
-                {data.source.body}
-              </blockquote>
-              <p className="mt-1.5 text-[11px] text-muted">
-                {data.source.author_name ?? "Unknown"} ·{" "}
-                {new Date(data.source.sent_at).toLocaleString()} ·{" "}
-                {data.source.group_name ?? "unknown group"}
-              </p>
-              {current.confidence < 0.5 && (
-                <p className="mt-1.5 text-[11px]" style={{ color: "var(--warn)" }}>
-                  This load was read out of the message automatically with low confidence. Confirm
-                  the details on the call.
-                </p>
-              )}
-            </section>
-          )}
-
-          {data && data.duplicates.length > 0 && (
-            <section>
-              <div className="label">Also posted {data.duplicates.length}× elsewhere</div>
-              <ul className="space-y-1 text-[12px] text-muted">
-                {data.duplicates.map((d) => (
-                  <li key={d.id} className="card px-2.5 py-1.5">
-                    {d.group_name ?? "unknown group"} ·{" "}
-                    {new Date(d.created_at).toLocaleString()}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {canManage && (
-            <section className="border-t border-border pt-4">
-              <div className="label">Update status</div>
-              <div className="flex flex-wrap gap-2">
-                {(["available", "pending", "taken", "cancelled"] as const).map((s) => (
-                  <button
-                    key={s}
-                    className="btn capitalize"
-                    disabled={busy || current.status === s}
-                    onClick={() => setStatus(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-              {data && data.duplicates.length > 0 && (
-                <p className="mt-2 text-[11px] text-muted">
-                  This also updates the {data.duplicates.length} duplicate
-                  {data.duplicates.length === 1 ? "" : "s"} — it is the same freight.
-                </p>
-              )}
-            </section>
-          )}
-        </div>
+  if (!row) {
+    return (
+      <div className="drawer-enter flex h-full flex-col p-[var(--sp-4)]">
+        <BackButton total={totalInList} onClose={onClose} />
+        <p className="mt-[var(--sp-4)] text-[var(--fs-base)]" style={{ color: "var(--muted)" }}>
+          {error ?? "Opening job…"}
+        </p>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-function Stop({
-  kind,
-  place,
-  address,
-  precision,
-  when,
-  time,
-}: {
-  kind: string;
-  place: string;
-  address?: string | null;
-  precision: string | null;
-  when?: string | null;
-  time?: string | null;
-}) {
+  const from = placeLabel(row, "pickup");
+  const to = placeLabel(row, "delivery");
+  const price = formatPrice(row);
+  const ready = readyLabel(row, today);
+  const deliverBy = deliverByLabel(row, today);
+  const fresh = freshnessLabel(row, now);
+  const requirement = requirementChip(row.requirements);
+  const trip = data?.distances?.trip ?? null;
+  const toPickup = data?.distances?.toPickup ?? null;
+  const sourceBody = revealed?.sourceBody ?? data?.source?.body ?? null;
+
   return (
-    <div className="flex gap-3">
-      <div
-        className="mt-1.5 h-3.5 w-3.5 shrink-0 rounded-full border-[3px]"
-        style={{ borderColor: kind === "Pickup" ? "var(--accent)" : "var(--ok)" }}
-      />
-      <div className="min-w-0">
-        <div className="text-[11px] uppercase tracking-wide text-muted">{kind}</div>
-        <div className="flex flex-wrap items-center gap-2 text-[15px] font-semibold">
-          {place}
-          <PrecisionNote precision={precision} />
-        </div>
-        {address && <div className="text-[13px] text-muted">{address}</div>}
-        {when && (
-          <div className="text-[13px]">
-            {when}
-            {time ? ` · ${time}` : ""}
+    <div className="drawer-enter flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto p-[var(--sp-4)]">
+        {/* 1 — header */}
+        <section>
+          <BackButton total={totalInList} onClose={onClose} />
+          <h1 className="big mt-[var(--sp-3)] text-[var(--fs-2xl)]">{laneLabel(row)}</h1>
+          <p className="text-[var(--fs-md)]" style={{ color: "var(--text-2)" }}>
+            {from.text} → {to.text}
+          </p>
+          <div className="mt-[var(--sp-2)] flex flex-wrap gap-[var(--sp-1)]">
+            <Chip tone={fresh.tone} title={fresh.detail ?? undefined}>
+              {fresh.text}
+            </Chip>
+            {row.status !== "available" && <StatusChip status={row.status} />}
+            {row.needs_review && (
+              <Chip tone="review" title={row.flags?.join(" · ") || undefined}>
+                Unverified
+              </Chip>
+            )}
+            <PrecisionNote precision={row.pickup_precision} />
+            {row.pickup_precision !== row.delivery_precision && (
+              <PrecisionNote precision={row.delivery_precision} />
+            )}
           </div>
+        </section>
+
+        {/* 2 — size and price */}
+        <section className="mt-[var(--sp-4)] grid grid-cols-2 gap-[var(--sp-3)]">
+          <div>
+            <div className="label">Size</div>
+            <div
+              className="big text-[var(--fs-3xl)]"
+              style={row.cubic_feet == null ? { color: "var(--approx)", fontSize: "var(--fs-lg)" } : undefined}
+            >
+              {row.cubic_feet != null ? formatCf(row.cubic_feet) : "Size not stated"}
+            </div>
+          </div>
+          <div>
+            <div className="label">Price</div>
+            <div
+              className="big text-[var(--fs-xl)]"
+              style={{ color: price.tone === "muted" ? "var(--muted)" : "var(--ok)" }}
+            >
+              {price.tone === "muted" ? "Price not stated — ask" : price.headline}
+            </div>
+            {price.sub && price.tone !== "muted" && (
+              <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+                {price.sub}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 3 — timeline */}
+        <section className="mt-[var(--sp-4)]">
+          <Stop
+            label="Pickup"
+            place={from.text}
+            precision={row.pickup_precision}
+            note={ready.text}
+            noteTitle={ready.title}
+          />
+          <div
+            className="my-[var(--sp-1)] ml-[5px] border-l border-dashed pl-[var(--sp-4)] text-[var(--fs-sm)]"
+            style={{ borderColor: "var(--border-strong)", color: "var(--muted)", minHeight: 28 }}
+          >
+            {trip
+              ? `${Math.round(trip.miles).toLocaleString()} mi by road · ${formatDuration(trip.minutes)} driving`
+              : data == null
+                ? "checking road distance…"
+                : row.trip_miles != null
+                  ? `${Math.round(row.trip_miles).toLocaleString()} mi straight line`
+                  : "Distance not available"}
+          </div>
+          <Stop
+            label="Delivery"
+            place={to.text}
+            precision={row.delivery_precision}
+            note={deliverBy?.text ?? "No deadline given"}
+          />
+        </section>
+
+        {/* 4 — facts */}
+        <section className="mt-[var(--sp-4)] grid grid-cols-2 gap-[var(--sp-2)]">
+          <Fact label="From you">
+            {toPickup ? (
+              <span className="nums">
+                {Math.round(toPickup.miles).toLocaleString()} mi · {formatDuration(toPickup.minutes)} to pickup
+              </span>
+            ) : row.distance_miles != null ? (
+              <span className="nums">{Math.round(row.distance_miles).toLocaleString()} mi straight line</span>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ color: "var(--accent)", padding: 0 }}
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent(OPEN_LOCATION_EVENT, { detail: { slot: "current" } }),
+                  )
+                }
+              >
+                Set your location to see this
+              </button>
+            )}
+          </Fact>
+
+          <Fact label="Ready">
+            <span title={ready.title ?? undefined}>{ready.text}</span>
+            <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+              {row.ready_source === "assumed"
+                ? "assumed — no marker in the post"
+                : row.ready_source
+                  ? `as posted (${row.ready_source})`
+                  : ""}
+            </div>
+          </Fact>
+
+          <Fact label="Deliver by">{deliverBy?.text ?? "Not given"}</Fact>
+
+          <Fact label="Listed">
+            <span>{listedRange(row)}</span>
+          </Fact>
+        </section>
+
+        {/* 5 — the sender's own words about the work */}
+        {row.requirements && (
+          <section className="mt-[var(--sp-4)]">
+            <div className="label">Sender&apos;s requirements</div>
+            {requirement && <Chip title={requirement.title}>{requirement.label}</Chip>}
+            <p className="mt-[var(--sp-1)] text-[var(--fs-base)]">{maskPhones(row.requirements)}</p>
+          </section>
+        )}
+
+        {(row.job_notes || (row.tags?.length ?? 0) > 0) && (
+          <section className="mt-[var(--sp-4)]">
+            <div className="label">Notes on this job</div>
+            {(row.tags?.length ?? 0) > 0 && (
+              <div className="mb-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
+                {row.tags.map((tag) => {
+                  const meta = TAG_LABELS[tag];
+                  return (
+                    <Chip key={tag} tone={meta?.tone ?? "default"}>
+                      {meta?.label ?? tag}
+                    </Chip>
+                  );
+                })}
+              </div>
+            )}
+            {row.job_notes && <p className="text-[var(--fs-base)]">{maskPhones(row.job_notes)}</p>}
+          </section>
+        )}
+
+        {/* 6 — the only place a phone number reaches the page */}
+        <section className="mt-[var(--sp-4)]">
+          <ContactGate
+            loadId={row.id}
+            contactName={row.contact_name}
+            hasPhone={row.has_phone}
+            groupName={row.group_name}
+            contactMode={row.contact_mode}
+            signedIn={signedIn}
+            demoMode={demoMode}
+            autoOpen={autoContact}
+            variant={mobile ? "sticky" : "card"}
+            onRevealed={setRevealed}
+          />
+        </section>
+
+        {/* 7 — the post it came from */}
+        {data?.source && (
+          <section className="mt-[var(--sp-4)]">
+            <div className="label">Original WhatsApp message</div>
+            <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+              {data.source.author_name ?? "Unnamed sender"}
+              {data.source.group_name ? ` · ${data.source.group_name}` : ""}
+              {" · "}
+              {new Date(data.source.sent_at).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+
+            <div
+              className="card mt-[var(--sp-2)] whitespace-pre-wrap p-[var(--sp-3)] text-[var(--fs-sm)]"
+              style={{ background: "var(--surface-2)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+            >
+              {fullMessage || !excerpt
+                ? maskPhones(sourceBody) || ""
+                : excerpt.lines.map((line) => (
+                    <div
+                      key={line.n}
+                      style={
+                        line.hit
+                          ? { background: "var(--accent-soft)", fontWeight: 600 }
+                          : undefined
+                      }
+                    >
+                      {maskPhones(line.text) || " "}
+                    </div>
+                  ))}
+            </div>
+
+            {excerpt && excerpt.total > excerpt.lines.length && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm mt-[var(--sp-1)]"
+                onClick={() => setFullMessage((f) => !f)}
+              >
+                {fullMessage ? "Show just this job's line" : `Show full message (${excerpt.total} lines)`}
+              </button>
+            )}
+
+            {row.confidence < 0.5 && (
+              <p className="mt-[var(--sp-1)] text-[var(--fs-sm)]" style={{ color: "var(--warn)" }}>
+                Read out of the message automatically with low confidence — confirm the details on the call.
+              </p>
+            )}
+          </section>
+        )}
+
+        {(data?.duplicates?.length ?? 0) > 0 && (
+          <p className="mt-[var(--sp-2)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+            Also posted by another sender
+          </p>
+        )}
+
+        {/* 8 — manage */}
+        {canManage && (
+          <section className="mt-[var(--sp-5)] border-t border-border pt-[var(--sp-3)]">
+            <div className="label">Manage</div>
+            <div className="flex flex-wrap gap-[var(--sp-1)]">
+              {MANAGE_STATUSES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={busy || row.status === s}
+                  onClick={() => setStatus(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <p className="mt-[var(--sp-1)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+              Marking Taken sticks even if the sender re-posts it.
+            </p>
+          </section>
+        )}
+
+        {role === "admin" && row.source_message_id != null && (
+          <section className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-1)] text-[var(--fs-sm)]">
+            <Link href={`/admin/test?message=${row.source_message_id}`} style={{ color: "var(--accent)" }}>
+              Open in WhatsApp console →
+            </Link>
+            {row.needs_review && (
+              <Link
+                href={`/admin?tab=attention&message=${row.source_message_id}`}
+                style={{ color: "var(--accent)" }}
+              >
+                Review in admin queue →
+              </Link>
+            )}
+          </section>
         )}
       </div>
     </div>
   );
 }
 
-function Fact({ label, value, note }: { label: string; value: string; note?: string }) {
+function BackButton({ total, onClose }: { total: number; onClose(): void }) {
   return (
-    <div className="card p-2.5">
-      <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
-      <div className="nums mt-0.5 text-[15px] font-semibold">{value}</div>
-      {note && <div className="mt-0.5 text-[11px] text-muted">{note}</div>}
+    <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+      ← Back to {total} {total === 1 ? "job" : "jobs"}
+    </button>
+  );
+}
+
+function Stop({
+  label,
+  place,
+  precision,
+  note,
+  noteTitle,
+}: {
+  label: string;
+  place: string;
+  precision: string | null;
+  note: string;
+  noteTitle?: string | null;
+}) {
+  return (
+    <div className="flex gap-[var(--sp-3)]">
+      <span
+        aria-hidden
+        className="mt-[6px] h-[10px] w-[10px] shrink-0 rounded-full"
+        style={{ background: label === "Pickup" ? "var(--pickup)" : "var(--delivery)" }}
+      />
+      <div className="min-w-0">
+        <div className="text-[var(--fs-xs)] font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
+          {label}
+        </div>
+        <div className="text-[var(--fs-md)] font-semibold">{place}</div>
+        <div className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }} title={noteTitle ?? undefined}>
+          {note}
+        </div>
+        <PrecisionNote precision={precision} />
+      </div>
     </div>
   );
+}
+
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="card p-[var(--sp-3)]">
+      <div className="label">{label}</div>
+      <div className="text-[var(--fs-base)]">{children}</div>
+    </div>
+  );
+}
+
+/** "Sep 1 – Sep 6 · posted 4×" / "Today" — how long this job has been around. */
+function listedRange(row: PublicLoadRow): string {
+  const fmt = (iso: string | null) =>
+    iso
+      ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" })
+      : null;
+  const first = fmt(row.first_seen_at ?? row.created_at);
+  const last = fmt(row.last_seen_at ?? row.created_at);
+  const times = row.seen_count > 1 ? ` · posted ${row.seen_count}×` : "";
+  if (!first || !last) return "Today";
+  if (first === last) return `${first}${times}`;
+  return `${first} – ${last}${times}`;
+}
+
+/**
+ * The job's own line in the post, with a few lines of context and the origin
+ * header that governs it.
+ *
+ * Matched on the exact text of `line_text` rather than a line number: the row
+ * does not carry one, and an exact match is the honest test -- if the message
+ * was edited since extraction, no line highlights rather than the wrong one.
+ */
+function buildExcerpt(
+  body: string | null,
+  lineText: string | null,
+  pickupCity: string | null,
+): { lines: Array<{ n: number; text: string; hit: boolean }>; total: number } | null {
+  if (!body) return null;
+  const all = body.split("\n");
+  const total = all.length;
+  if (!lineText) return null;
+
+  const needle = lineText.trim();
+  const at = all.findIndex((l) => l.trim() === needle);
+  if (at < 0) return null;
+
+  const from = Math.max(0, at - CONTEXT_LINES);
+  const to = Math.min(total - 1, at + CONTEXT_LINES);
+  const picked: Array<{ n: number; text: string; hit: boolean }> = [];
+
+  // A batch post's destination lines are meaningless without the origin header
+  // above them, which is often further up than the context window reaches.
+  if (pickupCity) {
+    const city = pickupCity.toLowerCase();
+    for (let i = from - 1; i >= 0; i--) {
+      if (all[i].toLowerCase().includes(city)) {
+        picked.push({ n: i, text: all[i], hit: false });
+        if (i < from - 1) picked.push({ n: -1, text: "…", hit: false });
+        break;
+      }
+    }
+  }
+
+  for (let i = from; i <= to; i++) picked.push({ n: i, text: all[i], hit: i === at });
+  return { lines: picked, total };
 }

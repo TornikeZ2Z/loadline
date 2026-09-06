@@ -1,211 +1,278 @@
 "use client";
 
-import type { LoadRow } from "@/lib/loads/types";
-import { formatMiles } from "@/lib/geo/math";
-import { Chip, PrecisionNote, StatusChip, formatPickupDate, formatTime, formatWeight } from "./ui";
+/**
+ * The job card and the list it lives in.
+ *
+ * The card shows only what a real post contained. There is no bedroom count,
+ * no floor, no packing, no weight and no pallet -- those were freight-board
+ * fields, and inventing them here would mean inventing data. What is left is
+ * exactly the five things a mover decides on: the lane, the size, the price,
+ * when it is ready, and how alive the listing is.
+ *
+ * The card is a `div role="button"` rather than a `<button>` because it
+ * contains a real button (Show contact), and a button inside a button is
+ * invalid and unreachable by keyboard.
+ */
 
-/* ------------------------------- list view ------------------------------- */
+import { useRef } from "react";
+import type { PublicLoadRow } from "@/lib/loads/publicView";
+import {
+  deliverByLabel,
+  formatCf,
+  formatPrice,
+  freshnessLabel,
+  laneLabel,
+  placeLabel,
+  readyLabel,
+  requirementChip,
+  senderLine,
+  TAG_LABELS,
+} from "@/lib/loads/present";
+import { Chip, StatusChip } from "./ui";
 
-export function LoadList({
-  loads,
-  onSelect,
-  selectedId,
-}: {
-  loads: LoadRow[];
-  onSelect: (load: LoadRow) => void;
-  selectedId?: number | null;
-}) {
-  return (
-    <div className="space-y-2 p-4">
-      {loads.map((load) => (
-        <LoadCard
-          key={load.id}
-          load={load}
-          onSelect={onSelect}
-          selected={selectedId === load.id}
-        />
-      ))}
-    </div>
-  );
-}
-
-function LoadCard({
-  load,
-  onSelect,
-  selected,
-}: {
-  load: LoadRow;
-  onSelect: (l: LoadRow) => void;
+export interface JobCardProps {
+  job: PublicLoadRow;
   selected: boolean;
-}) {
-  const date = formatPickupDate(load.pickup_date);
-  const time = formatTime(load.pickup_time, load.pickup_time_note);
-  const weight = formatWeight(load);
+  hovered: boolean;
+  now: Date;
+  /** `contact` opens the detail with the contact gate already triggered. */
+  onSelect(job: PublicLoadRow, opts?: { contact?: boolean }): void;
+  onHover(id: number | null): void;
+}
+
+export interface JobListProps {
+  jobs: PublicLoadRow[];
+  selectedId: number | null;
+  hoveredId: number | null;
+  now: Date;
+  onSelect: JobCardProps["onSelect"];
+  onHover: JobCardProps["onHover"];
+}
+
+/** At most four chips fit before the row wraps and stops being scannable. */
+const MAX_CHIPS = 4;
+
+/**
+ * Verified jobs first, everything else in the server's order.
+ *
+ * A stable partition rather than a sort: the server already ordered by whatever
+ * the viewer asked for, and this only says that between two jobs the sort
+ * cannot separate, the one a human has not had to second-guess goes first.
+ */
+export function partitionUnverified(jobs: PublicLoadRow[]): PublicLoadRow[] {
+  const clean: PublicLoadRow[] = [];
+  const review: PublicLoadRow[] = [];
+  for (const job of jobs) (job.needs_review ? review : clean).push(job);
+  return review.length ? [...clean, ...review] : jobs;
+}
+
+export function JobList({ jobs, selectedId, hoveredId, now, onSelect, onHover }: JobListProps) {
+  const list = useRef<HTMLUListElement>(null);
+
+  /** Up/down walk the cards; Enter on a focused card opens it. */
+  const onKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const cards = Array.from(
+      list.current?.querySelectorAll<HTMLElement>("[data-job-card]") ?? [],
+    );
+    if (!cards.length) return;
+    const at = cards.findIndex((c) => c.contains(document.activeElement));
+    const next = e.key === "ArrowDown" ? at + 1 : at - 1;
+    const target = cards[Math.max(0, Math.min(cards.length - 1, next))];
+    if (target) {
+      e.preventDefault();
+      target.focus();
+      target.scrollIntoView({ block: "nearest" });
+    }
+  };
 
   return (
-    <button
-      onClick={() => onSelect(load)}
-      className="card w-full cursor-pointer p-3 text-left transition-shadow hover:shadow-sm"
-      style={selected ? { borderColor: "var(--accent)", boxShadow: "0 0 0 1px var(--accent)" } : undefined}
+    <ul
+      ref={list}
+      className="flex flex-col gap-[var(--sp-2)]"
+      onKeyDown={onKeyDown}
+      onMouseLeave={() => onHover(null)}
     >
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold">
-              {load.pickup_state} → {load.delivery_state ?? "?"}
-            </span>
-            <StatusChip status={load.status} />
-            {load.dup_count > 1 && (
-              <Chip title={`Posted ${load.dup_count} times across your groups`}>
-                {load.dup_count}× posted
-              </Chip>
-            )}
-            {load.load_type && <Chip tone="accent">{load.load_type}</Chip>}
-          </div>
+      {jobs.map((job) => (
+        <li key={job.id}>
+          <JobCard
+            job={job}
+            now={now}
+            selected={selectedId === job.id}
+            hovered={hoveredId === job.id}
+            onSelect={onSelect}
+            onHover={onHover}
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
 
-          <div className="mt-1.5 grid gap-0.5 text-[13px]">
-            <Leg label="Pick up" place={load.pickup_label} precision={load.pickup_precision} />
-            <Leg label="Deliver" place={load.delivery_label} precision={load.delivery_precision} />
-          </div>
+export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobCardProps) {
+  const today = now.toISOString().slice(0, 10);
+  const from = placeLabel(job, "pickup");
+  const to = placeLabel(job, "delivery");
+  const price = formatPrice(job);
+  const ready = readyLabel(job, today);
+  const deliverBy = deliverByLabel(job, today);
+  const fresh = freshnessLabel(job, now);
+  const inactive = job.status !== "available";
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">
-            <span className={date.relative ? "font-semibold text-ink" : undefined}>
-              {date.relative ? `${date.relative}, ${date.text}` : date.text}
-              {time ? ` · ${time}` : ""}
-            </span>
-            {weight && <span className="nums">{weight}</span>}
-            {load.trip_miles != null && (
-              <span className="nums">{Math.round(load.trip_miles)} mi trip</span>
-            )}
-            {load.rate_usd != null && (
-              <span className="nums font-semibold" style={{ color: "var(--ok)" }}>
-                ${load.rate_usd.toLocaleString()}
-              </span>
-            )}
-            {load.contact_name && <span>{load.contact_name}</span>}
-            {load.group_name && <span className="truncate">via {load.group_name}</span>}
-          </div>
-        </div>
+  // Requirements first: they decide whether a driver can take the job at all.
+  const requirement = requirementChip(job.requirements);
+  const chips: React.ReactNode[] = [];
+  if (requirement) {
+    chips.push(
+      <Chip key="req" title={requirement.title}>
+        {requirement.label}
+      </Chip>,
+    );
+  }
+  for (const tag of job.tags ?? []) {
+    const meta = TAG_LABELS[tag] ?? { label: titleCase(tag), tone: "default" as const };
+    chips.push(
+      <Chip key={`tag-${tag}`} tone={meta.tone}>
+        {meta.label}
+      </Chip>,
+    );
+  }
+  if (job.needs_review) {
+    chips.push(
+      <Chip key="review" tone="review" title={job.flags?.join(" · ") || "Read out of the post automatically"}>
+        Unverified
+      </Chip>,
+    );
+  }
+  if (from.approx || to.approx) {
+    chips.push(
+      <Chip key="approx" tone="approx" title="The post did not give a specific city">
+        approximate
+      </Chip>,
+    );
+  }
+  const visibleChips = chips.slice(0, MAX_CHIPS);
+  const hiddenChips = chips.length - visibleChips.length;
 
-        <div className="shrink-0 text-right">
-          {load.distance_miles != null && (
-            <>
-              <div className="nums text-[15px] font-bold">{formatMiles(load.distance_miles)}</div>
-              <div className="text-[11px] text-muted">away</div>
-            </>
-          )}
-          {load.detour_miles != null && (
-            <div className="mt-1">
-              <div className="nums text-[15px] font-bold" style={{ color: "var(--accent)" }}>
-                +{load.detour_miles}
-              </div>
-              <div className="text-[11px] text-muted">extra mi</div>
-            </div>
-          )}
-        </div>
+  const open = (opts?: { contact?: boolean }) => onSelect(job, opts);
+
+  return (
+    <div
+      data-job-card
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={() => open()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open();
+        }
+      }}
+      onMouseEnter={() => onHover(job.id)}
+      onFocus={() => onHover(job.id)}
+      className={`card card-hover cursor-pointer p-[var(--sp-3)]${selected ? " card-selected" : ""}`}
+      style={{
+        opacity: inactive ? 0.7 : 1,
+        ...(hovered && !selected ? { borderColor: "var(--border-strong)" } : null),
+      }}
+    >
+      <div className="flex items-baseline justify-between gap-[var(--sp-2)]">
+        <span className="big text-[var(--fs-lg)]">{laneLabel(job)}</span>
+        <span
+          className="big text-[var(--fs-lg)]"
+          style={job.cubic_feet == null ? { color: "var(--approx)", fontSize: "var(--fs-sm)" } : undefined}
+          title={
+            job.cubic_feet != null && job.cubic_feet < 100
+              ? `Small job as posted (${job.cubic_feet} cf)`
+              : undefined
+          }
+        >
+          {job.cubic_feet != null ? formatCf(job.cubic_feet) : "Size not stated"}
+        </span>
       </div>
-    </button>
-  );
-}
 
-function Leg({
-  label,
-  place,
-  precision,
-}: {
-  label: string;
-  place: string;
-  precision: string | null;
-}) {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="w-[52px] shrink-0 text-[11px] uppercase tracking-wide text-muted">
-        {label}
-      </span>
-      <span className="truncate">{place}</span>
-      <PrecisionNote precision={precision} />
+      <div className="mt-[2px] text-[var(--fs-base)]" style={{ color: "var(--text-2)" }}>
+        {from.text} → {to.text}
+      </div>
+
+      <div className="mt-[var(--sp-2)] flex flex-wrap items-center gap-[var(--sp-2)]">
+        {inactive ? (
+          <StatusChip status={job.status} />
+        ) : (
+          <Chip tone={ready.tone} title={ready.title ?? undefined}>
+            {ready.text}
+          </Chip>
+        )}
+        <span
+          className="nums text-[var(--fs-base)] font-semibold"
+          style={{ color: price.tone === "muted" ? "var(--muted)" : "var(--ok)" }}
+        >
+          {price.headline}
+          {price.sub && (
+            <span className="font-normal" style={{ color: "var(--muted)" }}>
+              {" · "}
+              {price.sub}
+            </span>
+          )}
+        </span>
+        {deliverBy && (
+          <span
+            className="text-[var(--fs-sm)]"
+            style={{ color: deliverBy.tone === "warn" ? "var(--warn)" : "var(--muted)" }}
+          >
+            {deliverBy.text}
+          </span>
+        )}
+      </div>
+
+      {visibleChips.length > 0 && (
+        <div className="mt-[var(--sp-2)] flex flex-wrap gap-[var(--sp-1)]">
+          {visibleChips}
+          {hiddenChips > 0 && <Chip tone="muted">+{hiddenChips}</Chip>}
+        </div>
+      )}
+
+      <div
+        className="mt-[var(--sp-2)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)] text-[var(--fs-sm)]"
+        style={{ color: "var(--muted)" }}
+      >
+        <span
+          title={fresh.detail ?? undefined}
+          style={fresh.tone === "fresh" ? { color: "var(--fresh)", fontWeight: 600 } : undefined}
+        >
+          {fresh.text}
+        </span>
+        <span>·</span>
+        <span className="truncate">{senderLine(job)}</span>
+        {job.distance_miles != null && (
+          <>
+            <span>·</span>
+            <span className="nums" title="Straight line from where you are">
+              {Math.round(job.distance_miles)} mi from you
+            </span>
+          </>
+        )}
+        {job.has_phone && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm ml-auto"
+            style={{ color: "var(--accent)" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              open({ contact: true });
+            }}
+          >
+            Show contact
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-/* ------------------------------- table view ------------------------------ */
-
-export function LoadTable({
-  loads,
-  onSelect,
-  showDetour,
-}: {
-  loads: LoadRow[];
-  onSelect: (l: LoadRow) => void;
-  showDetour: boolean;
-}) {
-  return (
-    <div className="overflow-x-auto p-4">
-      <table className="w-full border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
-            <Th>Pickup</Th>
-            <Th>Delivery</Th>
-            <Th>Date</Th>
-            <Th right>Trip</Th>
-            <Th right>{showDetour ? "Extra" : "Away"}</Th>
-            <Th>Equipment</Th>
-            <Th right>Weight</Th>
-            <Th right>Rate</Th>
-            <Th>Contact</Th>
-            <Th>Status</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {loads.map((load) => {
-            const date = formatPickupDate(load.pickup_date);
-            return (
-              <tr
-                key={load.id}
-                onClick={() => onSelect(load)}
-                className="cursor-pointer border-b border-border hover:bg-surface-2"
-              >
-                <Td>
-                  <div className="font-medium">{load.pickup_label}</div>
-                </Td>
-                <Td>{load.delivery_label}</Td>
-                <Td>
-                  {date.relative ? (
-                    <span className="font-semibold">{date.relative}</span>
-                  ) : (
-                    date.text
-                  )}
-                </Td>
-                <Td right>{load.trip_miles != null ? Math.round(load.trip_miles) : "—"}</Td>
-                <Td right>
-                  {showDetour
-                    ? load.detour_miles != null
-                      ? `+${load.detour_miles}`
-                      : "—"
-                    : load.distance_miles != null
-                      ? Math.round(load.distance_miles)
-                      : "—"}
-                </Td>
-                <Td>{load.load_type ?? "—"}</Td>
-                <Td right>{load.weight_lbs ? load.weight_lbs.toLocaleString() : "—"}</Td>
-                <Td right>{load.rate_usd != null ? `$${load.rate_usd.toLocaleString()}` : "—"}</Td>
-                <Td>{load.contact_name ?? "—"}</Td>
-                <Td>
-                  <StatusChip status={load.status} />
-                </Td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
-  return <th className={`px-2 py-2 font-semibold ${right ? "text-right" : ""}`}>{children}</th>;
-}
-
-function Td({ children, right }: { children: React.ReactNode; right?: boolean }) {
-  return <td className={`px-2 py-2 ${right ? "nums text-right" : ""}`}>{children}</td>;
+/** "pool_table" -> "Pool table", for a tag the vocabulary has not met yet. */
+function titleCase(tag: string): string {
+  const words = tag.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
