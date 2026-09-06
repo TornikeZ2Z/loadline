@@ -317,19 +317,21 @@ export function FilterBar({ filters, onChange, current, home, isAdmin, mobile }:
       <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
         Sort
       </span>
-      <select
-        className="field"
-        style={{ width: "auto", minWidth: 150 }}
-        value={sortAvailable ? filters.sort : ""}
-        aria-label="Sort jobs"
-        onChange={(e) => set({ sort: e.target.value as SortKey | "" })}
-      >
-        {sortOptions.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      <span className="select-pill">
+        <select
+          className="pill"
+          style={{ minWidth: 150 }}
+          value={sortAvailable ? filters.sort : ""}
+          aria-label="Sort jobs"
+          onChange={(e) => set({ sort: e.target.value as SortKey | "" })}
+        >
+          {sortOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </span>
     </label>
   );
 

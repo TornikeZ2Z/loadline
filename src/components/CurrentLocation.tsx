@@ -290,7 +290,7 @@ function LocationPopover({
         </span>
       )}
 
-      <p className="mt-3 text-[11px]" style={{ color: "var(--muted-2)" }}>
+      <p className="mt-3 text-(length:--fs-xs)" style={{ color: "var(--muted-2)" }}>
         Stays on this device. Sent only with your searches.
       </p>
     </div>

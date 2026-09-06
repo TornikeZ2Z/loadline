@@ -119,6 +119,12 @@ textarea.field { height: auto; padding: 8px 10px; }
 .btn-sm { height: 28px; padding: 0 10px; font-size: var(--fs-sm); }
 @media (max-width: 767px) { .btn, .field, .pill, .seg { min-height: var(--tap-min); } }
 
+/* A tappable row inside a card: a demo account to sign in as, a choice in a
+   list. Big target, quiet until you reach for it. */
+.option-row { background: var(--surface); border-color: var(--border-strong); cursor: pointer; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
+.option-row:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.option-row:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+
 /* segmented control — one question, two mutually exclusive answers (Pickups /
    Deliveries). Distinct from .pill on purpose: a pill is an independent filter
    that can be on or off, this is a choice that is always making one. */
@@ -136,6 +142,14 @@ textarea.field { height: auto; padding: 8px 10px; }
 .pill[data-active="true"] { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent); }
 .pill .pill-chip { height: 22px; padding: 0 8px; border-radius: var(--radius-pill); background: #fff; color: var(--accent); font-size: var(--fs-xs); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
 .pill .ghost { color: var(--placeholder); font-weight: 400; }
+
+/* A native <select> dressed as a filter pill. The sort control was the one
+   square-cornered box in a row of pills, and it read as belonging to a
+   different screen. The caret is drawn by the wrapper rather than as a data
+   URI so it can take a token colour. */
+.select-pill { position: relative; display: inline-flex; align-items: center; }
+.select-pill > select { appearance: none; padding-right: 28px; }
+.select-pill::after { content: ""; position: absolute; right: 12px; top: 50%; margin-top: -2px; width: 0; height: 0; border: 4px solid transparent; border-top-color: var(--muted); pointer-events: none; }
 
 /* chips
  *

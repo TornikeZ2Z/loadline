@@ -3,6 +3,7 @@ import type { SessionUser } from "@/lib/auth";
 import { ROLE_LABEL, loginHref } from "@/lib/session";
 import { LogoutButton } from "./LogoutButton";
 import { CurrentLocation } from "./CurrentLocation";
+import { MenuAutoClose } from "./MenuAutoClose";
 import { Footer, FooterBar, SITE_SECTIONS } from "./Footer";
 
 export interface AppShellProps {
@@ -12,8 +13,13 @@ export interface AppShellProps {
    * Which nav item is lit. `site` is the six content pages (/about,
    * /how-it-works, /contact, /privacy, /terms, /cookies): they light the More
    * menu instead of a nav item, because none of them is the board.
+   *
+   * `auth` is /login and /register. Nothing is lit -- neither page is a
+   * destination, both are a door someone is already standing in -- and the
+   * "Sign in · contacts" button is dropped, because a button that links to
+   * the page it is drawn on is furniture, not a way in.
    */
-  active: "board" | "post" | "admin" | "test" | "site";
+  active: "board" | "post" | "admin" | "test" | "site" | "auth";
   /**
    * Path + query of the page rendering the shell, for `loginHref(next)`.
    * Every page passes it ("/" + query, "/jobs/:id" + query, "/post", "/admin",
@@ -57,6 +63,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
 
   return (
     <div className={appScreen ? undefined : "flex min-h-screen flex-col"}>
+      <MenuAutoClose />
       <header
         className="bg-surface sticky top-0 z-30 border-b border-border"
         style={{ height: "var(--header-h)" }}
@@ -145,8 +152,10 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 interactive thing in an otherwise server-rendered shell, and a
                 disclosure widget needs no JavaScript to open, close, take focus
                 or answer the keyboard. `key` remounts it per route, so a tapped
-                link leaves the menu closed behind it. */}
-            <details key={currentPath ?? "/"} className="relative shrink-0">
+                link leaves the menu closed behind it. The one thing the element
+                will not do by itself is close on a click somewhere else, which
+                <MenuAutoClose> adds as an enhancement -- see that file. */}
+            <details key={currentPath ?? "/"} data-menu className="relative shrink-0">
               <summary
                 className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:px-2 [&::-webkit-details-marker]:hidden"
                 style={
@@ -234,7 +243,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 </div>
                 <LogoutButton />
               </>
-            ) : (
+            ) : active === "auth" ? null : (
               <Link
                 className="btn"
                 href={loginHref(currentPath ?? "/")}

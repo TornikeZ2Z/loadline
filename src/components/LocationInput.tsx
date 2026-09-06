@@ -196,7 +196,7 @@ export function LocationInput({
           style={{ background: "var(--surface)", borderColor: "var(--border-strong)" }}
         >
           {loading && suggestions.length === 0 && (
-            <li className="px-3 py-2 text-[12px] text-muted">Searching…</li>
+            <li className="px-3 py-2 text-(length:--fs-sm) text-muted">Searching…</li>
           )}
           {suggestions.map((s, i) => (
             <li key={`${s.label}-${s.lat}-${i}`}>
@@ -207,9 +207,9 @@ export function LocationInput({
                 className="block w-full px-3 py-2 text-left"
                 style={i === active ? { background: "var(--accent-soft)" } : undefined}
               >
-                <span className="block text-[13px] font-medium">{s.label}</span>
+                <span className="block text-(length:--fs-base) font-medium">{s.label}</span>
                 {s.detail && s.detail !== s.label && (
-                  <span className="block truncate text-[11px] text-muted">{s.detail}</span>
+                  <span className="block truncate text-(length:--fs-xs) text-muted">{s.detail}</span>
                 )}
               </button>
             </li>

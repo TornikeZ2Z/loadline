@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { isSafeNext } from "@/lib/session";
 import { AuthForm } from "@/components/AuthForm";
-import { FooterBar } from "@/components/Footer";
+import { AppShell } from "@/components/AppShell";
 import { DEMO_ACCOUNTS, demoModeEnabled, ensureDemoData } from "@/lib/demo/accounts";
 
 export const dynamic = "force-dynamic";
@@ -39,12 +39,14 @@ export default async function LoginPage({
         .map(({ key, name, role, blurb }) => ({ key, name, role, blurb }))
     : [];
 
-  // The auth screens carry no shell, so they get the footer directly -- the
-  // legal pages have to be reachable from the one screen that asks for details.
+  // The auth screens used to render bare, which left them the only two pages
+  // on the site with no header: no way back to the board except the browser's
+  // own, and no reach to the legal pages from the one screen that asks a
+  // visitor for an email and a password. They wear the shell now, like
+  // everything else that is not the board itself.
   return (
-    <>
+    <AppShell user={null} active="auth" currentPath="/login">
       <AuthForm mode="login" next={next} demoAccounts={accounts} />
-      <FooterBar />
-    </>
+    </AppShell>
   );
 }

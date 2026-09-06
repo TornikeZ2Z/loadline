@@ -531,7 +531,14 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
             detail
           ) : (
             <>
-              <header className="border-b border-border px-[var(--sp-4)] py-[var(--sp-3)]">
+              {/* On --surface, not the tray's --bg: the list gets a head the
+                  way the map has its panel, and the cards below then sit in a
+                  recess rather than floating on the same plane as their own
+                  title. */}
+              <header
+                className="border-b border-border px-[var(--sp-4)] py-[var(--sp-3)]"
+                style={{ background: "var(--surface)" }}
+              >
                 {header}
               </header>
               <div ref={listScroller} className="min-h-0 flex-1 overflow-y-auto p-[var(--sp-3)]">

@@ -85,25 +85,29 @@ export function AuthForm({
   }
 
   return (
-    <div className="grid min-h-screen place-items-center p-6">
+    /* No `min-h-screen` and no wordmark of its own any more: these two screens
+       now render inside AppShell like every other page, so the header above
+       already carries the mark and the way back to the board. What was missing
+       here was a heading that says what the PAGE is -- an <h1> reading
+       "LoadLine" on the sign-in screen told a visitor nothing they could not
+       see in the tab. */
+    <div className="grid place-items-center px-[var(--sp-4)] py-[var(--sp-8)]">
       <div className="w-full max-w-[440px]">
-        <div className="mb-6 text-center">
-          <div
-            className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl text-[20px] font-bold text-white"
-            style={{ background: "var(--accent)" }}
-          >
-            L
-          </div>
-          <h1 className="text-[22px] font-bold tracking-tight">LoadLine</h1>
-          <p className="mt-1 text-[13px] text-muted">
-            Backhaul jobs for movers, pulled out of WhatsApp.
+        <div className="mb-[var(--sp-5)] text-center">
+          <h1 className="big text-(length:--fs-2xl)">
+            {isLogin ? "Sign in" : "Create your account"}
+          </h1>
+          <p className="mt-[var(--sp-1)] text-(length:--fs-md) text-muted">
+            {isLogin
+              ? "Only to see a sender's contact or post a job. Browsing the board needs no account."
+              : "One account, two things it unlocks: contacts on the board, and posting your own jobs."}
           </p>
         </div>
 
         {demoAccounts.length > 0 && (
           <div className="card p-5">
-            <div className="mb-1 text-[15px] font-bold">Try the demo</div>
-            <p className="mb-3 text-[12px] text-muted">
+            <div className="mb-1 text-(length:--fs-lg) font-bold">Try the demo</div>
+            <p className="mb-3 text-(length:--fs-sm) text-muted">
               Browsing the board needs no account. Sign in to see contacts, post a job, or run the
               admin console.
             </p>
@@ -114,22 +118,21 @@ export function AuthForm({
                   key={a.key}
                   onClick={() => enterAsDemo(a.key)}
                   disabled={busy !== null}
-                  className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors disabled:opacity-60"
-                  style={{ borderColor: "var(--border-strong)", background: "var(--surface)" }}
+                  className="option-row flex w-full items-center gap-3 rounded-[var(--radius-md)] border p-[var(--sp-3)] text-left disabled:opacity-60"
                 >
                   <span
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[13px] font-bold"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-(length:--fs-base) font-bold"
                     style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
                   >
                     {a.name.charAt(0)}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-semibold">
+                    <span className="block text-(length:--fs-base) font-semibold">
                       Sign in as demo {a.key}
                     </span>
-                    <span className="block text-[12px] text-muted">{a.blurb}</span>
+                    <span className="block text-(length:--fs-sm) text-muted">{a.blurb}</span>
                   </span>
-                  <span className="text-[13px] font-semibold" style={{ color: "var(--accent)" }}>
+                  <span className="text-(length:--fs-base) font-semibold" style={{ color: "var(--accent)" }}>
                     {busy === a.key ? "…" : "→"}
                   </span>
                 </button>
@@ -138,7 +141,7 @@ export function AuthForm({
 
             {error && (
               <p
-                className="mt-3 rounded-md px-3 py-2 text-[13px]"
+                className="mt-3 rounded-md px-3 py-2 text-(length:--fs-base)"
                 style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
               >
                 {error}
@@ -147,7 +150,7 @@ export function AuthForm({
 
             {!showForm && (
               <button
-                className="mt-3 w-full text-center text-[12px] text-muted underline"
+                className="mt-3 w-full text-center text-(length:--fs-sm) text-muted underline"
                 onClick={() => setShowForm(true)}
               >
                 or sign in with an email and password
@@ -173,7 +176,7 @@ export function AuthForm({
                   ).map((opt) => (
                     <label
                       key={opt.value}
-                      className="cursor-pointer rounded-lg border p-3 text-[12px]"
+                      className="cursor-pointer rounded-lg border p-3 text-(length:--fs-sm)"
                       style={
                         role === opt.value
                           ? { borderColor: "var(--accent)", background: "var(--accent-soft)" }
@@ -229,7 +232,17 @@ export function AuthForm({
               <>
                 <div>
                   <label className="label">Phone (optional)</label>
-                  <input name="phone" className="field" placeholder="(973) 555-1234" />
+                  {/* Not a phone-shaped placeholder. This codebase treats any
+                      stray run of phone digits in the DOM as a leak signal
+                      (scripts/check-redact.ts), and a fake number in a
+                      placeholder is exactly the string that check exists to
+                      catch -- a false positive there costs someone an hour. */}
+                  <input
+                    name="phone"
+                    type="tel"
+                    className="field"
+                    placeholder="So a sender can call you back"
+                  />
                 </div>
                 <div>
                   <label className="label">Company (optional)</label>
@@ -240,7 +253,7 @@ export function AuthForm({
 
             {error && demoAccounts.length === 0 && (
               <p
-                className="rounded-md px-3 py-2 text-[13px]"
+                className="rounded-md px-3 py-2 text-(length:--fs-base)"
                 style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
               >
                 {error}
@@ -251,7 +264,7 @@ export function AuthForm({
               {busy === "form" ? "One moment…" : isLogin ? "Sign in" : "Create account"}
             </button>
 
-            <p className="text-center text-[13px] text-muted">
+            <p className="text-center text-(length:--fs-base) text-muted">
               {isLogin ? (
                 <>
                   No account yet?{" "}
@@ -279,7 +292,7 @@ export function AuthForm({
           </form>
         )}
 
-        <p className="mt-4 text-center text-[12px] text-muted">
+        <p className="mt-[var(--sp-4)] text-center text-(length:--fs-sm) text-muted">
           <Link href="/" style={{ color: "var(--accent)" }}>
             ← Back to the board
           </Link>{" "}
