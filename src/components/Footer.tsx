@@ -88,7 +88,7 @@ function FooterLink({ href, label }: SiteLink) {
   return (
     <Link
       href={href}
-      className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-[var(--fs-base)] hover:underline md:min-h-0 md:py-[3px]"
+      className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-(length:--fs-base) hover:underline md:min-h-0 md:py-[3px]"
       style={{ color: "var(--text-2)" }}
     >
       {label}
@@ -107,7 +107,7 @@ export function Footer() {
         <div className="max-w-[34ch]">
           <div className="flex items-center gap-2 font-bold tracking-tight">
             <span
-              className="grid h-6 w-6 place-items-center rounded-md text-[var(--fs-base)] text-white"
+              className="grid h-6 w-6 place-items-center rounded-md text-(length:--fs-base) text-white"
               style={{ background: "var(--accent)" }}
             >
               L
@@ -115,29 +115,35 @@ export function Footer() {
             LoadLine
           </div>
           <p
-            className="mt-[var(--sp-2)] text-[var(--fs-base)] leading-relaxed"
+            className="mt-[var(--sp-2)] text-(length:--fs-base) leading-relaxed"
             style={{ color: "var(--muted)" }}
           >
             {SITE_TAGLINE}
           </p>
         </div>
 
-        {SITE_SECTIONS.map((section) => (
-          <nav key={section.heading} aria-label={section.heading}>
-            <h2 className="label">{section.heading}</h2>
-            <ul>
-              {section.links.map((link) => (
-                <li key={link.href}>
-                  <FooterLink {...link} />
-                </li>
-              ))}
-            </ul>
-          </nav>
-        ))}
+        {/* Two-up on a phone and three-up on a tablet, so nine links do not
+            become a 700 px column nobody scrolls past. `md:contents` dissolves
+            this wrapper on a wide screen, letting the three navs become columns
+            of the grid above. */}
+        <div className="grid grid-cols-2 gap-x-[var(--sp-4)] gap-y-[var(--sp-5)] sm:grid-cols-3 md:contents">
+          {SITE_SECTIONS.map((section) => (
+            <nav key={section.heading} aria-label={section.heading}>
+              <h2 className="label">{section.heading}</h2>
+              <ul>
+                {section.links.map((link) => (
+                  <li key={link.href}>
+                    <FooterLink {...link} />
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
+        </div>
       </div>
 
       <div className="border-t border-border">
-        <div className="mx-auto flex max-w-[1100px] flex-col gap-[var(--sp-1)] px-[var(--sp-4)] py-[var(--sp-4)] text-[var(--fs-sm)] md:flex-row md:items-center md:justify-between">
+        <div className="mx-auto flex max-w-[1100px] flex-col gap-[var(--sp-1)] px-[var(--sp-4)] py-[var(--sp-4)] text-(length:--fs-sm) md:flex-row md:items-center md:justify-between">
           <Copyright />
           <span style={{ color: "var(--muted)" }}>
             Browsing is public. An account is needed for one thing: a sender&rsquo;s phone number.
@@ -149,17 +155,17 @@ export function Footer() {
 }
 
 /**
- * The one-line bar for a full-height app screen.
+ * The one-line bar: for a full-height app screen, and for the sign-in pages,
+ * which are a single centred card with no shell around them.
  *
- * Hidden below `md`, and that is a decision rather than an omission: on a phone
- * the board's bottom sheet is fixed to the bottom of the viewport and would
- * cover anything underneath it. The header's More menu carries the same links
- * on a phone.
+ * Whether it is visible on a phone is the caller's decision, not this
+ * component's -- on the board it has to be hidden, because the bottom sheet is
+ * fixed over that strip of viewport; on /login there is nothing in the way.
  */
 export function FooterBar() {
   return (
-    <footer className="bg-surface hidden border-t border-border md:block">
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-[var(--sp-4)] gap-y-[var(--sp-1)] px-[var(--sp-4)] py-[var(--sp-2)] text-[var(--fs-sm)]">
+    <footer className="bg-surface border-t border-border">
+      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-[var(--sp-4)] gap-y-[var(--sp-1)] px-[var(--sp-4)] py-[var(--sp-2)] text-(length:--fs-sm)">
         <Copyright />
         <span className="hidden lg:inline" style={{ color: "var(--muted-2)" }}>
           {SITE_TAGLINE}

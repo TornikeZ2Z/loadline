@@ -27,15 +27,15 @@ export function SitePage({
   return (
     <main className="mx-auto w-full max-w-[720px] px-[var(--sp-4)] pb-[var(--sp-8)] pt-[var(--sp-6)] md:pt-[var(--sp-8)]">
       <p className="label">{eyebrow}</p>
-      <h1 className="big text-[var(--fs-2xl)] md:text-[var(--fs-3xl)]">{title}</h1>
+      <h1 className="big text-(length:--fs-2xl) md:text-(length:--fs-3xl)">{title}</h1>
       <p
-        className="mt-[var(--sp-3)] text-[var(--fs-lg)] leading-relaxed"
+        className="mt-[var(--sp-3)] text-(length:--fs-lg) leading-relaxed"
         style={{ color: "var(--text-2)" }}
       >
         {lead}
       </p>
       {meta ? (
-        <div className="mt-[var(--sp-3)] text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+        <div className="mt-[var(--sp-3)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
           {meta}
         </div>
       ) : null}
@@ -59,9 +59,9 @@ export function Section({
 }) {
   return (
     <section id={id} className="scroll-mt-[calc(var(--header-h)+var(--sp-4))]">
-      <h2 className="big text-[var(--fs-xl)]">{title}</h2>
+      <h2 className="big text-(length:--fs-xl)">{title}</h2>
       <div
-        className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-3)] text-[var(--fs-md)] leading-relaxed [&_a]:underline [&_li]:pl-1 [&_ol]:list-decimal [&_ol]:pl-[var(--sp-5)] [&_ul]:list-disc [&_ul]:pl-[var(--sp-5)] [&>ol]:flex [&>ol]:flex-col [&>ol]:gap-[var(--sp-2)] [&>ul]:flex [&>ul]:flex-col [&>ul]:gap-[var(--sp-2)]"
+        className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-3)] text-(length:--fs-md) leading-relaxed [&_a]:underline [&_li]:pl-1 [&_ol]:list-decimal [&_ol]:pl-[var(--sp-5)] [&_ul]:list-disc [&_ul]:pl-[var(--sp-5)] [&>ol]:flex [&>ol]:flex-col [&>ol]:gap-[var(--sp-2)] [&>ul]:flex [&>ul]:flex-col [&>ul]:gap-[var(--sp-2)]"
         style={{ color: "var(--text-2)" }}
       >
         {children}
@@ -87,7 +87,7 @@ export function Note({
   const warn = tone === "warn";
   return (
     <aside
-      className="rounded-[var(--radius-md)] border p-[var(--sp-4)] text-[var(--fs-base)] leading-relaxed"
+      className="rounded-[var(--radius-md)] border p-[var(--sp-4)] text-(length:--fs-base) leading-relaxed"
       style={{
         background: warn ? "var(--warn-soft)" : "var(--surface-2)",
         borderColor: warn ? "var(--warn-soft)" : "var(--border)",
@@ -121,13 +121,13 @@ export function StoredItem({
   return (
     <div className="card p-[var(--sp-4)]">
       <div className="flex flex-wrap items-center gap-[var(--sp-2)]">
-        <code className="text-[var(--fs-base)] font-semibold" style={{ color: "var(--text)" }}>
+        <code className="text-(length:--fs-base) font-semibold" style={{ color: "var(--text)" }}>
           {name}
         </code>
         <span className="chip">{where}</span>
       </div>
       <div
-        className="mt-[var(--sp-2)] text-[var(--fs-base)] leading-relaxed"
+        className="mt-[var(--sp-2)] text-(length:--fs-base) leading-relaxed"
         style={{ color: "var(--text-2)" }}
       >
         {children}

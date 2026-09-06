@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { isSafeNext } from "@/lib/session";
 import { AuthForm } from "@/components/AuthForm";
+import { FooterBar } from "@/components/Footer";
 
 export const dynamic = "force-dynamic";
 
@@ -24,5 +25,12 @@ export default async function RegisterPage({
 
   const as = sp.as === "poster" ? "poster" : "driver";
 
-  return <AuthForm mode="register" as={as} next={next} demoAccounts={[]} />;
+  // The auth screens carry no shell, so they get the footer directly -- the
+  // legal pages have to be reachable from the one screen that asks for details.
+  return (
+    <>
+      <AuthForm mode="register" as={as} next={next} demoAccounts={[]} />
+      <FooterBar />
+    </>
+  );
 }

@@ -71,12 +71,20 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
             <span className="hidden sm:inline">LoadLine</span>
           </Link>
 
-          {/* An admin carries four items plus the More menu; on a 375 px screen
-              they cannot all fit beside the location pill, so the nav is the
-              part that scrolls rather than the page. The one thing in here that
-              opens is the More menu, and its panel is fixed below `sm` so this
-              scroller cannot clip it. */}
-          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-none sm:shrink-0 sm:overflow-x-visible">
+          {/* Hidden below `sm`, and this is a change of mind that a measurement
+              forced. The nav used to be a horizontal scroller on a phone. But
+              the nav is `flex-1` with a zero basis, so its width is whatever the
+              pinned group on the right leaves over -- at 390 px that group (menu
+              + location pill + "Sign in · contacts") is 306 px, leaving 28 px,
+              which renders the word "Board" as "Bo" under a scrollbar nobody can
+              see. Folding the nav into the More menu instead costs one tap and
+              buys a header that is not broken. The board stays first: the word
+              mark links to it, and it is the first item in the menu.
+
+              From `sm` up there is room, so the nav is a real nav again and
+              nothing here opens a popover -- which is why clipping it was safe
+              in the first place, and why the More menu is NOT in it. */}
+          <nav className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex sm:flex-none sm:shrink-0 sm:overflow-x-visible">
             {nav
               .filter((n) => n.show)
               .map((n) => (
@@ -101,33 +109,46 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 </Link>
               ))}
 
-            {/* The rest of the site, in a menu rather than four more nav items:
+          </nav>
+
+          <div className="ml-auto flex shrink-0 items-center gap-[var(--sp-2)] md:gap-[var(--sp-3)]">
+            {/* The rest of the site, in a menu rather than six more nav items:
                 the board has to stay first, and a phone header has no room.
 
-                <details> and not a client popover on purpose -- this is the only
+                It sits in this pinned group and not at the end of the nav for a
+                concrete reason: on a phone the nav is a horizontal scroller, so
+                a menu inside it scrolls out of sight -- and on the board, where
+                the bottom sheet hides the footer, this menu is the ONLY way to
+                reach /about or /privacy. It has to be on screen at all times.
+
+                <details> and not a client popover on purpose: this is the one
                 interactive thing in an otherwise server-rendered shell, and a
                 disclosure widget needs no JavaScript to open, close, take focus
-                or answer the keyboard. `key` remounts it per route so a tapped
-                link leaves the menu closed behind it.
-
-                The panel is `fixed` below `sm` because the nav it sits in
-                becomes a horizontal scroller on a phone, and an absolutely
-                positioned child of a scroller is clipped by it; a fixed one is
-                positioned against the viewport and escapes. */}
-            <details key={currentPath ?? "/"} className="shrink-0 sm:relative">
+                or answer the keyboard. `key` remounts it per route, so a tapped
+                link leaves the menu closed behind it. */}
+            <details key={currentPath ?? "/"} className="relative shrink-0">
               <summary
-                className="flex cursor-pointer list-none items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-[var(--fs-base)] font-semibold md:px-3 [&::-webkit-details-marker]:hidden"
+                className="flex h-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-[var(--fs-base)] font-semibold sm:h-[var(--control-h)] sm:px-2 [&::-webkit-details-marker]:hidden"
                 style={
                   active === "site"
                     ? { background: "var(--accent-soft)", color: "var(--accent)" }
                     : { color: "var(--text-2)" }
                 }
                 title="About, how it works, contact and legal"
+                aria-label="More pages"
               >
-                More
-                <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <span className="hidden sm:inline">More</span>
+                {/* Three dots on a phone, where the word does not fit beside the
+                    location pill and the sign-in button. */}
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                  <g className="sm:hidden" fill="currentColor">
+                    <circle cx="3" cy="7" r="1.4" />
+                    <circle cx="7" cy="7" r="1.4" />
+                    <circle cx="11" cy="7" r="1.4" />
+                  </g>
                   <path
-                    d="M1.5 3.5 5 7l3.5-3.5"
+                    className="hidden sm:inline"
+                    d="M3.5 5.5 7 9l3.5-3.5"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="1.6"
@@ -136,7 +157,9 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                   />
                 </svg>
               </summary>
-              <div className="popover fixed inset-x-[var(--sp-2)] top-[var(--header-h)] z-50 grid grid-cols-2 gap-[var(--sp-3)] sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:w-[380px] sm:grid-cols-3">
+              {/* Full width under the header on a phone, a panel under the
+                  trigger from `sm` up. */}
+              <div className="popover fixed inset-x-[var(--sp-2)] top-[var(--header-h)] z-50 grid grid-cols-2 gap-[var(--sp-3)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-[380px] sm:grid-cols-3">
                 {SITE_SECTIONS.map((section) => (
                   <div key={section.heading}>
                     <div className="label">{section.heading}</div>
@@ -152,11 +175,30 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                     ))}
                   </div>
                 ))}
+
+                {/* The nav is hidden on a phone, so the two admin screens would
+                    otherwise be unreachable there. Above `sm` the nav has them
+                    and this block would only duplicate it. */}
+                {isAdmin ? (
+                  <div className="sm:hidden">
+                    <div className="label">Admin</div>
+                    {nav
+                      .filter((n) => n.show && (n.key === "admin" || n.key === "test"))
+                      .map((n) => (
+                        <Link
+                          key={n.key}
+                          href={n.href}
+                          className="-mx-1 flex min-h-[40px] items-center rounded-sm px-1 text-[var(--fs-base)] font-medium"
+                          style={{ color: "var(--text-2)" }}
+                        >
+                          {n.label}
+                        </Link>
+                      ))}
+                  </div>
+                ) : null}
               </div>
             </details>
-          </nav>
 
-          <div className="ml-auto flex shrink-0 items-center gap-[var(--sp-2)] md:gap-[var(--sp-3)]">
             {/* Propless by design: the location lives in localStorage, not on
                 the user row, so it is the same control signed in or out. */}
             <CurrentLocation />
@@ -187,7 +229,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
           item that could shrink it; a content page is pushed down so a short
           page still has its footer at the bottom of the window. */}
       {appScreen ? children : <div className="flex-1">{children}</div>}
-      {appScreen ? <FooterBar /> : <Footer />}
+      {appScreen ? (
+        // Hidden on a phone, and that is a decision rather than an omission:
+        // the board's bottom sheet is fixed to the bottom of the viewport and
+        // would cover this strip. The More menu carries the same links there.
+        <div className="hidden md:block">
+          <FooterBar />
+        </div>
+      ) : (
+        <Footer />
+      )}
     </div>
   );
 }

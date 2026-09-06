@@ -71,7 +71,7 @@ export function CookieNotice() {
       aria-label="Cookies and storage"
     >
       <div className="card mx-auto flex max-w-[820px] flex-col gap-[var(--sp-3)] p-[var(--sp-4)] sm:flex-row sm:items-center">
-        <p className="text-[var(--fs-base)] leading-relaxed" style={{ color: "var(--text-2)" }}>
+        <p className="text-(length:--fs-base) leading-relaxed" style={{ color: "var(--text-2)" }}>
           <strong style={{ color: "var(--text)" }}>One cookie, and only if you sign in.</strong>{" "}
           LoadLine sets a single signed session cookie, and keeps the location you pick in your own
           browser. No analytics, no advertising, no third-party trackers &mdash; so there is nothing
@@ -122,7 +122,7 @@ export function ClearStorageButton() {
         Clear what this site stored
       </button>
       <span
-        className="text-[var(--fs-sm)]"
+        className="text-(length:--fs-sm)"
         style={{ color: "var(--muted)" }}
         role="status"
         aria-live="polite"

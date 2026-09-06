@@ -43,7 +43,7 @@ export default async function AboutPage() {
             is posted every morning, in group chats, in batches that look like this.
           </p>
           <pre
-            className="overflow-x-auto rounded-[var(--radius-md)] border p-[var(--sp-4)] text-[var(--fs-base)] leading-relaxed"
+            className="overflow-x-auto rounded-[var(--radius-md)] border p-[var(--sp-4)] text-(length:--fs-base) leading-relaxed"
             style={{
               background: "var(--surface-2)",
               borderColor: "var(--border)",
@@ -53,7 +53,7 @@ export default async function AboutPage() {
           >
             {SAMPLE_POST}
           </pre>
-          <p className="text-[var(--fs-sm)]" style={{ color: "var(--muted)" }}>
+          <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
             That is how the message reads on the board: the last line carried the sender&rsquo;s
             number, and every public copy has it masked.
           </p>
