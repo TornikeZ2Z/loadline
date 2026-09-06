@@ -56,7 +56,6 @@ import { api } from "@/lib/basePath";
 import { formatCf, jobSummary, truckLine } from "@/lib/loads/present";
 import {
   buildGroups,
-  dominantLane,
   endLabelText,
   endPoint,
   groupSummary,
@@ -64,10 +63,8 @@ import {
   pointRadius,
   RADIUS_STOPS,
   RADIUS_ZOOM,
-  type Lane,
   type PointGroup,
 } from "@/lib/geo/points";
-import { lanePoints } from "@/lib/geo/arc";
 
 export interface LoadMapProps {
   jobs: PublicLoadRow[];
@@ -223,7 +220,7 @@ interface Palette {
   home: string;
   /** The wash the basemap tiles are blended into. */
   paper: string;
-  /** The lane gradient's two ends, shared with the road route. */
+  /** The two ends of the selected route's gradient. */
   routeStart: string;
   routeEnd: string;
   /** The ink every soft shadow on this map is made of. */
@@ -261,22 +258,6 @@ function readPalette(): Palette {
     routeEnd: pick("--route-end", FALLBACK.routeEnd),
     ink: pick("--text", FALLBACK.ink),
   };
-}
-
-/**
- * `#rrggbb` -> `rgba(r, g, b, a)`.
- *
- * MapLibre understands rgba() strings, and a line GRADIENT is the one place
- * that needs one: the lane fades in from nothing at the pickup, and a gradient
- * stop cannot carry its own opacity any other way. Anything that is not a
- * six-digit hex is handed back untouched, which is the right answer for the
- * `rgb(... / ...)` and named values a token could legally hold.
- */
-function alpha(hex: string, a: number): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return hex;
-  const n = parseInt(m[1]!, 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
 /**
@@ -648,33 +629,45 @@ export function LoadMap({
             attribution: "© OpenStreetMap contributors",
           },
         },
-        // The design calls for a pale basemap so the board's own marks are the
-        // only saturated thing on screen. CARTO Positron is the usual way to
-        // get that, but it now stamps "API KEY REQUIRED" across every
-        // unauthenticated tile, so the pale look is produced here instead.
+        // THE BASEMAP KEEPS ITS COLOUR. It is a map of the country, and a
+        // country has green in it.
         //
-        // The old recipe -- saturation -0.75 over nothing -- left a quarter of
-        // OSM's colour behind, and OSM's colour at this zoom is woodland
-        // green. The country came out olive, water came out the same olive one
-        // step darker, and the two things that actually matter at a national
-        // zoom (where the land stops and where the water starts) were the two
-        // things hardest to see.
+        // Two recipes were tried before this one and both went the same way.
+        // -0.75 saturation left a quarter of OSM's colour behind and the land
+        // came out olive; -0.85 over a cool paper at 70% went the rest of the
+        // way and bleached the country flat, which is the version the user
+        // rejected in three words: "more green colors". Measured, that map put
+        // Maine's woodland and Montana's plains at the SAME rgb(237, 238, 240)
+        // and the Atlantic seven points off it -- a whole continent rendered as
+        // one grey with a slightly bluer grey beside it.
         //
-        // So: take 85% of the saturation out, remap the tile's range upward so
-        // nothing is darker than a third-grey, and blend the result into a
-        // cool paper (--map-paper) at 70%. The blend is what gives the country
-        // ONE cast instead of two.
+        // So the desaturation is gone. OpenStreetMap's own palette does the
+        // work it was drawn to do: woodland green, water blue, cities warm,
+        // terrain visible. Only two adjustments are left, and neither touches
+        // hue:
         //
-        // The 15% of saturation that stays is deliberate and was arrived at by
-        // sampling the painted canvas rather than by eye. Taken all the way to
-        // grey, OSM's woodland and OSM's water land on the same luminance --
-        // #add19e and #aad3df are 198 and 203 -- so a fully neutral map loses
-        // the coastline and keeps the forest, which is exactly backwards for a
-        // board about lanes. Measured as painted, land now sits at rgb(237,
-        // 238, 240), water at rgb(219, 223, 226) and woodland at rgb(218, 222,
-        // 222): water and woodland share a tone, but only water is blue, and
-        // that is the cue that survives. The tiles' black label text washes
-        // back to a quiet mid grey in the same move.
+        //  - `brightness-min: 0.2` lifts the tile's black floor to a mid grey.
+        //    This is what keeps the basemap UNDER the board: OSM's place names
+        //    and its motorway ink stop being the darkest thing on screen, and
+        //    the darkest thing on screen becomes a job.
+        //  - `contrast: -0.06` with `opacity: 0.93` over --map-paper takes the
+        //    hard edge off the road web at city zooms and gives the whole frame
+        //    one ground to sit on.
+        //
+        // Measured on the painted canvas at the national view -- Pennsylvania
+        // woodland rgb(193, 217, 182), the Atlantic rgb(189, 217, 225),
+        // farmland rgb(239, 237, 232): green is green (G-R +24), water is blue
+        // (B-R +36), and the land between them is neither. The old map could
+        // not tell any of those three apart.
+        //
+        // And the board still wins. A job point is #2563eb -- chroma 198 at
+        // luminance 99 -- against a basemap whose loudest pixel anywhere in a
+        // busy northeast frame is chroma 77 at luminance 200. Nothing OSM draws
+        // is within a factor of two of the marks in either register, which is
+        // why the marks did not need the map bleached; they needed it lifted.
+        //
+        // (The tile host is unchanged. CARTO Positron would give a pale map for
+        // free but now stamps "API KEY REQUIRED" over unauthenticated tiles.)
         layers: [
           { id: "paper", type: "background", paint: { "background-color": colors.paper } },
           {
@@ -682,10 +675,10 @@ export function LoadMap({
             type: "raster",
             source: "basemap",
             paint: {
-              "raster-saturation": -0.85,
+              "raster-saturation": 0,
               "raster-contrast": -0.06,
-              "raster-brightness-min": 0.34,
-              "raster-opacity": 0.7,
+              "raster-brightness-min": 0.2,
+              "raster-opacity": 0.93,
             },
           },
         ],
@@ -723,11 +716,10 @@ export function LoadMap({
       }
 
       instance.addSource("points", { type: "geojson", data: EMPTY, promoteId: "key" });
-      // `lineMetrics` is what makes `line-gradient` legal on these two: the
-      // lane fades in from the pickup and both darken toward the delivery, and
-      // a gradient needs to know how far along the line each pixel is.
+      // `lineMetrics` is what makes `line-gradient` legal on the road: it
+      // darkens from the pickup toward the delivery, and a gradient needs to
+      // know how far along the line each pixel is.
       instance.addSource("road", { type: "geojson", data: EMPTY, lineMetrics: true });
-      instance.addSource("lane", { type: "geojson", data: EMPTY, lineMetrics: true });
       instance.addSource("toward", { type: "geojson", data: EMPTY });
 
       // Toward-home corridor sits under everything: it is context, not content.
@@ -748,80 +740,6 @@ export function LoadMap({
           "line-width": 1.5,
           "line-dasharray": [1, 3],
           "line-opacity": 0.5,
-        },
-      });
-
-      // The lane the pointer is on, under the markers and over the basemap: it
-      // is an answer about ONE job, so it must not bury the inventory it was
-      // read out of. Two strokes -- a wide soft wash and a narrow bright one --
-      // because a single 3 px line on a pale map is a hair, and a 7 px one is
-      // a road route, which this is not.
-      instance.addLayer({
-        id: "lane-wash",
-        type: "line",
-        source: "lane",
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-width": ["interpolate", ["linear"], ["zoom"], 3, 9, 8, 14],
-          "line-opacity": 0,
-          "line-opacity-transition": { duration: 180, delay: 0 },
-          "line-gradient": [
-            "interpolate",
-            ["linear"],
-            ["line-progress"],
-            0,
-            alpha(colors.routeStart, 0),
-            0.35,
-            alpha(colors.routeStart, 0.1),
-            1,
-            alpha(colors.routeStart, 0.16),
-          ],
-        },
-      });
-      // The stroke itself. It starts as nothing at the pickup and arrives
-      // solid at the delivery -- the taper and the direction in one gesture,
-      // which is what the old per-job arcs did with a gradient plus chevrons.
-      instance.addLayer({
-        id: "lane-line",
-        type: "line",
-        source: "lane",
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-width": ["interpolate", ["linear"], ["zoom"], 3, 2.2, 8, 3.6],
-          "line-opacity": 0,
-          "line-opacity-transition": { duration: 180, delay: 0 },
-          "line-gradient": [
-            "interpolate",
-            ["linear"],
-            ["line-progress"],
-            0,
-            alpha(colors.routeStart, 0),
-            0.18,
-            alpha(colors.routeStart, 0.45),
-            0.62,
-            alpha(colors.routeStart, 0.95),
-            1,
-            alpha(colors.routeEnd, 1),
-          ],
-        },
-      });
-      // Where the lane lands. A 3 px ring is the whole of it: the far end is
-      // usually a place with no marker of its own (this is the other end of
-      // the board), and without a full stop the curve looks like it ran off.
-      instance.addLayer({
-        id: "lane-target",
-        type: "circle",
-        source: "lane",
-        filter: ["==", ["geometry-type"], "Point"],
-        paint: {
-          "circle-radius": 4,
-          "circle-color": colors.routeEnd,
-          "circle-opacity": 0,
-          "circle-opacity-transition": { duration: 180, delay: 0 },
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-opacity": 0,
-          "circle-stroke-opacity-transition": { duration: 180, delay: 0 },
         },
       });
 
@@ -882,7 +800,14 @@ export function LoadMap({
           "circle-color": colors.pickup,
           "circle-radius": zoomRadius(),
           "circle-blur": APPROX_BLUR,
-          "circle-opacity": ["case", ["get", "approx"], presence(0.52), presence(0.94)],
+          // 0.72, not the 0.52 this started at. The soft mark was tuned
+          // against a bleached map where every square inch of ground was
+          // rgb(237, 238, 240); on a map with green in it a 44%-opacity navy
+          // cloud over Appalachian woodland measured a contrast of 2.02, which
+          // is a smudge, not a mark. Blur is what says "we guessed" -- opacity
+          // was only ever saying "there are a lot of us", and the map is no
+          // longer pale enough to afford that. The blur is untouched.
+          "circle-opacity": ["case", ["get", "approx"], presence(0.72), presence(0.94)],
           // The zoom step has to be the OUTERMOST expression -- MapLibre will
           // not take a ["zoom"] input nested inside a ["case"] -- so the
           // approximate/exact choice is made once per stop instead.
@@ -963,9 +888,9 @@ export function LoadMap({
       // and the direction stops being readable, which is most of what the line
       // is for.
       //
-      // Graded from --route-start to --route-end along its own length, the
-      // same gesture the hover lane makes, so opening a job reads as the lane
-      // firming up into a road rather than as a different kind of mark.
+      // Graded from --route-start to --route-end along its own length, so the
+      // stroke carries the direction of travel even where the chevrons fall
+      // between two tight turns.
       instance.addLayer({
         id: "route-road",
         type: "line",
@@ -1195,136 +1120,29 @@ export function LoadMap({
     }
   }, [hoveredId, hoverKey, selectedId, built, ready]);
 
-  /* ------------------------------ the hovered lane -------------------------
+  /* ------------------------------ what is hovered --------------------------
    *
-   * The arc is back, and it is back for the opposite reason to the one that
-   * removed it: the curve was the best-looking thing this board ever drew, and
-   * what was wrong was ninety-eight of them at once. So exactly one is on
-   * screen at a time -- the lane under the pointer, from a card or from a dot.
+   * A hover names a PLACE -- the marker's group -- and, when that place holds
+   * exactly one job, the job as well. Nothing is drawn for it beyond the
+   * highlight the effect above applies and the card the effect below opens.
    *
-   * A dot, though, is a PLACE, and a place holds up to twenty-five jobs going
-   * to eleven different towns. Drawing all eleven is the rejected map in
-   * miniature, so a multi-job marker draws ONE curve: the heaviest lane out of
-   * that place, destinations grouped by coordinate exactly as the markers
-   * themselves are, and the hover card says in words that it is one of five
-   * rather than letting the single curve imply it is the whole story. Two
-   * alternatives were tried and dropped -- a fan capped at three (still a fan,
-   * and the cap is arbitrary), and a single curve to the group's weighted mean
-   * destination (a place nothing is actually going to, which is worse than
-   * showing less).
+   * A curve was tried here and taken back out. It is not that one arc looks
+   * bad; it is that this map's plot is the points, and a line that appears and
+   * vanishes as the pointer runs down a list of forty cards animates the whole
+   * country while somebody is trying to read one row of it. The route the
+   * board actually promises is the REAL one, from HERE's truck router, and it
+   * is drawn for the job a driver opens -- deliberately, once, and it stays.
    */
   const hovered = useMemo(() => {
     const key = hoverKey ?? (hoveredId != null ? built.keyByJob.get(hoveredId) : undefined);
     const group = key ? built.byKey.get(key) : undefined;
     if (!group) return null;
-    // A card hover names one job; a marker hover names a place, and only when
-    // that place holds exactly one job does it name a job too.
+    // One job gets its own line -- lane, size, price, readiness -- because that
+    // is what the viewer is about to decide on. A place gets the tally.
     const single =
-      hoveredId != null && group.ids.includes(hoveredId)
-        ? (jobs.find((j) => j.id === hoveredId) ?? null)
-        : group.ids.length === 1
-          ? (jobs.find((j) => j.id === group.ids[0]) ?? null)
-          : null;
-    const lane: Lane | null = single
-      ? (() => {
-          const from = endPoint(single, end);
-          const to = endPoint(single, end === "pickup" ? "delivery" : "pickup");
-          if (!from || !to) return null;
-          return {
-            from,
-            to,
-            label: endLabelText(single, end === "pickup" ? "delivery" : "pickup"),
-            cf: single.cubic_feet ?? 0,
-            jobs: 1,
-            destinations: 1,
-          };
-        })()
-      : dominantLane(group, jobs, end);
-    return { key: group.key, group, single, lane };
-  }, [hoverKey, hoveredId, jobs, built, end]);
-
-  /**
-   * What the lane layers are drawing, which trails the pointer by a beat.
-   *
-   * Arriving is immediate; leaving waits. Without the wait, running the
-   * pointer down a list of forty cards fires forty hovers and forty
-   * un-hovers, and every gap between two cards -- the 8 px of column padding
-   * -- blanks the map. The delay is shorter than a deliberate look away and
-   * longer than any gap in a list, so the lane only ever leaves on purpose.
-   */
-  const [lane, setLane] = useState<{ key: string; lane: Lane } | null>(null);
-  const laneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The lane's identity, not its object: the memo above rebuilds on every
-  // `jobs` change, and re-setting identical state would restart the fade.
-  const wantLane =
-    hovered?.lane && hovered.key !== (selectedId != null ? built.keyByJob.get(selectedId) : null)
-      ? { key: hovered.key + "|" + (hovered.single?.id ?? "group"), lane: hovered.lane }
-      : null;
-  const wantKey = wantLane?.key ?? null;
-
-  useEffect(() => {
-    if (laneTimer.current) {
-      clearTimeout(laneTimer.current);
-      laneTimer.current = null;
-    }
-    if (wantLane) {
-      setLane(wantLane);
-      return;
-    }
-    laneTimer.current = setTimeout(() => setLane(null), 170);
-    return () => {
-      if (laneTimer.current) clearTimeout(laneTimer.current);
-      laneTimer.current = null;
-    };
-    // Keyed on the identity so a re-render with the same hover is a no-op.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantKey]);
-
-  // --- draw it -------------------------------------------------------------
-  useEffect(() => {
-    const m = map.current;
-    const source = m?.getSource("lane") as GeoJSONSource | undefined;
-    if (!ready || !m || !source || !m.getLayer("lane-line")) return;
-
-    const show = (on: boolean) => {
-      m.setPaintProperty("lane-wash", "line-opacity", on ? 1 : 0);
-      m.setPaintProperty("lane-line", "line-opacity", on ? 1 : 0);
-      m.setPaintProperty("lane-target", "circle-opacity", on ? 0.9 : 0);
-      m.setPaintProperty("lane-target", "circle-stroke-opacity", on ? 0.95 : 0);
-    };
-
-    if (!lane) {
-      show(false);
-      // Emptying the source at once would cut the fade off at the knees.
-      const t = setTimeout(() => source.setData(EMPTY), 240);
-      return () => clearTimeout(t);
-    }
-
-    // Always drawn pickup -> delivery, whichever end the map is plotting, so
-    // the taper and the darkening mean the same thing in both modes: this is
-    // the way the freight travels.
-    const a = end === "pickup" ? lane.lane.from : lane.lane.to;
-    const b = end === "pickup" ? lane.lane.to : lane.lane.from;
-    source.setData({
-      type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: {},
-          geometry: { type: "LineString", coordinates: lanePoints(a, b) },
-        },
-        // A full stop where the freight lands. The delivery end usually has no
-        // marker of its own -- it is the other end of the board -- and without
-        // it the curve looks like it ran off the edge.
-        {
-          type: "Feature",
-          properties: {},
-          geometry: { type: "Point", coordinates: [b.lng, b.lat] },
-        },
-      ],
-    });
-    show(true);
-  }, [lane, end, ready]);
+      group.ids.length === 1 ? (jobs.find((j) => j.id === group.ids[0]) ?? null) : null;
+    return { key: group.key, group, single };
+  }, [hoverKey, hoveredId, jobs, built]);
 
   // --- hover card ----------------------------------------------------------
   useEffect(() => {
@@ -1335,8 +1153,8 @@ export function LoadMap({
     if (!hovered) return;
     const { group, single } = hovered;
 
-    // Two lines, because the map is now saying two things: what is standing
-    // here, and where the curve it just drew is going.
+    // Two lines for one job -- the lane on top, the rest of the row beneath --
+    // because a single 90-character sentence is not a card, it is a ticker.
     const box = document.createElement("div");
     box.className = "map-hover";
     const title = document.createElement("div");
@@ -1353,13 +1171,10 @@ export function LoadMap({
       title.textContent = cut < 0 ? line : line.slice(0, cut);
       caption.textContent = cut < 0 ? "" : line.slice(cut + 3);
     } else {
+      // "Rochester, MN · 11 jobs · 6,006 cf" is already the whole answer for a
+      // place, and it is the tally the marker's size is drawn from.
       title.textContent = groupSummary(group);
-      const l = hovered.lane;
-      caption.textContent = l
-        ? l.destinations > 1
-          ? `Biggest of ${l.destinations} lanes → ${l.label}${l.cf > 0 ? ` · ${formatCf(l.cf)}` : ""}`
-          : `All of it → ${l.label}`
-        : "";
+      caption.textContent = "";
     }
 
     box.append(title);
@@ -1859,11 +1674,11 @@ export function LoadMap({
         <b>
           <i className="approx" /> approximate
         </b>
-        {/* The hovered lane deliberately gets no entry. It is drawn only while
-            the pointer is on a job, it arrives with a card naming both its
-            ends, and a legend row that appeared and vanished on every hover
-            would resize this panel -- which the label placer treats as
-            occupied ground -- and set every pill on the map jumping. */}
+        {/* The road route earns a row only while a job is open: a legend line
+            that appeared and vanished with the selection would resize this
+            panel -- which the label placer treats as occupied ground -- and
+            set every pill on the map jumping. It is stable because opening a
+            job is deliberate, unlike a hover. */}
         {selectedId != null && (
           <b>
             <i className="road" /> road route
