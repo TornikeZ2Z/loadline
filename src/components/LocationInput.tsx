@@ -142,7 +142,12 @@ export function LocationInput({
           label: s.label,
           lat: j.lat,
           lng: j.lng,
-          precision: j.precision ?? s.precision,
+          // The suggestion's own precision wins. HERE's autocomplete already
+          // classified the row (locality, postalCode, houseNumber); the resolve
+          // route only knows it looked an id up, so letting it answer would
+          // stamp "address" on a city centroid -- the exact overclaim the
+          // approximate-route styling exists to prevent.
+          precision: s.precision || j.precision,
           state: j.state ?? s.state,
           city: j.city ?? cityFromLabel(s.label),
           zip: j.zip ?? s.zip,
