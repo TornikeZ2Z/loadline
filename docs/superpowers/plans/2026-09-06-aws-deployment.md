@@ -822,12 +822,22 @@ MASTER_ARN=$(aws rds describe-db-instances --db-instance-identifier loadline \
 
 # Read the AWS-managed master password, assemble the URL, and put it —
 # without the password ever being echoed.
-PGPASS=$(aws secretsmanager get-secret-value --secret-id "$MASTER_ARN" \
-  --query SecretString --output text | python3 -c 'import sys,json;print(json.load(sys.stdin)["password"])')
+# The password MUST be percent-encoded. AWS-generated RDS master passwords
+# routinely contain characters that are structurally significant in a URL —
+# this deployment's contained '#' and '?' — and dropping them in raw produces
+# a secret that is the right length, passes a byte-count check, and is an
+# invalid URL. The app then starts, serves the shallow health check as 200,
+# and 500s on every page that touches the database.
+DBURL=$(aws secretsmanager get-secret-value --secret-id "$MASTER_ARN" \
+  --query SecretString --output text | ENDPOINT="$ENDPOINT" python3 -c '
+import sys, json, os
+from urllib.parse import quote
+pw = json.load(sys.stdin)["password"]
+print(f"postgres://loadline:{quote(pw, safe=\"\")}@{os.environ[\"ENDPOINT\"]}:5432/loadline")
+')
 
 aws secretsmanager put-secret-value --secret-id loadline/DATABASE_URL \
-  --secret-string "postgres://loadline:${PGPASS}@${ENDPOINT}:5432/loadline" \
-  --query 'VersionId' --output text
+  --secret-string "$DBURL" --query 'VersionId' --output text
 
 aws secretsmanager put-secret-value --secret-id loadline/SESSION_SECRET \
   --secret-string "$(openssl rand -hex 32)" --query 'VersionId' --output text
@@ -835,7 +845,7 @@ aws secretsmanager put-secret-value --secret-id loadline/SESSION_SECRET \
 aws secretsmanager put-secret-value --secret-id loadline/CRON_SECRET \
   --secret-string "$(openssl rand -hex 32)" --query 'VersionId' --output text
 
-unset PGPASS
+unset DBURL
 ```
 
 - [ ] **Step 7: Verify all three have a version, without printing values**
@@ -849,7 +859,22 @@ for s in DATABASE_URL SESSION_SECRET CRON_SECRET; do
 done
 ```
 
-Expected: three non-zero byte counts. A zero or an error means Task 6's tasks will die at startup, before any application log line is written.
+Expected: three non-zero byte counts. A zero or an error means the ECS tasks will die at startup, before any application log line is written.
+
+**A byte count is not enough for `DATABASE_URL`.** Also assert it parses as a URL — without printing it:
+
+```bash
+AWS_PROFILE=ziptozip aws secretsmanager get-secret-value --secret-id loadline/DATABASE_URL \
+  --query SecretString --output text | python3 -c '
+import sys
+from urllib.parse import urlsplit
+u = urlsplit(sys.stdin.read().strip())
+assert u.scheme == "postgres" and u.hostname and u.port == 5432 and u.username == "loadline", "DATABASE_URL is malformed"
+print("DATABASE_URL parses OK ->", u.hostname, u.port, u.path)
+'
+```
+
+Expected: `DATABASE_URL parses OK -> loadline.<id>.us-east-1.rds.amazonaws.com 5432 /loadline`. A `ValueError: Port could not be cast to integer` means the password was not percent-encoded.
 
 - [ ] **Step 8: Commit**
 
@@ -1729,6 +1754,50 @@ on host-header and cannot capture `ziptozip.app` traffic.
 5. **`tofu destroy` really deletes the secrets** — `recovery_window_in_days = 0`.
    That is deliberate: with the 30-day default, re-applying fails with "already
    scheduled for deletion" and cannot be worked around quickly.
+
+6. **`DATABASE_URL` has two non-obvious requirements, and getting either wrong
+   produces a task that reports HEALTHY and 500s on every real page.** Both were
+   hit for real on 2026-09-06.
+
+   **The password must be percent-encoded.** AWS-generated RDS master passwords
+   routinely contain characters that are structurally significant in a URL — this
+   deployment's contained `#` and `?`. Unencoded, `#` opens a fragment and the
+   embedded `:` breaks host/port parsing; the app dies with `TypeError: Invalid
+   URL`. Build the value with `urllib.parse.quote(pw, safe="")` — `safe=""`
+   matters, the default leaves `/` alone.
+
+   **It must carry `?sslmode=no-verify`.** `rds.force_ssl = 1` is a *system*
+   default of the `default.postgres16` parameter group — it is set by AWS, not by
+   this stack, so it appears nowhere in the HCL. Without SSL, Postgres rejects the
+   connection with `no pg_hba.conf entry ... no encryption` (SQLSTATE 28000).
+
+   Do **not** "fix" that with `?sslmode=require`. In `pg-connection-string`
+   2.14.0, `require` maps to `ssl = {}`, which verifies the CA — and RDS's CA is
+   not in Node's trust store, so it fails a third time. `no-verify` maps to
+   `{rejectUnauthorized: false}`: encrypted, CA unverified. That is an accepted
+   trade-off for a demo whose database sits in private subnets reachable only from
+   the tasks security group. Verify with `sslmode`, not with a byte count:
+
+   ```
+   aws secretsmanager get-secret-value --secret-id loadline/DATABASE_URL \
+     --query SecretString --output text | python3 -c '
+   import sys
+   from urllib.parse import urlsplit
+   u = urlsplit(sys.stdin.read().strip())
+   assert u.scheme=="postgres" and u.port==5432 and u.username=="loadline"
+   print("parses OK", u.hostname, u.query)'
+   ```
+
+   **Changing the secret is not enough on its own** — ECS resolves `secrets` at
+   task start, so a running task keeps the old value until
+   `aws ecs update-service --force-new-deployment`.
+
+7. **The health check is shallow on purpose, so "healthy" does not mean "working."**
+   `/api/health` returns 200 without touching Postgres (see
+   `src/app/api/health/route.ts` for why: a deep check would kill the task doing
+   first-boot schema creation and seeding, forever). The cost is real and has
+   fired: gotcha 6's broken database showed as a healthy target serving 500s.
+   When diagnosing, curl `/login`, not `/api/health`.
 ```
 
 - [ ] **Step 4: Verify the docs are accurate**
