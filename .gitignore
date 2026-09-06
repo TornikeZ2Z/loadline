@@ -14,3 +14,11 @@ next-env.d.ts
 
 # Dev-server log from the design pass
 .devlog.txt
+
+# OpenTofu — state and provider caches never go in git.
+# infra/*.tfvars IS committed: it holds no secrets.
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfplan
+infra/.terraform.lock.hcl.bak

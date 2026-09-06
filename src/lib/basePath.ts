@@ -1,6 +1,6 @@
 /**
  * Base path support, for serving the app under a sub-path such as
- * `https://ziptozip.systems/loadline` rather than at a domain root.
+ * `https://example.com/loadline` rather than at a domain root.
  *
  * Next.js `basePath` already rewrites `<Link>` hrefs, router navigations and
  * static assets. What it does **not** touch is a hand-written

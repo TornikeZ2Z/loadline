@@ -1,0 +1,11 @@
+region                 = "us-east-1"
+name_prefix            = "loadline"
+hostname               = "loadline.ziptozip.app"
+zone_name              = "ziptozip.app"
+secret_prefix          = "loadline/"
+listener_rule_priority = 20
+rds_instance_class     = "db.t4g.micro"
+desired_count          = 1
+image_tag              = "latest"
+github_repo            = "TornikeZ2Z/loadline"
+log_retention_days     = 14

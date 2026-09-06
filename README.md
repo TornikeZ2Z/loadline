@@ -362,65 +362,29 @@ directory and on an existing `.pgdata`.
 
 ---
 
-## Deploying to ziptozip.systems/loadline
+## Deployment
 
-The app is set up to be served from a sub-path. Two things it needs:
+Live at **https://loadline.ziptozip.app**, on AWS ECS Fargate behind the shared
+ziptozip ALB. Infrastructure is OpenTofu in [`infra/`](infra/); the design and the
+reasoning behind each choice are in
+[`docs/superpowers/specs/2026-09-06-aws-deployment-design.md`](docs/superpowers/specs/2026-09-06-aws-deployment-design.md).
 
-**1. A real Postgres.** Locally the app needs nothing, which hides a real constraint: the
-embedded PGlite database writes to `./.pgdata`, and on an ephemeral serverless filesystem
-every cold start would silently reset the board. Create a free managed Postgres (Neon,
-Supabase and Railway all work) and pass its connection string.
+Push to `main` and `.github/workflows/deploy.yml` builds, pushes to ECR and forces a
+new ECS deployment — once the `AWS_DEPLOY_ROLE_ARN` repository secret is set. There
+are no AWS keys in the pipeline; it authenticates by OIDC to
+`arn:aws:iam::908768512179:role/loadline-deploy`.
 
-**2. The base path, set at *build* time.**
+The app is served at the **root** of its own subdomain, so `NEXT_PUBLIC_BASE_PATH`
+stays unset. Serving it under a sub-path instead would mean rebuilding the image with
+that variable set: Next bakes it in at build time, and setting it only at run time
+produces an app whose pages load and whose every button 404s.
 
-```bash
-NEXT_PUBLIC_BASE_PATH=/loadline
-DATABASE_URL=postgres://…
-SESSION_SECRET=<32+ random bytes>     # the app refuses to start in production without it
-CRON_SECRET=<random>                  # gates /api/cron/*
-WHATSAPP_VERIFY_TOKEN=<your choice>   # only when connecting a real number
-WHATSAPP_APP_SECRET=<from Meta>
-```
-
-`NEXT_PUBLIC_BASE_PATH` must be present for `next build`, not just `next start` — Next
-bakes the path into the bundle, and client code reads the same value to prefix its API
-calls (`src/lib/basePath.ts`). Setting it only at run time produces an app whose pages load
-and whose every button 404s.
-
-The schema creates itself on first connection. Seed the demo corpus once, either by running
-`npm run seed` against the same `DATABASE_URL` or by pressing **Restore demo data** in the
-WhatsApp console.
-
-### Putting it behind the domain
-
-The app must receive the `/loadline` prefix — do **not** strip it in the proxy, since Next
-is expecting it.
-
-*nginx:*
-
-```nginx
-location /loadline/ {
-    proxy_pass http://127.0.0.1:3000;   # no trailing path: keeps the prefix intact
-    proxy_set_header Host              $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-}
-```
-
-*Vercel / Netlify:* deploy the repo as its own project with the env vars above, then add a
-rewrite from `ziptozip.systems/loadline/*` to that deployment, preserving the path.
-
-*Cloudflare:* a Worker route on `ziptozip.systems/loadline*` proxying to the origin, again
-without rewriting the path away.
-
-Once live, the WhatsApp webhook URL becomes
-`https://ziptozip.systems/loadline/api/webhooks/whatsapp`.
-
-> **`DEMO_MODE=off` is the switch to throw the day real data goes in.** One-click sign-in
-> is an intentional authentication bypass: anyone who opens the URL can enter as admin and
-> edit messages or change job statuses. That is the right trade for a demo on sample data
-> and the wrong one for anything else. Turning it off leaves the ordinary email/password
-> form and the self-serve `/register`; change the demo passwords at the same time.
+> **`DEMO_MODE=off` is the switch to throw the day real data goes in.** One-click
+> sign-in is an intentional authentication bypass, and this deployment is public:
+> anyone with the link can enter as admin and edit messages or change job statuses.
+> That is the right trade for a demo on sample data and the wrong one for anything
+> else. Turning it off leaves the ordinary email/password form and the self-serve
+> `/register`; change the demo passwords at the same time.
 
 ---
 
