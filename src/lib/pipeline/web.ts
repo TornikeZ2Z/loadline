@@ -13,7 +13,7 @@
  * src/lib/loads/query.ts for the predicate that holds it.
  */
 import { query, queryOne } from "@/lib/db";
-import { computeExpiry } from "@/lib/extract/dates";
+import { DEFAULT_TZ, computeExpiry, isoOf, toLocalDate } from "@/lib/extract/dates";
 import { normalizePhone } from "@/lib/extract/phone";
 import { geocode, geocodeDestination } from "@/lib/geo/geocode";
 import { haversineMiles } from "@/lib/geo/math";
@@ -781,6 +781,34 @@ export async function updateWebTruck(
     next.status_source = "manual";
   }
 
+  // SPEC 10.2, acceptance T6: a truck may not be `available` with a departure
+  // that already happened.
+  //
+  // Tested on the RESULTING state rather than on the transition, because the two
+  // routes into this function reach the same end from opposite directions --
+  // `PATCH /status` hands a booked truck back with its old dates, and `PATCH`
+  // moves an available truck's dates backwards -- and a listing advertising last
+  // Tuesday is the stale-truck failure 10.1 exists to prevent either way.
+  //
+  // The sweep would clear it on its next run, which is why this is a refusal and
+  // not a repair: between the two the board is telling a dispatcher something
+  // untrue, and the person who can fix it is the one making the request.
+  const statusAfter = ("status" in next ? next.status : before.status) as string;
+  if (statusAfter === "available") {
+    const fromAfter = (("avail_from" in next ? next.avail_from : before.avail_from) as string | null) ?? null;
+    const toAfter = (("avail_to" in next ? next.avail_to : before.avail_to) as string | null) ?? null;
+    // The stated end of the window; a truck with only a start date is past once
+    // that day is. A truck that stated no date at all has nothing to be past --
+    // it runs on the 48-hour TTL below instead.
+    const stated = toAfter ?? fromAfter;
+    if (stated && stated < isoOf(toLocalDate(new Date(), DEFAULT_TZ))) {
+      throw new WebTruckValidationError(
+        "availTo",
+        "That date has already passed — post a new departure",
+      );
+    }
+  }
+
   // Only what actually moved. An "edited" event listing fields nobody touched
   // would make the admin history unreadable within a week.
   const changed = Object.keys(next).filter(
@@ -791,11 +819,21 @@ export async function updateWebTruck(
   // the truck's own anchor, not `now()`: a listing seen this morning and edited
   // this afternoon keeps the TTL it was given, so editing a note cannot silently
   // extend a truck's life on the board.
+  //
+  // The ONE exception is SPEC 10.2's other half: handing a truck back to
+  // `available` "recomputes `expires_at` from `now`". A relist is a fresh
+  // statement that the truck is free, not an edit to a listing that was already
+  // on the board -- and anchoring it to `last_seen_at` gives a DATELESS truck
+  // unbooked two days later an `expires_at` in the past, so the very next sweep
+  // deletes the listing its owner just restored. Dated trucks are unaffected
+  // either way: their expiry comes from `avail_to`, and the refusal above means
+  // that date is still ahead.
+  const relisted = "status" in next && next.status === "available" && before.status !== "available";
   const lastSeen = before.last_seen_at ? new Date(before.last_seen_at) : new Date();
   const expiresAt = truckExpiresAt({
     availFrom: (("avail_from" in next ? next.avail_from : before.avail_from) as string | null) ?? null,
     availTo: (("avail_to" in next ? next.avail_to : before.avail_to) as string | null) ?? null,
-    lastSeenAt: Number.isNaN(lastSeen.getTime()) ? new Date() : lastSeen,
+    lastSeenAt: relisted || Number.isNaN(lastSeen.getTime()) ? new Date() : lastSeen,
   });
 
   const columns = Object.keys(next);

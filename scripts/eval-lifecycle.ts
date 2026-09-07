@@ -50,8 +50,10 @@
  *       renews the clock from the NEW sighting.
  *   T6  `booked` is sticky at every horizon, and `status_source = 'manual'` is
  *       NOT a shield: a truck set back to available is still swept once its
- *       stated window has passed. (The API's refusal to set it back to
- *       available with a past window arrives with PATCH in stage 2.)
+ *       stated window has passed. And the door as well as the safety net: the
+ *       API refuses to put a truck back on the board with a departure that has
+ *       already happened, from either direction -- a relist carrying old dates,
+ *       or an edit that drags an available truck's dates backwards.
  *   T8  the two sweeps cannot see each other's table.
  */
 process.env.PGLITE_DIR = "memory://";
@@ -905,25 +907,153 @@ async function truckLifecycle() {
     `T6: a truck set back to available IS swept once its window has passed -- status_source is not consulted (got ${JSON.stringify(swept)})`,
   );
 
+  // --- T6, the other half: the API refuses to put it there in the first place
+  //
+  // The sweep above is the safety net; this is the door. SPEC 10.2: "Setting a
+  // truck back to `available` through `PATCH` recomputes `expires_at` from
+  // `now`, and is refused with 'That date has already passed -- post a new
+  // departure' when the window is in the past."
+  //
+  // Driven through `updateWebTruck`, which is what BOTH truck write routes call,
+  // so the refusal cannot be true of one route and false of the other.
+  const { updateWebTruck, WebTruckValidationError } = await import("../src/lib/pipeline/web");
+  // `updateWebTruck` writes an `edited` event carrying `actor_id`, and that is a
+  // real foreign key, so this section needs an account to act as. Nothing above
+  // it does, which is why there is none yet.
+  const owner = await queryOne<{ id: number }>(
+    `INSERT INTO users (email, password_hash, name, role, is_demo, can_post)
+     VALUES ('t6@lifecycle.invalid','x','T6 Owner','driver',false,true)
+     ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id`,
+  );
+  const yesterday = isoOf(toLocalDate(new Date(Date.now() - DAY), DEFAULT_TZ));
+  const tomorrow = isoOf(toLocalDate(new Date(Date.now() + DAY), DEFAULT_TZ));
+
+  const stale = await insertTruck({
+    ...YARD,
+    truck_key: "t6-api-stale",
+    status: "booked",
+    status_source: "manual",
+    avail_from: yesterday,
+    avail_to: yesterday,
+    avail_source: "form",
+    first_seen_at: T0.toISOString(),
+    last_seen_at: T0.toISOString(),
+    seen_count: 1,
+    expires_at: truckExpiresAt({ availTo: yesterday, lastSeenAt: T0 }).toISOString(),
+  });
+  let refusal: unknown = null;
+  try {
+    await updateWebTruck(stale, owner!.id, { status: "available" });
+  } catch (err) {
+    refusal = err;
+  }
+  expect(
+    refusal instanceof WebTruckValidationError &&
+      refusal.message === "That date has already passed — post a new departure",
+    `T6: handing a truck back to available with a past window is refused by the API (got ${
+      refusal instanceof Error ? JSON.stringify(refusal.message) : "no refusal at all"
+    })`,
+  );
+  expect(
+    (await statusOf(stale)).status === "booked",
+    "T6: and the refusal left the row alone, rather than half-writing it",
+  );
+
+  // The same end state reached from the other side: an AVAILABLE truck whose
+  // dates are edited backwards is the identical lie on the board.
+  const backdated = await insertTruck({
+    ...YARD,
+    truck_key: "t6-api-backdated",
+    status: "available",
+    status_source: "derived",
+    avail_from: tomorrow,
+    avail_to: tomorrow,
+    avail_source: "form",
+    first_seen_at: T0.toISOString(),
+    last_seen_at: T0.toISOString(),
+    seen_count: 1,
+    expires_at: truckExpiresAt({ availTo: tomorrow, lastSeenAt: T0 }).toISOString(),
+  });
+  let editRefusal: unknown = null;
+  try {
+    await updateWebTruck(backdated, owner!.id, {
+      availMode: "between",
+      availFrom: yesterday,
+      availTo: yesterday,
+    });
+  } catch (err) {
+    editRefusal = err;
+  }
+  expect(
+    editRefusal instanceof WebTruckValidationError,
+    `T6: editing an available truck's dates into the past is refused too (got ${
+      editRefusal instanceof Error ? JSON.stringify(editRefusal.message) : "no refusal at all"
+    })`,
+  );
+
+  // A move FORWARD is the edit this feature exists for, and must still work.
+  const moved = await updateWebTruck(backdated, owner!.id, {
+    availMode: "between",
+    availFrom: tomorrow,
+    availTo: isoOf(toLocalDate(new Date(Date.now() + 3 * DAY), DEFAULT_TZ)),
+  });
+  expect(
+    moved != null && moved.changed.includes("avail_to"),
+    `T6: a departure moved FORWARD is still an ordinary edit (got ${JSON.stringify(moved)})`,
+  );
+
+  // SPEC 10.2's other half: a relist re-anchors the TTL at `now`, so a DATELESS
+  // truck unbooked two days later does not come back already dead.
+  const relistable = await insertTruck({
+    ...YARD,
+    truck_key: "t6-api-dateless",
+    status: "booked",
+    status_source: "manual",
+    avail_from: null,
+    avail_to: null,
+    avail_source: null,
+    first_seen_at: new Date(Date.now() - 3 * DAY).toISOString(),
+    last_seen_at: new Date(Date.now() - 3 * DAY).toISOString(),
+    seen_count: 1,
+    expires_at: truckExpiresAt({ lastSeenAt: new Date(Date.now() - 3 * DAY) }).toISOString(),
+  });
+  await updateWebTruck(relistable, owner!.id, { status: "available" });
+  const relisted = await queryOne<{ status: string; expires_at: string }>(
+    `SELECT status, expires_at::text AS expires_at FROM trucks WHERE id = $1`,
+    [relistable],
+  );
+  expect(
+    relisted!.status === "available" && new Date(relisted!.expires_at).getTime() > Date.now(),
+    `T6: a dateless truck handed back to available gets its 48 h from now, not from last_seen_at (expires ${relisted!.expires_at})`,
+  );
+  await expireTrucks(new Date());
+  expect(
+    (await statusOf(relistable)).status === "available",
+    "T6: ...so the very next sweep does not delete the listing its owner just restored",
+  );
+
   // --- T8: the two sweeps cannot see each other's table ---------------------
-  const loadsBefore = await queryOne<{ sig: string }>(
-    `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM loads`,
-  );
-  const trucksBefore = await queryOne<{ sig: string }>(
-    `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM trucks`,
-  );
+  const sigOf = (table: string) =>
+    queryOne<{ sig: string }>(
+      `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM ${table}`,
+    );
 
+  const loadsBefore = await sigOf("loads");
   await expireTrucks(new Date(T0.getTime() + 5 * DAY));
-  const loadsAfter = await queryOne<{ sig: string }>(
-    `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM loads`,
-  );
-  expect(loadsBefore!.sig === loadsAfter!.sig, "T8: expireTrucks touched no loads row");
+  expect((await sigOf("loads"))!.sig === loadsBefore!.sig, "T8: expireTrucks touched no loads row");
 
+  // Snapshotted HERE, not before the truck sweep above: that sweep is entitled
+  // to move truck rows, and taking the reading before it would charge its work
+  // to `expireStaleLoads` and fail this assertion for the wrong reason. (It did:
+  // the T6 cases above leave two trucks available at this horizon, which is what
+  // made the earlier ordering visible.)
+  const trucksBefore = await sigOf("trucks");
   await expireStaleLoads(new Date(T0.getTime() + 5 * DAY));
-  const trucksAfter = await queryOne<{ sig: string }>(
-    `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM trucks`,
+  expect(
+    (await sigOf("trucks"))!.sig === trucksBefore!.sig,
+    "T8: expireStaleLoads touched no trucks row",
   );
-  expect(trucksBefore!.sig === trucksAfter!.sig, "T8: expireStaleLoads touched no trucks row");
 
   // The supersession guard's other half, cheap to state here: a truck carries
   // no sender snapshot, so `rebuildSender` has nothing to match it against even
