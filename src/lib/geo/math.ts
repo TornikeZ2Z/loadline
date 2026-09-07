@@ -161,3 +161,111 @@ export function formatMiles(miles: number | null | undefined): string {
   if (miles < 10) return `${miles.toFixed(1)} mi`;
   return `${Math.round(miles)} mi`;
 }
+
+/**
+ * A point `miles` from `from` on a given initial bearing, on the sphere.
+ * The inverse of `haversineMiles` + `initialBearing`, and the primitive the
+ * corridor outline is built from.
+ */
+export function destinationPoint(from: Point, bearingDeg: number, miles: number): Point {
+  const d = miles / EARTH_RADIUS_MI;
+  const theta = rad(bearingDeg);
+  const phi1 = rad(from.lat);
+  const lambda1 = rad(from.lng);
+  const sinPhi2 = Math.sin(phi1) * Math.cos(d) + Math.cos(phi1) * Math.sin(d) * Math.cos(theta);
+  const phi2 = Math.asin(Math.min(Math.max(sinPhi2, -1), 1));
+  const lambda2 =
+    lambda1 +
+    Math.atan2(
+      Math.sin(theta) * Math.sin(d) * Math.cos(phi1),
+      Math.cos(d) - Math.sin(phi1) * sinPhi2,
+    );
+  return { lat: deg(phi2), lng: ((deg(lambda2) + 540) % 360) - 180 };
+}
+
+/**
+ * The point a fraction `f` of the way along the great circle a -> b.
+ *
+ * Spherical interpolation, not a linear blend of the two coordinates: on a
+ * Mercator map the great circle between Seattle and Miami bows a long way
+ * clear of the straight line drawn between them, and the corridor is matched
+ * on the great circle (`crossTrackMiles`). Interpolating the plain numbers
+ * would draw a band the server never used.
+ */
+export function intermediatePoint(a: Point, b: Point, f: number): Point {
+  const delta = haversineMiles(a, b) / EARTH_RADIUS_MI;
+  if (delta < 1e-9) return { lat: a.lat, lng: a.lng };
+  const sinDelta = Math.sin(delta);
+  const A = Math.sin((1 - f) * delta) / sinDelta;
+  const B = Math.sin(f * delta) / sinDelta;
+  const phi1 = rad(a.lat);
+  const lambda1 = rad(a.lng);
+  const phi2 = rad(b.lat);
+  const lambda2 = rad(b.lng);
+  const x = A * Math.cos(phi1) * Math.cos(lambda1) + B * Math.cos(phi2) * Math.cos(lambda2);
+  const y = A * Math.cos(phi1) * Math.sin(lambda1) + B * Math.cos(phi2) * Math.sin(lambda2);
+  const z = A * Math.sin(phi1) + B * Math.sin(phi2);
+  return { lat: deg(Math.atan2(z, Math.hypot(x, y))), lng: deg(Math.atan2(y, x)) };
+}
+
+/** Points along an arc of `miles` radius, the bearing sweeping from -> to. */
+function capArc(centre: Point, fromBearing: number, toBearing: number, miles: number): Point[] {
+  const steps = 12;
+  const out: Point[] = [];
+  // From 1, not 0: the arc's first point is the side's last point, and
+  // repeating a vertex buys nothing.
+  for (let i = 1; i <= steps; i += 1) {
+    out.push(destinationPoint(centre, fromBearing + ((toBearing - fromBearing) * i) / steps, miles));
+  }
+  return out;
+}
+
+/**
+ * The outline of the corridor `crossTrackMiles` actually tests, as a ring of
+ * [lng, lat] ready for GeoJSON.
+ *
+ * That test is a CAPSULE, not a band: between the endpoints it measures
+ * perpendicular distance to the great circle, and past either endpoint it
+ * falls back to the straight-line distance to that endpoint -- which is a
+ * half-disc of radius `miles` stuck on each end. Drawing a rectangle instead
+ * claims two corners the matcher rejects and disclaims two half-discs it
+ * accepts, at both ends, at every width.
+ *
+ * The sides are offset from the LOCAL course rather than from the chord's
+ * bearing, so the band follows the same great circle the matcher projects
+ * onto rather than the straight line a Mercator map would draw between the
+ * two ends.
+ */
+export function corridorRing(
+  origin: Point,
+  destination: Point,
+  miles: number,
+  steps = 48,
+): [number, number][] {
+  const ring: Point[] = [];
+  const width = Math.max(miles, 0.1);
+
+  // A route with no length is a plain circle: the capsule's two caps and no
+  // sides between them. Without this the bearings below are undefined.
+  if (haversineMiles(origin, destination) < 0.1) {
+    for (let i = 0; i <= 48; i += 1) ring.push(destinationPoint(origin, (i * 360) / 48, width));
+    return ring.map((p) => [p.lng, p.lat]);
+  }
+
+  const path: Point[] = [];
+  for (let i = 0; i <= steps; i += 1) path.push(intermediatePoint(origin, destination, i / steps));
+  // The course AT a vertex, which is what its two offsets are perpendicular to.
+  const course = (i: number) =>
+    i < steps ? initialBearing(path[i]!, path[i + 1]!) : initialBearing(path[i - 1]!, path[i]!);
+
+  // Right-hand side, origin -> destination.
+  for (let i = 0; i <= steps; i += 1) ring.push(destinationPoint(path[i]!, course(i) + 90, width));
+  // Round the far end: +90 down through the course itself (straight on) to -90.
+  ring.push(...capArc(path[steps]!, course(steps) + 90, course(steps) - 90, width));
+  // Left-hand side, back down.
+  for (let i = steps; i >= 0; i -= 1) ring.push(destinationPoint(path[i]!, course(i) - 90, width));
+  // Round the near end: -90 down through -180 (behind the origin) to -270 = +90.
+  ring.push(...capArc(path[0]!, course(0) - 90, course(0) - 270, width));
+
+  return ring.map((p) => [p.lng, p.lat]);
+}
