@@ -473,7 +473,7 @@ secrets; the app runs with none of it set.
 | `DATABASE_URL` | *(unset → PGlite)* | Managed Postgres connection |
 | `SESSION_SECRET` | dev fallback | Signs session cookies; **required in production** |
 | `LOAD_TZ` | `America/New_York` | Timezone relative dates resolve against |
-| `NEXT_PUBLIC_BASE_PATH` | *(unset)* | Serve under a sub-path, e.g. `/loadline`. Needed at **build** time. |
+| `NEXT_PUBLIC_BASE_PATH` | *(unset)* | Serve under a sub-path, e.g. `/movermesh`. Needed at **build** time. |
 | `DEMO_MODE` | `on` | One-click demo sign-in. Set to `off` for real data — see above. |
 | `PGLITE_DIR` | `./.pgdata`, or the temp dir on serverless | Where the embedded database lives |
 | `GEOCODER` | `here` when `HERE_API_KEY` is set, else `local` | Remote geocoder: `local` (none) \| `here` \| `census` \| `mapbox` |

@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 /**
  * `NEXT_PUBLIC_BASE_PATH` lets the app be served under a sub-path, e.g.
- * `https://example.com/loadline`. The AWS deployment does NOT use this — it
+ * `https://example.com/movermesh`. The AWS deployment does NOT use this — it
  * serves the app at the root of loadline.ziptozip.app — but the option is kept
  * for anyone proxying it under a prefix. Leave it unset for local development.
  *
