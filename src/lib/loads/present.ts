@@ -327,7 +327,25 @@ export function requirementChip(text: string | null): { label: string; title: st
 
 // --- sizes -------------------------------------------------------------------
 
-/** "≈ 2.6 truckloads" · "2.6× your 1,500 cf truck" · "61% of your 1,500 cf truck". */
+/**
+ * "≈ 2.6 truckloads (1,500 cf)" · "2.6× your 1,500 cf truck" ·
+ * "61% of your 1,500 cf truck".
+ *
+ * The personalised forms name the divisor because it is the viewer's own truck.
+ * The default has to name it too: "≈ 28.3 truckloads" is on the board header of
+ * every visit, and a reader with a 2,400 cf trailer reading it as 28 of THEIR
+ * trucks is out by nearly half. The basis was documented only in a comment on
+ * TRUCK_CF, which is not somewhere a driver can look.
+ *
+ * "(1,500 cf)" and not "(1,500 cf each)", which is what it wants to say: the
+ * board header's second line is one line inside a 56 px bottom-sheet handle, and
+ * the longer form wrapped it at 360 px and pushed the text under the drag pill.
+ * The gloss sits directly against "truckloads" and directly under the set's own
+ * total in 20 px type, so there is nothing else it can be read as.
+ *
+ * The plural agrees with the number that is PRINTED, not the raw ratio: 1,499 cf
+ * rounds to "1.0" and used to read "1.0 truckloads".
+ */
 export function truckLine(cf: number, truckCf: number | null): string {
   const size = truckCf && truckCf > 0 ? truckCf : TRUCK_CF;
   const ratio = cf / size;
@@ -335,7 +353,8 @@ export function truckLine(cf: number, truckCf: number | null): string {
     const yours = `your ${truckCf.toLocaleString("en-US")} cf truck`;
     return ratio >= 1 ? `${ratio.toFixed(1)}× ${yours}` : `${Math.round(ratio * 100)}% of ${yours}`;
   }
-  return `≈ ${ratio.toFixed(1)} truckload${ratio === 1 ? "" : "s"}`;
+  const shown = ratio.toFixed(1);
+  return `≈ ${shown} truckload${shown === "1.0" ? "" : "s"} (${TRUCK_CF.toLocaleString("en-US")} cf)`;
 }
 
 // --- one-line summary --------------------------------------------------------

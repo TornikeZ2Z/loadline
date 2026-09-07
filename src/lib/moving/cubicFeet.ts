@@ -7,7 +7,15 @@
  */
 import type { LoadRow } from "@/lib/loads/types";
 
-/** A 26 ft box truck, the usual unit of "one truckload" in these groups. */
+/**
+ * A 26 ft box truck, the usual unit of "one truckload" in these groups.
+ *
+ * This number is printed, not just divided by: `truckLine` in
+ * @/lib/loads/present names it inside the string ("≈ 28.3 truckloads
+ * (1,500 cf)") because that line sits on the board header of a board whose
+ * whole claim is that it does not assert what it cannot show. Changing the
+ * constant changes what the header says; it does not silently change a number.
+ */
 export const TRUCK_CF = 1500;
 
 export const CF_PRESETS = [
