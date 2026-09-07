@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Note, Section, SitePage } from "@/components/SitePage";
+import { readSiteSettings, settingText } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,9 @@ export const metadata: Metadata = {
  */
 export default async function PrivacyPage() {
   const user = await getCurrentUser();
+  const settings = await readSiteSettings();
+  const company = settingText(settings, "company_legal_name");
+  const email = settingText(settings, "support_email");
 
   return (
     <AppShell user={user} active="site" currentPath="/privacy">
@@ -36,9 +40,9 @@ export default async function PrivacyPage() {
         lead="What this site holds, why it holds it, and who else sees anything. Written from the database schema rather than from a template, so it can be checked."
         meta={
           <>
-            Last updated <strong>[[EFFECTIVE DATE]]</strong> · Operated by{" "}
-            <strong>[[COMPANY LEGAL NAME]]</strong> · Questions to{" "}
-            <strong>[[SUPPORT EMAIL]]</strong>
+            Last updated <strong>{settingText(settings, "effective_date")}</strong> · Operated by{" "}
+            <strong>{company}</strong> · Questions to{" "}
+            <strong>{email}</strong>
           </>
         }
       >
@@ -149,7 +153,7 @@ export default async function PrivacyPage() {
 
         <Section title="Asking for something to be removed">
           <p>
-            Write to <strong>[[SUPPORT EMAIL]]</strong>. What can actually be done today:
+            Write to <strong>{email}</strong>. What can actually be done today:
           </p>
           <ul>
             <li>Delete your account and the reveal records attached to it.</li>
@@ -168,7 +172,7 @@ export default async function PrivacyPage() {
         <Note tone="warn" title="This is a description, not a compliance statement">
           This page says what the software does. It does not claim compliance with GDPR, CCPA or any
           other regime, and it does not claim a certification.{" "}
-          <strong>[[COMPANY LEGAL NAME]]</strong> should have it reviewed against the law that
+          <strong>{company}</strong> should have it reviewed against the law that
           applies before this site is offered to the public.
         </Note>
       </SitePage>

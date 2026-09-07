@@ -209,23 +209,36 @@ export function distanceCaveat(
 type PricedJob = Pick<LoadRow, "price_per_cf" | "price_flat" | "cubic_feet">;
 
 /**
+ * What a job with no price says, on every surface that says anything.
+ *
+ * ONE STRING, and that is the decision rather than an accident of refactoring.
+ * The card used to read "Price not stated" and the detail "Not stated -- ask the
+ * sender", which was defensible per-surface wording and turned out to be the
+ * wrong trade: 96 of 98 live jobs are unpriced, so a driver meets this fact
+ * dozens of times per session and reads two different sentences for it. The CTO
+ * chose the CEO's wording and chose it for both places.
+ *
+ * "Not provided" is a claim about the POST, which is the only thing we know --
+ * unlike "No price", which can be read as a claim about the JOB, as in "this
+ * one pays nothing". What it must never become is "Negotiable", "Make offer" or
+ * "Auction": those are three real business states a sender can be in, and we
+ * have no evidence for any of them.
+ *
+ * It is longer than the card's old string, and the card was given room for it
+ * rather than the string being trimmed to fit -- see the price row in
+ * LoadViews.tsx.
+ */
+export const PRICE_NOT_PROVIDED = "Price not provided";
+
+/**
  * "$3.75/cf" + "est. $7,500", or "$1,500 flat" + "$5.00/cf", or
- * "Price not stated".
+ * `PRICE_NOT_PROVIDED`.
  *
  * Movers quote per cubic foot, so that is the headline whenever the post gave
  * one; the estimated total is the derived number and stays subordinate, always
  * prefixed "est." so a figure we calculated is never read as one the sender
  * quoted. When only a flat price exists the two swap, because the per-cf figure
  * is then ours, not the sender's.
- *
- * The empty case reads "Price not stated" and not "No price". 96 of 98 live jobs
- * are unpriced, so this is the string on nearly every card, and "No price" is a
- * claim about the JOB -- it can be read as "this one pays nothing". "Not stated"
- * is a claim about the POST, which is the only thing we know. It also matches
- * the two neighbours it will be read beside, "size not stated" and "Location not
- * stated". What it must never become is "Negotiable", "Make offer" or "Auction":
- * those are three real business states a sender can be in, and we have no
- * evidence for any of them.
  */
 export function formatPrice(job: PricedJob): { headline: string; sub: string | null; tone: Tone } {
   if (job.price_per_cf != null) {
@@ -244,7 +257,7 @@ export function formatPrice(job: PricedJob): { headline: string; sub: string | n
       tone: "ok",
     };
   }
-  return { headline: "Price not stated", sub: null, tone: "muted" };
+  return { headline: PRICE_NOT_PROVIDED, sub: null, tone: "muted" };
 }
 
 /**

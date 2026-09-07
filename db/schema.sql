@@ -454,3 +454,32 @@ CREATE TABLE IF NOT EXISTS problem_reports (
 -- The queue's only read: open reports, most recently reported first.
 CREATE INDEX IF NOT EXISTS problem_reports_status_idx
   ON problem_reports (status, last_seen_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Site settings v1: the five real-world facts only the operator knows.
+-- Additive only; safe to replay. Self-contained -- nothing above depends on it.
+-- ---------------------------------------------------------------------------
+
+-- Company legal name, support mailbox, registered address, governing law and
+-- the legal pages' effective date. Six public pages need all five, and none of
+-- them can be derived from anything else in this database, so before this table
+-- each one was a `[[PLACEHOLDER]]` compiled into the JSX. An admin fills them in
+-- at /admin/settings; src/lib/settings.ts holds the vocabulary and the
+-- validation, and is the only module that reads or writes this table.
+--
+-- ABSENT MEANS UNSET, AND UNSET IS VISIBLE. There is no seeded row and no
+-- default here on purpose: a key with no row renders on the public page as the
+-- same bracketed token it always did. `value` is NOT NULL and the writer stores
+-- no empty strings -- clearing a field DELETES its row -- so "" can never become
+-- a company name silently missing from the middle of a Terms sentence.
+--
+-- `key` is the primary key rather than a serial id: there are five of these,
+-- they are named in code, and a settings table wants exactly one row per name.
+CREATE TABLE IF NOT EXISTS site_settings (
+  key        text PRIMARY KEY,
+  value      text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  -- Who last changed it. ON DELETE SET NULL: removing an account must not take
+  -- the company's registered address off the Terms page with it.
+  updated_by bigint REFERENCES users(id) ON DELETE SET NULL
+);

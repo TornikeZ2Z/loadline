@@ -38,6 +38,7 @@ import {
   requirementChip,
   senderLine,
   twinLabel,
+  PRICE_NOT_PROVIDED,
   TAG_LABELS,
 } from "@/lib/loads/present";
 import { ContactGate } from "./ContactGate";
@@ -302,14 +303,17 @@ export function LoadDetail({
           </div>
           <div>
             <div className="label">Price</div>
-            {/* The detail has room the card's price slot does not, so it spends
-                it on the next step rather than on more words for the same fact:
-                the card states what is missing, this states who can supply it,
-                with the contact gate five sections below. Not "Negotiable" and
-                not "Make offer" -- neither is a thing the post said. */}
+            {/* The SAME string as the card, deliberately. The detail has room
+                for more words, and used to spend it on "Not stated — ask the
+                sender"; a driver meets a missing price dozens of times a session
+                and should not have to notice that two different sentences mean
+                one thing. The next step is not lost with the wording: the
+                contact gate is five sections below, and it is the thing that
+                actually gets you the sender. Never "Negotiable" and never
+                "Make offer" -- neither is a thing the post said. */}
             {price.tone === "muted" ? (
               <div className="text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
-                Not stated — ask the sender
+                {PRICE_NOT_PROVIDED}
               </div>
             ) : (
               <>
