@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { REPORT_PROBLEM_HREF } from "@/lib/support";
+import { readSiteSettings, settingText } from "@/lib/settings";
 import { Logo } from "./Logo";
 
 /**
@@ -90,14 +91,24 @@ function year(): number {
 }
 
 /**
- * `[[COMPANY LEGAL NAME]]` is a deliberate placeholder, not an oversight: the
- * operating entity is a real-world fact nobody has told this codebase. See
- * .design/impl/legal-placeholders.md.
+ * The bottom-bar copyright, on every page of the site.
+ *
+ * The company name comes from the settings store, and while nobody has filled
+ * it in this renders the same `[[COMPANY LEGAL NAME]]` it always did -- an
+ * obvious placeholder, not an empty string and not a guess. See
+ * src/lib/settings.ts and .design/impl/legal-placeholders.md.
+ *
+ * Async, so both footer shapes are async and so is anything that renders one.
+ * That costs nothing: every page in this app is already `force-dynamic` and
+ * already awaits `getCurrentUser()`, and `readSiteSettings` is request-cached,
+ * so a legal page that reads these values for its own prose and then renders a
+ * footer makes one query between them, not two.
  */
-function Copyright({ className }: { className?: string }) {
+async function Copyright({ className }: { className?: string }) {
+  const settings = await readSiteSettings();
   return (
     <span className={className} style={{ color: "var(--muted)" }}>
-      © {year()} [[COMPANY LEGAL NAME]]
+      © {year()} {settingText(settings, "company_legal_name")}
     </span>
   );
 }

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { ClearStorageButton } from "@/components/CookieNotice";
 import { Note, Section, SitePage, StoredItem } from "@/components/SitePage";
+import { readSiteSettings, settingText } from "@/lib/settings";
 import { reportProblemHref } from "@/lib/support";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export const metadata: Metadata = {
  */
 export default async function CookiesPage() {
   const user = await getCurrentUser();
+  const settings = await readSiteSettings();
 
   return (
     <AppShell user={user} active="site" currentPath="/cookies">
@@ -37,7 +39,7 @@ export default async function CookiesPage() {
         lead="One cookie, set only if you sign in, and five small things kept in your own browser. That is the complete list, and none of it is a tracker."
         meta={
           <>
-            Last updated <strong>[[EFFECTIVE DATE]]</strong> · See also{" "}
+            Last updated <strong>{settingText(settings, "effective_date")}</strong> · See also{" "}
             <Link href="/privacy">Privacy</Link>
           </>
         }
@@ -127,7 +129,7 @@ export default async function CookiesPage() {
 
         <Note title="If this list ever goes out of date, that is a bug">
           Every key above is written in one place in the source, and this page is meant to be the
-          mirror of it. Tell us at <strong>[[SUPPORT EMAIL]]</strong> — or through{" "}
+          mirror of it. Tell us at <strong>{settingText(settings, "support_email")}</strong> — or through{" "}
           <Link href={reportProblemHref()} className="underline">
             Report a problem
           </Link>

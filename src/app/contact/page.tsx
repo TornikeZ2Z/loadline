@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Note, Section, SitePage } from "@/components/SitePage";
+import { readSiteSettings, settingText } from "@/lib/settings";
 import { REPORT_ABOUT_PARAM, REPORT_SECTION_ID, isReportableJobPath } from "@/lib/support";
 
 export const dynamic = "force-dynamic";
@@ -21,11 +22,13 @@ export const metadata: Metadata = {
  * and there is no inbox in this codebase. A form that silently drops messages
  * is worse than an address, because the sender believes they have been heard.
  *
- * `[[SUPPORT EMAIL]]` and the entity details are placeholders on purpose --
- * see .design/impl/legal-placeholders.md. They are the ONLY thing missing from
- * the reporting path: the route, the anchor, the job reference and the "what to
- * include" list all work today, so filling the mailbox in is a one-string
- * change rather than a build.
+ * The support address and the entity details come out of the settings store,
+ * and render as `[[PLACEHOLDER]]`s until an admin fills them in at
+ * /admin/settings -- never as a guess and never as nothing. See
+ * src/lib/settings.ts and .design/impl/legal-placeholders.md. They are the ONLY
+ * thing missing from the reporting path: the route, the anchor, the job
+ * reference and the "what to include" list all work today, so the mailbox is a
+ * form field rather than a build.
  */
 export default async function ContactPage({
   searchParams,
@@ -46,6 +49,9 @@ export default async function ContactPage({
   const raw = sp[REPORT_ABOUT_PARAM];
   const about = isReportableJobPath(raw) ? raw : null;
 
+  const settings = await readSiteSettings();
+  const email = settingText(settings, "support_email");
+
   return (
     <AppShell user={user} active="site" currentPath="/contact">
       <SitePage
@@ -54,7 +60,7 @@ export default async function ContactPage({
         lead="Most questions about a job belong to the sender rather than to us. Here is what to do with everything else, and what to include so it can actually be acted on."
         meta={
           <>
-            One address for all of it: <strong>[[SUPPORT EMAIL]]</strong>. Jump to{" "}
+            One address for all of it: <strong>{email}</strong>. Jump to{" "}
             <Link href={`#${REPORT_SECTION_ID}`}>report a problem with a job</Link>.
           </>
         }
@@ -79,7 +85,7 @@ export default async function ContactPage({
             covers every future post in that format instead of that one job.
           </p>
           <p>
-            Write to <strong>[[SUPPORT EMAIL]]</strong> with three things:
+            Write to <strong>{email}</strong> with three things:
           </p>
           <ul>
             <li>
@@ -148,9 +154,10 @@ export default async function ContactPage({
 
         <Section title="Legal, press and everything else">
           <p>
-            MoverMesh is operated by <strong>[[COMPANY LEGAL NAME]]</strong>,{" "}
-            <strong>[[REGISTERED ADDRESS]]</strong>. Legal notices go to{" "}
-            <strong>[[SUPPORT EMAIL]]</strong>. See <Link href="/terms">Terms</Link> and{" "}
+            MoverMesh is operated by{" "}
+            <strong>{settingText(settings, "company_legal_name")}</strong>,{" "}
+            <strong>{settingText(settings, "registered_address")}</strong>. Legal notices go to{" "}
+            <strong>{email}</strong>. See <Link href="/terms">Terms</Link> and{" "}
             <Link href="/privacy">Privacy</Link>.
           </p>
         </Section>

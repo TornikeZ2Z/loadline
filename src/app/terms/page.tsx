@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Note, Section, SitePage } from "@/components/SitePage";
+import { readSiteSettings, settingText, unfilledSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +15,18 @@ export const metadata: Metadata = {
 
 /**
  * Deliberately short, and deliberately unfinished in the places where only the
- * operator can finish it: the entity, the address and the governing law are
- * `[[PLACEHOLDER]]`s, not guesses. See .design/impl/legal-placeholders.md.
+ * operator can finish it: the entity, the address and the governing law come
+ * out of the settings store, and render as `[[PLACEHOLDER]]`s -- never as a
+ * guess and never as nothing -- until an admin fills them in at
+ * /admin/settings. See src/lib/settings.ts and
+ * .design/impl/legal-placeholders.md.
  */
 export default async function TermsPage() {
   const user = await getCurrentUser();
+  const settings = await readSiteSettings();
+  const company = settingText(settings, "company_legal_name");
+  const law = settingText(settings, "governing_law");
+  const blanks = unfilledSettings(settings).length > 0;
 
   return (
     <AppShell user={user} active="site" currentPath="/terms">
@@ -28,8 +36,8 @@ export default async function TermsPage() {
         lead="Short, because the service is small: it shows you jobs other people posted, and hands you a phone number once you have an account."
         meta={
           <>
-            Last updated <strong>[[EFFECTIVE DATE]]</strong> · Operated by{" "}
-            <strong>[[COMPANY LEGAL NAME]]</strong>, <strong>[[REGISTERED ADDRESS]]</strong>
+            Last updated <strong>{settingText(settings, "effective_date")}</strong> · Operated by{" "}
+            <strong>{company}</strong>, <strong>{settingText(settings, "registered_address")}</strong>
           </>
         }
       >
@@ -109,7 +117,7 @@ export default async function TermsPage() {
         <Section title="8. No warranty, and the limit of what we owe you">
           <p>
             The service is provided as it is, without warranties of any kind, to the fullest extent
-            the law allows. To that same extent, <strong>[[COMPANY LEGAL NAME]]</strong> is not
+            the law allows. To that same extent, <strong>{company}</strong> is not
             liable for lost profit, an empty trip, a job that fell through, or any decision made on
             the strength of something shown here.
           </p>
@@ -121,15 +129,30 @@ export default async function TermsPage() {
 
         <Section title="9. Changes, law and contact">
           <p>
+            {/* One value, read twice, so it has to be grammatical in both
+                slots. It was not: with the governing law written the way a
+                lawyer writes it -- "the laws of the State of New Jersey" -- the
+                second half used to read "the courts of the laws of the State of
+                New Jersey". Invisible while the field was a bracketed token and
+                nonsense the moment it was filled in. "That jurisdiction" fixes
+                it without inventing a sixth setting for the forum. */}
             These terms can change; the date at the top changes with them. They are governed by{" "}
-            <strong>[[GOVERNING LAW]]</strong>, and disputes go to the courts of{" "}
-            <strong>[[GOVERNING LAW]]</strong>. Write to <strong>[[SUPPORT EMAIL]]</strong>;{" "}
+            <strong>{law}</strong>, and disputes go to the courts of that jurisdiction. Write to{" "}
+            <strong>{settingText(settings, "support_email")}</strong>;{" "}
             <Link href="/contact">Contact</Link> says what to include.
           </p>
         </Section>
 
+        {/* The notice STAYS whether or not the blanks are filled. Only the first
+            half is conditional, because "the bracketed details are not filled
+            in" stops being true the moment an admin fills them in and a notice
+            that says something false about itself is worse than no notice. The
+            half that matters -- no lawyer has read this -- is unconditional and
+            comes off when counsel says so, never when a form is completed. */}
         <Note tone="warn" title="This is a draft">
-          The bracketed details are not filled in, and this text has not been reviewed by a lawyer.
+          {blanks
+            ? "The bracketed details are not filled in, and this text has not been reviewed by a lawyer."
+            : "This text has not been reviewed by a lawyer."}{" "}
           It should not be relied on as it stands.
         </Note>
       </SitePage>
