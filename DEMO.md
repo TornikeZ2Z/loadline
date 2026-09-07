@@ -1,4 +1,4 @@
-# LoadLine — demo walkthrough
+# MoverMesh — demo walkthrough
 
 A 5-minute tour of what this does. Everything runs locally with no accounts, no API keys
 and no database to install.
@@ -48,9 +48,11 @@ Open a job now and the pickup line carries the trip too: `1,279 mi by road · 19
 driving` with a HERE key; without one the same line falls back to straight-line miles.
 
 That location is stored in your browser and nowhere else — `localStorage` under
-`loadline.viewer.v1`. It travels with each search as two coordinates and is never written
-into the URL you can share; a link you send should not carry where you were standing. There
-is no account to attach it to, and no column for it if you had one.
+`loadline.viewer.v1` (the key keeps the product's former name; renaming it would throw away
+the location every existing visitor has already saved). It travels with each search as two
+coordinates and is never written into the URL you can share; a link you send should not carry
+where you were standing. There is no account to attach it to, and no column for it if you
+had one.
 
 ---
 
@@ -111,7 +113,7 @@ reached through the board.
 
 Press **Post job**. A green line answers *Job #133 is live on the board.* — whatever id
 yours got — with a **See it →** link. Follow it: the card reads *Posted today* and *via
-LoadLine* instead of a sender and a group, and the board is now 99 jobs deep.
+MoverMesh* instead of a sender and a group, and the board is now 99 jobs deep.
 
 Scroll that job's detail to **Manage** and press **taken**. It leaves the public board
 immediately — *← Back to 98 jobs* — and stays taken even if the same job is posted again. A
