@@ -215,6 +215,47 @@ export function departureLabel(
   };
 }
 
+/**
+ * The one sentence for "you are posting a departure that already happened".
+ *
+ * One string and one predicate, for the same reason SPACE_NOT_STATED is one
+ * string: the way this rule goes wrong is a second copy of it somewhere else.
+ * It went wrong exactly that way -- `PATCH` refused a truck dragged back to a
+ * departure in the past, `POST` never got the check, and the board accepted
+ * through one door precisely what it refused through the other.
+ */
+export const DEPARTURE_ALREADY_PASSED = "That date has already passed — post a new departure";
+
+/**
+ * Has the stated window already run out?
+ *
+ * WHAT "PAST" MEANS HERE is the sentence `expireTrucks` runs -- `avail_to <
+ * today` in the BOARD's calendar -- and it has to be, or the writer and the
+ * sweep would disagree about the same truck. A window ending TODAY is not past:
+ * a truck leaving this evening is a truck a dispatcher can still ring, and
+ * DEPART_GRACE_HOURS keeps the listing reachable through tomorrow on top of
+ * that. A window ending YESTERDAY is past.
+ *
+ * The END of the window is the date that counts (`availTo ?? availFrom`), which
+ * is how `truckExpiresAt` picks its day too: a truck empty from Monday to
+ * Friday is still worth calling on Wednesday.
+ *
+ * A truck that stated NO date is not past -- it has nothing to be past. It runs
+ * on the 48-hour TTL instead, and refusing it here would make "Not decided"
+ * unpostable.
+ *
+ * `boardDay`, never `now.toISOString().slice(0, 10)`: that is UTC by
+ * specification, so from 20:00 Eastern onwards it has already turned the page
+ * and would refuse a truck posted this evening for a departure today.
+ */
+export function departureHasPassed(
+  avail: { availFrom?: string | null; availTo?: string | null },
+  now: Date = new Date(),
+): boolean {
+  const stated = avail.availTo ?? avail.availFrom ?? null;
+  return stated != null && stated < boardDay(now);
+}
+
 // --- freshness and status ----------------------------------------------------
 
 type FreshTruck = Pick<

@@ -17,7 +17,10 @@
  *     is typing it;
  *   * "Available" has no default. Not today, not now, nothing preselected --
  *     because a departure this board invented is the one lie that costs a
- *     dispatcher a wasted phone call.
+ *     dispatcher a wasted phone call;
+ *   * and a departure that has ALREADY HAPPENED is refused outright, in the
+ *     server's own words. A truck advertising last Tuesday is worse than no
+ *     truck at all: it costs a dispatcher the one call they were going to make.
  *
  * Every one of those rules is enforced again in `insertWebTruck`; this is the
  * half that explains them.
@@ -28,7 +31,11 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/basePath";
 import { TRUCK_CORRIDOR_OPTIONS, DEFAULT_TRUCK_CORRIDOR_MILES } from "@/lib/loads/constants";
 import { TAG_LABELS } from "@/lib/loads/present";
-import { SPACE_NOT_STATED } from "@/lib/loads/truckPresent";
+import {
+  DEPARTURE_ALREADY_PASSED,
+  departureHasPassed,
+  SPACE_NOT_STATED,
+} from "@/lib/loads/truckPresent";
 import { emptyMatchCopy } from "@/lib/match/reasons";
 import type { MatchPreview } from "@/lib/match/types";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
@@ -177,6 +184,25 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
       return;
     }
 
+    // The dates as the body will carry them: a "from" date left behind in the
+    // box after the driver switched back to "Now" is not part of this post, and
+    // must not be part of what is checked either.
+    const postedFrom = availMode === "from" || availMode === "between" ? availFrom : "";
+    const postedTo = availMode === "between" ? availTo : "";
+
+    // A departure that has already happened. `insertWebTruck` refuses this and
+    // the refusal is the one that counts -- this is here so the driver reads it
+    // under the date they typed rather than after a round trip, and it is the
+    // SAME string and the SAME predicate, imported, so the form cannot start
+    // disagreeing with the server about what "past" means.
+    if (departureHasPassed({ availFrom: postedFrom || null, availTo: postedTo || null })) {
+      setFieldError({
+        field: postedTo ? "availTo" : "availFrom",
+        message: DEPARTURE_ALREADY_PASSED,
+      });
+      return;
+    }
+
     setBusy(true);
     try {
       const body = {
@@ -203,8 +229,8 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
         truckText,
 
         availMode,
-        availFrom: availMode === "from" || availMode === "between" ? availFrom : "",
-        availTo: availMode === "between" ? availTo : "",
+        availFrom: postedFrom,
+        availTo: postedTo,
 
         corridorMiles,
 
