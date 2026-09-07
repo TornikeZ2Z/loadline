@@ -30,7 +30,7 @@ export default async function HowItWorksPage() {
       <SitePage
         eyebrow="Product"
         title="How it works"
-        lead="Every job on this board started as a message in a group chat. Here is exactly what happens in between — including the parts that fail, and what happens then."
+        lead="Every job on MoverMesh started as a message in a group chat. Here is exactly what happens in between — including the parts that fail, and what happens then."
       >
         <Section title="1. A message arrives">
           <p>

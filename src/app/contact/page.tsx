@@ -63,9 +63,9 @@ export default async function ContactPage() {
             which group it is and who administers it.
           </p>
           <p>
-            To be plain about what that means: LoadLine reads the messages that are already visible
-            to that group&rsquo;s members, and republishes the jobs in them with the phone numbers
-            hidden. It does not join a group without the group&rsquo;s admin knowing.
+            To be plain about what that means: MoverMesh reads the messages that are already
+            visible to that group&rsquo;s members, and republishes the jobs in them with the phone
+            numbers hidden. It does not join a group without the group&rsquo;s admin knowing.
           </p>
         </Section>
 
@@ -87,7 +87,7 @@ export default async function ContactPage() {
 
         <Section title="Legal, press and everything else">
           <p>
-            LoadLine is operated by <strong>[[COMPANY LEGAL NAME]]</strong>,{" "}
+            MoverMesh is operated by <strong>[[COMPANY LEGAL NAME]]</strong>,{" "}
             <strong>[[REGISTERED ADDRESS]]</strong>. Legal notices go to{" "}
             <strong>[[SUPPORT EMAIL]]</strong>. See <Link href="/terms">Terms</Link> and{" "}
             <Link href="/privacy">Privacy</Link>.
