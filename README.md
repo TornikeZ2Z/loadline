@@ -564,7 +564,9 @@ scripts/                   eval + cases, scorer, seed, reprocess, expire, mainte
 | `npm run eval` | Extraction regression suite — run this after any rule change |
 | `npm run eval:lifecycle` | Supersession: delisting, expiry, sticky Taken |
 | `npm run check:redact` | Asserts no phone survives into a public payload |
+| `npm run check:routes` | Asserts every API handler declares who may call it |
 | `npm run rules:export` | Write admin-taught rules into the eval fixtures |
+| `npm run admin:grant` | Promote a registered account to a real (non-demo) admin |
 | `npm run seed` | Demo accounts, groups, sample traffic, full pipeline run |
 | `npm run process` | Drain the pending message queue |
 | `npm run expire` | Run the expiry sweep |
