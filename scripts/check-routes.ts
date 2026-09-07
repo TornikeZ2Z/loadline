@@ -138,6 +138,10 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
   "POST /api/webhooks/whatsapp": { guard: "webhook", why: "message delivery; X-Hub-Signature-256 HMAC" },
 
   // --- reading an admin console (a demo admin may) --------------------------
+  "GET /api/cron/status": {
+    guard: "role:admin",
+    why: "the only route under /api/cron that is not behind the bearer token, and deliberately: the other three DO something for a machine holding CRON_SECRET, while this one only reports what they did to a person with an admin session. Guarding it with the cron secret would put that secret in the browser",
+  },
   "GET /api/admin/geocode": { guard: "role:admin", why: "HERE status and the ZIP survey" },
   "GET /api/admin/groups": { guard: "role:admin", why: "the WhatsApp groups list" },
   "GET /api/admin/issues": { guard: "role:admin", why: "the needs-attention queue" },

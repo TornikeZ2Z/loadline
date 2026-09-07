@@ -18,6 +18,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/basePath";
+import type { CronStatus } from "@/lib/cron/runs";
 import type { ChatGroup, ChatLoad, ChatMessage } from "@/lib/demo/chats";
 import type { LineAudit, LineClass } from "@/lib/extract/schema";
 import type { IgnoreLineRule, KeywordAs } from "@/lib/extract/rules-store";
@@ -234,6 +235,8 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
         after a rule changes — and a fix saved here survives a database reset.
       </p>
 
+      <CronRuns />
+
       {/* Six tabs need 494 px and a phone has 390, so the row scrolls sideways
           rather than the page: the whole console was 26 % wider than the screen
           and every panel below drifted left as you reached the last tab. */}
@@ -272,6 +275,143 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
         {tab === "groups" && <Groups groups={groups} onToast={setToast} />}
         {tab === "map" && <MapPrecision onToast={setToast} />}
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------- cron runs ------------------------------- */
+
+/**
+ * Did the sweeps run?
+ *
+ * A strip above the tabs rather than an eighth tab, because the answer is never
+ * the thing an admin came here for and is always the thing that invalidates
+ * every other tab if it is wrong. A silent expiry sweep does not look like a
+ * broken expiry sweep: it looks like a board full of jobs, which is what the
+ * board is supposed to look like. There is no other way to notice from here —
+ * the alternative is a CloudWatch log group, an AWS console and a role.
+ *
+ * WHEN IT SAYS NOTHING IT SHOWS NOTHING. If `/api/cron/status` 404s — an older
+ * image, this feature not deployed yet — the strip renders as absent rather
+ * than as an error, because a console that shouts about a route it cannot find
+ * teaches an admin to ignore the strip.
+ */
+const SWEEP_LABEL: Record<string, string> = {
+  process: "WhatsApp queue",
+  expire: "Expiry",
+  match: "Matching",
+};
+
+/** Coarse on purpose: nobody needs "3 minutes and 12 seconds ago". */
+function ago(iso: string | null, nowMs: number): string {
+  if (!iso) return "never";
+  const ms = nowMs - new Date(iso).getTime();
+  if (ms < 0) return "just now";
+  const s = Math.round(ms / 1000);
+  if (s < 90) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 90) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+function cadence(ms: number): string {
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+/**
+ * The counters of the last completed run, zeros dropped.
+ *
+ * "nothing to do" and not "0 processed, 0 created, 0 duplicates": a run that
+ * found nothing is the normal state of a board with no WhatsApp number
+ * connected, and eight zeros in a row reads like a fault.
+ */
+function countsLine(counts: Record<string, number> | null | undefined): string {
+  if (!counts) return "";
+  const live = Object.entries(counts).filter(([, v]) => typeof v === "number" && v > 0);
+  if (!live.length) return "nothing to do";
+  return live.map(([k, v]) => `${k} ${v}`).join(" · ");
+}
+
+function CronRuns() {
+  const { data, unavailable, error, reload } = useAdminResource<CronStatus>("/api/cron/status");
+
+  // The strip is read while it is watched — an admin who has just turned the
+  // scheduler on wants to see the first tick land without reloading the page.
+  useEffect(() => {
+    const timer = setInterval(reload, 60_000);
+    return () => clearInterval(timer);
+    // `reload` closes over a stable setState, so a stale closure still works.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (unavailable || !data) {
+    return error ? (
+      <p className="mt-[var(--sp-2)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        Scheduled sweeps: {error}
+      </p>
+    ) : null;
+  }
+
+  const nowMs = new Date(data.now).getTime();
+
+  return (
+    <div
+      className="mt-[var(--sp-3)] rounded-[var(--radius-sm)] border border-border p-[var(--sp-3)]"
+      style={{ background: "var(--surface-2)" }}
+    >
+      <div className="flex flex-wrap items-baseline gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
+        <span className="font-semibold text-(length:--fs-sm)">Scheduled sweeps</span>
+        <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+          {data.enabled
+            ? `running in this process · ${data.reason}`
+            : `not scheduled in this process · ${data.reason}`}
+        </span>
+      </div>
+
+      <ul className="mt-[var(--sp-2)] flex flex-col gap-[var(--sp-1)]">
+        {data.sweeps.map((s) => {
+          // "Never run" is only alarming where something was supposed to run.
+          // On a laptop with the scheduler off it is simply the truth.
+          const quiet = !data.enabled && !s.lastOk;
+          const bad = !quiet && s.stale;
+          const last = s.last;
+          return (
+            <li
+              key={s.sweep}
+              className="flex flex-wrap items-baseline gap-x-[var(--sp-2)] text-(length:--fs-sm)"
+              style={bad ? { color: "var(--danger)" } : undefined}
+            >
+              <span className="min-w-[8.5rem] font-semibold">{SWEEP_LABEL[s.sweep] ?? s.sweep}</span>
+              <span style={bad ? undefined : { color: "var(--muted)" }}>every {cadence(s.intervalMs)}</span>
+              <span>
+                {s.lastOk ? `finished ${ago(s.lastOk.finished_at, nowMs)}` : "never completed"}
+              </span>
+              {s.lastOk && (
+                <span style={bad ? undefined : { color: "var(--muted)" }}>
+                  {countsLine(s.lastOk.counts)}
+                </span>
+              )}
+              {/* The last run and the last SUCCESSFUL run are different rows the
+                  moment anything goes wrong, and the difference is the news. */}
+              {last && last.status !== "ok" && (
+                <span style={{ color: last.status === "error" ? "var(--danger)" : "var(--muted)" }}>
+                  last attempt {ago(last.started_at, nowMs)}: {last.status}
+                  {last.detail ? ` — ${last.detail}` : ""}
+                </span>
+              )}
+              {bad && (
+                <span className="font-semibold">
+                  no completed run in over twice its {cadence(s.intervalMs)} cadence
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
