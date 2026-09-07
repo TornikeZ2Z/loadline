@@ -181,7 +181,11 @@ export function FooterBar() {
     <footer className="bg-surface border-t border-border">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-[var(--sp-4)] gap-y-[var(--sp-1)] px-[var(--sp-4)] py-[var(--sp-2)] text-(length:--fs-sm)">
         <Copyright />
-        <span className="hidden lg:inline" style={{ color: "var(--muted-2)" }}>
+        {/* From `xl`, not `lg`, and that is the seventh link's doing: at 1024
+            the copyright, this sentence and seven links measure past the row and
+            the bar wraps to 56 px, taking 22 px off the board's map. Measured at
+            1024 / 1280 / 1440 / 1600 -- one row at every width from 1280 up. */}
+        <span className="hidden xl:inline" style={{ color: "var(--muted-2)" }}>
           {SITE_TAGLINE}
         </span>
         <nav aria-label="Site" className="ml-auto flex flex-wrap items-center gap-x-[var(--sp-4)]">
