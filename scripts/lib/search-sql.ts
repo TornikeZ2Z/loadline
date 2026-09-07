@@ -150,6 +150,20 @@ const out: string[] = [
   "# Recorded through a `pg` driver stand-in; today's date is printed as <TODAY>.",
 ];
 
+/**
+ * Open the backend before anything is recorded.
+ *
+ * `src/lib/db.ts` connects lazily, and connecting runs `migrate()` -- one
+ * `exec` of the whole of db/schema.sql, through this same tap. Left in, it
+ * would be "statement 1" of the first case, and every additive migration for
+ * ever after would move this snapshot: a red T-A1 that says "the schema grew",
+ * not "searchLoads changed". A gate that cries wolf is a gate people re-record,
+ * and the snapshot is supposed to be about the statements searchLoads BUILDS.
+ * So the connection is made here and its schema exec is discarded by the
+ * `reset()` at the top of the first case.
+ */
+await searchLoads({});
+
 for (const { name, input } of CASES) {
   reset();
   await searchLoads(input);

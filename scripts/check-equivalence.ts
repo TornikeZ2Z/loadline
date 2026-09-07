@@ -9,7 +9,10 @@
  *         byte-identical to a committed snapshot -- statement text AND bind
  *         values.  Recorded through a `pg` driver stand-in, so the statements
  *         are the ones the shipped code sends, not a transcription of them.
- *         See scripts/lib/search-sql.ts.
+ *         See scripts/lib/search-sql.ts.  It does NOT include `migrate()`'s one
+ *         exec of db/schema.sql, which the first connection runs through the
+ *         same tap: a schema file grows by design, and a T-A1 that went red on
+ *         every additive migration would be a gate about the wrong thing.
  *   T-A2  the corridor search over a frozen board returns the same rows in the
  *         same order with the same off_route_miles / detour_miles /
  *         route_progress; and (T-A2b) the lifted `corridorFit` agrees with the
