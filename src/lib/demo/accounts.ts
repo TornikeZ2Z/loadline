@@ -59,7 +59,11 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     role: "driver",
     company: "Kaz Moving LLC",
     phone: "+19735550000",
-    blurb: "See the contact on any job",
+    // "on any job" until the board had trucks on it. The demo driver is the
+    // account a stranger enters with one click, and the walkthrough it is for
+    // now includes posting their own empty leg -- so the blurb has to name the
+    // board rather than one kind of row on it.
+    blurb: "See the contact on any listing, and post your own truck",
     oneClick: true,
   },
   {

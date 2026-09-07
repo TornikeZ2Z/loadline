@@ -105,9 +105,13 @@ export function AuthForm({
             {isLogin ? "Sign in" : "Create your account"}
           </h1>
           <p className="mt-[var(--sp-1)] text-(length:--fs-md) text-muted">
+            {/* "post a job" until the board had one kind of listing. Both
+                sentences describe what an account is FOR, and it is now for two
+                kinds of posting -- a driver who came here to find work can
+                also list the leg they are driving empty. */}
             {isLogin
-              ? "Only to see a sender's contact or post a job. Browsing the board needs no account."
-              : "One account, two things it unlocks: contacts on the board, and posting your own jobs."}
+              ? "Only to see a contact or post to the board. Browsing needs no account."
+              : "One account, two things it unlocks: contacts on the board, and posting your own jobs and trucks."}
           </p>
         </div>
 
@@ -119,9 +123,9 @@ export function AuthForm({
                 demo any more -- it is password-only -- so the copy has to stop
                 promising it, and has to say where the door went instead. */}
             <p className="mb-3 text-(length:--fs-sm) text-muted">
-              Browsing the board needs no account. These two see a sender&rsquo;s contact and post
-              jobs. The admin console is not part of the demo — it needs a real password, through
-              the form below.
+              Browsing the board needs no account. These two see a contact and post to the board.
+              The admin console is not part of the demo — it needs a real password, through the
+              form below.
             </p>
 
             <div className="space-y-2">
