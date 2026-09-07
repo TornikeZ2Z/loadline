@@ -137,7 +137,19 @@
 /* 768-899 is a phone lying down and a small tablet: the two-column board is
    still the right shape there, but 340 px of it is a third of the screen. */
 @media (max-width: 899px)  { :root { --list-w: 300px; } }
-@media (max-width: 767px)  { :root { --header-h: 52px; --filters-h: 48px; } }
+/* The bottom sheet's handle is 104 px on a phone rather than 56, because it
+   gained a control: the list header is now two tabs -- Jobs (98) | Trucks (4) --
+   and on compact that tab row IS the choice between the two populations
+   (SPEC 15.1 refuses a third segmented control in the filter bar, which ate 168
+   of the row's 290 usable pixels when it was tried in wave 1).
+
+   It costs no map. The sheet's height at each snap is a fraction of the viewport
+   (18/55/92 %), so this only moves the split between the handle and the list
+   inside it; `snapHeightPx` -- which is what the map frames itself into -- does
+   not read this token at all. What it does buy is that the handle no longer
+   OVERFLOWS: 56 px of box was holding 120 px of tabs, headline and summary, and
+   the surplus drew straight over the first card. */
+@media (max-width: 767px)  { :root { --header-h: 52px; --filters-h: 48px; --sheet-handle-h: 104px; } }
 @media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; --dur-panel: 0ms; --dur-map: 0ms; } }
 
 @theme inline {

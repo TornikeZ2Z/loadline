@@ -604,7 +604,7 @@ export function Board({
    */
   const tabs = (
     <div
-      className="mb-[var(--sp-2)] flex items-center gap-[var(--sp-1)]"
+      className="mb-[var(--sp-1)] flex items-center gap-[var(--sp-1)] md:mb-[var(--sp-2)]"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <Tab
@@ -638,18 +638,34 @@ export function Board({
     </div>
   ) : (
     <div>
-      <div className="big nums text-(length:--fs-xl)">
-        {/* Null only when the set is empty, and then the tab label above
-            already carries the zero -- so this says nothing rather than
-            "0 trucks". */}
-        {headline.truckLine ?? "No trucks"}
-      </div>
+      {/* Nothing at all when the set is empty. SPEC 15.3: "when trucks.count
+          === 0, no truck line renders at all -- not '0 trucks'. The tab label
+          already carries the zero." The empty state below says the rest, and it
+          asks for supply rather than reporting an absence. */}
+      {headline.truckLine && (
+        <div className="big nums text-(length:--fs-xl)">{headline.truckLine}</div>
+      )}
+      {/* One line on a phone, for the reason the job line beside it is one
+          line: on compact this IS the sheet's grab handle, and a second wrapped
+          line pushes the text down over the first card. So the two clauses that
+          are CAVEATS -- what the board does not know about these trucks -- are
+          on both, and the two that are merely statistics are desktop-only.
+          `md:` is 768 px, the same breakpoint that decides `mobile`. */}
       <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-        {truckStats
-          ? [truckStats.departing, truckStats.unsized, truckStats.noDest, truckStats.swing]
-              .filter(Boolean)
-              .join(" · ")
-          : ""}
+        {truckStats && (
+          <>
+            {truckStats.departing && (
+              <span className="hidden md:inline">{`${truckStats.departing} · `}</span>
+            )}
+            {[truckStats.unsized, truckStats.noDest].filter(Boolean).join(" · ")}
+            {truckStats.swing && (
+              <span className="hidden md:inline">
+                {truckStats.unsized || truckStats.noDest ? " · " : ""}
+                {truckStats.swing}
+              </span>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -729,8 +745,12 @@ export function Board({
           under the freight total rather than beside it, in its own unit words
           ("cf free", never a bare "cf"). It is absent entirely when there are
           no trucks -- the tab label carries that zero. */}
+      {/* Desktop only, and not because it is unimportant: on a phone the tab
+          label two lines above already says "Trucks (4)", and this is the third
+          line inside a grab handle. Repeating the count there costs a wrapped
+          line over the first card and buys nothing a thumb cannot already see. */}
       {show === "both" && headline.truckLine && (
-        <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        <div className="mt-[1px] hidden text-(length:--fs-sm) md:block" style={{ color: "var(--muted)" }}>
           <button
             type="button"
             className="underline"
