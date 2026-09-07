@@ -20,6 +20,26 @@
  */
 
 :root {
+  /* ---- the brand -------------------------------------------------------
+   *
+   * Three colours, taken off the MoverMesh mark, and they are PRIMITIVES:
+   * nothing in the app names them directly except the logo. Every semantic
+   * token below is one of these three or a measured step of one, so there is
+   * no second brand palette running alongside this one.
+   *
+   * Navy is the ink -- the wordmark's "Mover", the dark plane of the mark, and
+   * from here on every line of type on the site. Blue is the wordmark's "Mesh",
+   * the bright plane, and the app's single action accent (it was already a blue
+   * -- #2563eb -- so this is a shift of hue, not a new idea). Green is the
+   * mark's second pin and is used sparingly: the board is dense with numbers
+   * and a third accent is easy to overspend.
+   *
+   * A step of a brand colour is still that colour: --accent-deep and --ok are
+   * the same hue as --brand-blue and --brand-green, moved only in lightness,
+   * because #1B6EF5 and #1FA463 are mark colours and neither is dark enough to
+   * set 12-13 px type in (measured below).
+   */
+  --brand-navy: #17284A; --brand-blue: #1B6EF5; --brand-green: #1FA463;
   /* surfaces */
   --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eef0f4; --surface-3: #e3e6ec;
   --surface-glass: rgb(255 255 255 / .92);
@@ -30,18 +50,42 @@
      tinted label. .86 keeps it a veil and stops it taking the colour on. */
   --surface-veil: rgb(255 255 255 / .86);
   --border: #e2e5ea; --border-strong: #c9ced7;
-  /* ink */
-  --text: #0f172a; --text-2: #334155; --muted: #64748b; --muted-2: #94a3b8; --placeholder: #9aa4b2;
-  /* brand + map */
-  --accent: #2563eb; --accent-hover: #1d4ed8; --accent-soft: #e8efff;
-  --route: #2563eb; --route-start: #2563eb; --route-end: #0f172a; --route-dim: rgb(37 99 235 / .22);
+  /* ink
+   *
+   * --text is the brand navy. It was slate-900 (#0f172a), which sits at the
+   * SAME hue -- 222 deg against navy's 220 -- two steps darker, so the grey
+   * ramp under it (--text-2 .. --placeholder) is already on the brand's hue and
+   * is left alone. What changes is that the darkest thing on the page is now
+   * the logo's own colour rather than a neutral that happened to look like it.
+   * Measured on white: 14.6:1, against slate-900's 18.0:1 -- both far past AA,
+   * and the page reads a shade warmer. */
+  --text: var(--brand-navy); --text-2: #334155; --muted: #64748b; --muted-2: #94a3b8; --placeholder: #9aa4b2;
+  /* brand + map
+   *
+   * --accent-deep is the accent one step down, and it has two jobs, not one.
+   * It is the hover fill (--accent-hover is it), and it is the accent as TYPE
+   * on a tinted ground: the brand blue measures 4.62:1 on white but only
+   * 4.03:1 on --accent-soft, which is under AA for the 13 px an active filter
+   * pill is set in. --accent-deep measures 5.18:1 there. Nothing draws a plain
+   * accent-coloured word on a tint any more. */
+  --accent: var(--brand-blue); --accent-deep: #175ED0; --accent-hover: var(--accent-deep);
+  --accent-soft: #e9f0fe;
+  --route: var(--brand-blue); --route-start: var(--brand-blue); --route-end: var(--brand-navy);
+  --route-dim: rgb(27 110 245 / .22);
   /* Pickups and deliveries are the same hue two steps apart, not two hues:
      the board has one accent. --delivery was slate-900, which is ink rather
      than colour -- fine as a crisp dot, but the map now draws a guessed
      coordinate as a soft low-opacity cloud, and a soft cloud of ink is
      indistinguishable from the grey the basemap paints a city in. Navy keeps
-     the depth and gets the hue back. */
-  --pickup: #2563eb; --delivery: #1e3a8a; --you: #059669; --home: #0f172a; --approx: #b45309;
+     the depth and gets the hue back.
+
+     --delivery stays at #1e3a8a and is deliberately NOT the brand navy: it is
+     the accent's dark step, and the two are 7 deg of hue apart (224 vs 217),
+     which is nothing. Re-deriving it would move every delivery point and every
+     approximate cloud on the map for no visible gain, and map-colour.md's
+     contrast numbers were measured against this value. */
+  --pickup: var(--brand-blue); --delivery: #1e3a8a;
+  --you: var(--brand-green); --home: var(--brand-navy); --approx: #b45309;
   /* The ground the basemap sits on, and what you see for the moment before a
      tile arrives. It used to be a cool #e6ebf2 that the tiles were washed into
      at 70% -- which is how a full-colour OpenStreetMap ended up as one flat
@@ -50,9 +94,20 @@
      land OSM draws (measured: rgb(239, 237, 232)), so tiles read as detail
      appearing on the same ground rather than as a second material. */
   --map-paper: #eceee7;
-  /* semantics */
-  --ok: #059669; --ok-soft: #e6f6ef; --ready: #059669; --ready-soft: #e6f6ef;
-  --fresh: #2563eb; --fresh-soft: #e8efff;
+  /* semantics
+   *
+   * There is one green now. It was emerald-600 (#059669, hue 161) beside the
+   * brand's #1FA463 (hue 151) -- two greens that were never going to look like
+   * one decision. --ok and --ready are the brand green stepped down to where it
+   * can be read: the brand green measures 3.25:1 on white and 2.92:1 on its own
+   * soft tint, and a price on a card is 13 px, a "Ready now" chip 11-12. This
+   * step is the same hue (150) and measures 4.69:1 and 4.22:1 -- better than
+   * the emerald it replaces (3.77 / 3.37), so the chip that appears 73 times on
+   * one screen got more legible, not less. The mark colour itself is spent
+   * where green is a MARK and never type: --brand-green is the logo's second
+   * pin and --you is the "you are here" dot on the map. */
+  --ok: #17874F; --ok-soft: #e9f6ef; --ready: #17874F; --ready-soft: #e9f6ef;
+  --fresh: var(--brand-blue); --fresh-soft: #e9f0fe;
   --warn: #d97706; --warn-soft: #fdf3e3; --danger: #dc2626; --danger-soft: #fdeaea;
   /* shape */
   --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px; --radius-pill: 999px;
@@ -86,7 +141,8 @@
   --color-bg: var(--bg); --color-surface: var(--surface); --color-surface-2: var(--surface-2); --color-surface-3: var(--surface-3);
   --color-border: var(--border); --color-border-strong: var(--border-strong);
   --color-ink: var(--text); --color-text-2: var(--text-2); --color-muted: var(--muted); --color-muted-2: var(--muted-2);
-  --color-accent: var(--accent); --color-accent-hover: var(--accent-hover); --color-accent-soft: var(--accent-soft);
+  --color-accent: var(--accent); --color-accent-deep: var(--accent-deep); --color-accent-hover: var(--accent-hover); --color-accent-soft: var(--accent-soft);
+  --color-brand-navy: var(--brand-navy); --color-brand-blue: var(--brand-blue); --color-brand-green: var(--brand-green);
   --color-route: var(--route); --color-pickup: var(--pickup); --color-delivery: var(--delivery);
   --color-you: var(--you); --color-home: var(--home); --color-approx: var(--approx);
   --color-ok: var(--ok); --color-ok-soft: var(--ok-soft); --color-ready: var(--ready); --color-ready-soft: var(--ready-soft);
@@ -196,7 +252,9 @@ input[type="checkbox"], input[type="radio"] {
 .pill:hover { background: var(--surface-2); border-color: var(--muted-2); }
 .pill:focus-visible { outline: none; box-shadow: var(--focus); }
 .pill[data-active="true"]:hover { background: var(--accent-soft); border-color: var(--accent); }
-.pill[data-active="true"] { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent); }
+/* Type on a tint takes the deep step, here and in every rule below it: the
+   brand blue is a mark colour and reads at 4.03:1 on --accent-soft. */
+.pill[data-active="true"] { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-deep); }
 .pill .pill-chip { height: 22px; padding: 0 8px; border-radius: var(--radius-pill); background: #fff; color: var(--accent); font-size: var(--fs-xs); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
 .pill .ghost { color: var(--placeholder); font-weight: 400; }
 
@@ -216,7 +274,7 @@ input[type="checkbox"], input[type="radio"] {
  *   FILLED  -- the sender said this. Ready now, Urgent, COD, DOT & MC, Piano.
  *              Colour then grades it: green ready, amber act-on-it, grey plain
  *              fact, red cancelled.
- *   OUTLINED-- LoadLine is saying it, about the listing rather than the load.
+ *   OUTLINED-- MoverMesh is saying it, about the listing rather than the load.
  *              "approximate location" and "Unverified" are our uncertainty;
  *              "Delisted", "Taken", "+2" are the listing's own state. None of
  *              them is news from the sender, so none of them gets a filled
@@ -227,13 +285,13 @@ input[type="checkbox"], input[type="radio"] {
  * carrying two caveats looked more alarming than one carrying a deadline.
  *
  * The admin console and the WhatsApp console are outside the rule and keep
- * filled chips throughout: there, every chip is LoadLine talking about its own
+ * filled chips throughout: there, every chip is MoverMesh talking about its own
  * pipeline, so "who is speaking" is not a distinction worth drawing.
  */
 .chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 600; line-height: 1; white-space: nowrap; background: var(--surface-2); color: var(--text-2); border: 1px solid transparent; }
-.chip-accent { background: var(--accent-soft); color: var(--accent); }
+.chip-accent { background: var(--accent-soft); color: var(--accent-deep); }
 .chip-ok, .chip-ready { background: var(--ready-soft); color: var(--ready); }
-.chip-fresh { background: var(--fresh-soft); color: var(--fresh); }
+.chip-fresh { background: var(--fresh-soft); color: var(--accent-deep); }
 .chip-warn { background: var(--warn-soft); color: var(--warn); }
 .chip-danger { background: var(--danger-soft); color: var(--danger); }
 /* Outlined: not the sender's word. The frame is neutral and the word carries
