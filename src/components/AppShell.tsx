@@ -4,6 +4,7 @@ import { ROLE_LABEL, loginHref } from "@/lib/session";
 import { LogoutButton } from "./LogoutButton";
 import { CurrentLocation } from "./CurrentLocation";
 import { MenuAutoClose } from "./MenuAutoClose";
+import { LogoMark, Wordmark } from "./Logo";
 import { Footer, FooterBar, SITE_SECTIONS } from "./Footer";
 
 export interface AppShellProps {
@@ -104,19 +105,19 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
               taken on the right, where there is nothing to collide with. */}
           <Link
             href="/"
-            className="-ml-[var(--sp-2)] flex h-[var(--tap-min)] shrink-0 items-center gap-2 rounded-md pl-[var(--sp-2)] pr-[var(--sp-3)] font-bold tracking-tight sm:ml-0 sm:px-0"
+            aria-label="MoverMesh"
+            className="-ml-[var(--sp-2)] flex h-[var(--tap-min)] shrink-0 items-center gap-2 rounded-md pl-[var(--sp-2)] pr-[var(--sp-3)] sm:ml-0 sm:px-0"
           >
-            <span
-              className="grid h-6 w-6 place-items-center rounded-md text-(length:--fs-base) text-white"
-              style={{ background: "var(--accent)" }}
-            >
-              L
-            </span>
+            <LogoMark size={24} />
             {/* At the body size the wordmark read as another nav item. One
                 step up is enough to make it the mark; two would start
                 crowding the pinned group at 640-767 px, where the header is
-                already tight. */}
-            <span className="hidden text-(length:--fs-md) sm:inline">LoadLine</span>
+                already tight.
+
+                aria-label on the link above rather than a <title> in the mark:
+                below `sm` this word is not rendered at all, and the board's
+                only permanent way home cannot be a link with no name. */}
+            <Wordmark className="hidden text-(length:--fs-md) sm:inline" />
           </Link>
 
           {/* Hidden below `md`, and this is a change of mind that measurements
@@ -153,7 +154,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                   className="whitespace-nowrap rounded-md px-2 py-1.5 text-(length:--fs-base) font-semibold md:px-3"
                   style={
                     active === n.key
-                      ? { background: "var(--accent-soft)", color: "var(--accent)" }
+                      ? { background: "var(--accent-soft)", color: "var(--accent-deep)" }
                       : { color: "var(--text-2)" }
                   }
                 >
@@ -191,7 +192,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 className="tap flex h-[var(--tap-min)] min-w-[var(--tap-min)] cursor-pointer list-none items-center justify-center gap-1 whitespace-nowrap rounded-md px-3 text-(length:--fs-base) font-semibold md:h-[var(--control-h)] md:min-w-0 md:px-2 [&::-webkit-details-marker]:hidden"
                 style={
                   active === "site"
-                    ? { background: "var(--accent-soft)", color: "var(--accent)" }
+                    ? { background: "var(--accent-soft)", color: "var(--accent-deep)" }
                     : { color: "var(--text-2)" }
                 }
                 title="About, how it works, contact and legal"

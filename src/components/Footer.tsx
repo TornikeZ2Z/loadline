@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "./Logo";
 
 /**
  * The site footer, and the link map the header menu shares with it.
@@ -105,15 +106,11 @@ export function Footer() {
     >
       <div className="mx-auto grid max-w-[1100px] gap-[var(--sp-6)] px-[var(--sp-4)] py-[var(--sp-6)] md:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] md:py-[var(--sp-8)]">
         <div className="max-w-[34ch]">
-          <div className="flex items-center gap-2 font-bold tracking-tight">
-            <span
-              className="grid h-6 w-6 place-items-center rounded-md text-(length:--fs-base) text-white"
-              style={{ background: "var(--accent)" }}
-            >
-              L
-            </span>
-            LoadLine
-          </div>
+          {/* The full lockup, and the one place on a scrolling page that gets
+              the tagline: the footer is where a visitor who has read the page
+              finds out what the thing is called and what it claims to be. The
+              sentence under it says how it works; the tagline says what it is. */}
+          <Logo size={28} tagline />
           <p
             className="mt-[var(--sp-2)] text-(length:--fs-base) leading-relaxed"
             style={{ color: "var(--muted)" }}

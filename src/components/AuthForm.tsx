@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/basePath";
 import { isSafeNext, loginHref, registerHref, type Role } from "@/lib/session";
+import { Logo } from "./Logo";
 
 export interface DemoOption {
   key: Role;
@@ -85,15 +86,21 @@ export function AuthForm({
   }
 
   return (
-    /* No `min-h-screen` and no wordmark of its own any more: these two screens
-       now render inside AppShell like every other page, so the header above
-       already carries the mark and the way back to the board. What was missing
-       here was a heading that says what the PAGE is -- an <h1> reading
-       "LoadLine" on the sign-in screen told a visitor nothing they could not
-       see in the tab. */
+    /* No `min-h-screen`: these two screens render inside AppShell like every
+       other page, so the header above already carries the way back to the
+       board. The <h1> says what the PAGE is -- an <h1> reading "MoverMesh" on
+       the sign-in screen would tell a visitor nothing they cannot see in the
+       tab.
+
+       The LOCKUP above it is a different thing from that heading and earns its
+       place: this is the one screen someone can land on from a bookmark with no
+       idea what the site is, and the tagline under the wordmark answers it in
+       five words. It is not a heading, it is not a link, and it does not repeat
+       the h1. */
     <div className="grid place-items-center px-[var(--sp-4)] py-[var(--sp-8)]">
       <div className="w-full max-w-[440px]">
         <div className="mb-[var(--sp-5)] text-center">
+          <Logo size={40} tagline className="mb-[var(--sp-5)]" />
           <h1 className="big text-(length:--fs-2xl)">
             {isLogin ? "Sign in" : "Create your account"}
           </h1>
@@ -122,7 +129,7 @@ export function AuthForm({
                 >
                   <span
                     className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-(length:--fs-base) font-bold"
-                    style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+                    style={{ background: "var(--accent-soft)", color: "var(--accent-deep)" }}
                   >
                     {a.name.charAt(0)}
                   </span>
@@ -301,7 +308,11 @@ export function AuthForm({
           <Link
             href="/"
             className="flex min-h-[var(--tap-min)] items-center px-[var(--sp-2)] font-semibold"
-            style={{ color: "var(--accent)" }}
+            /* --accent-deep, not --accent: this link sits on --bg rather than
+               on a white card, where the brand blue measures 4.23:1 at the
+               12 px it is set in. Every other accent-coloured link in the app
+               is on --surface, where it measures 4.57. */
+            style={{ color: "var(--accent-deep)" }}
           >
             ← Back to the board
           </Link>
