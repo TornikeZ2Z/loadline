@@ -264,30 +264,51 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
       {/* Band 2 — the terms, in the order a backhaul is decided: can I load it
           (ready), must it be there by a date (deliver by), what does it pay.
           The two dates are adjacent because they are one question -- the window
-          -- and the price lands last, where it is the only coloured thing on
-          the row instead of splitting the window in half. */}
-      <div className="mt-[var(--sp-2)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
-        {inactive ? (
-          <StatusChip status={job.status} />
-        ) : (
-          <Chip tone={ready.tone} title={ready.title ?? undefined}>
-            {ready.text}
-          </Chip>
-        )}
-        {deliverBy && (
-          <span
-            className="text-(length:--fs-sm)"
-            style={{ color: deliverBy.tone === "warn" ? "var(--warn)" : "var(--muted)" }}
-          >
-            {deliverBy.text}
-          </span>
-        )}
+          -- and the price sits apart from them on the right.
+
+          THE PRICE HAS ITS OWN SLOT, and it is the same slot the cubic feet
+          occupy in band 1: right-aligned, `shrink-0`, never wrapped. Nearly
+          every job on this board is unpriced, so "Price not provided" is the
+          string on almost every card -- eighteen characters where the old
+          wording was sixteen and a bare "$3.50/cf" is eight. Left in the flow it
+          was the item that wrapped, which pushed the card taller by a line and,
+          on a phone, put the price under the dates it is not part of. Giving it
+          a column instead costs nothing at any width and lines the two figures a
+          driver compares -- size, then pay -- up the right edge of the column of
+          cards. The window keeps `min-w-0` so it is the half that wraps when the
+          card is narrow: a delivery date can break over two lines and still
+          read; a price cannot. */}
+      <div className="mt-[var(--sp-2)] flex items-center gap-x-[var(--sp-2)]">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
+          {inactive ? (
+            <StatusChip status={job.status} />
+          ) : (
+            <Chip tone={ready.tone} title={ready.title ?? undefined}>
+              {ready.text}
+            </Chip>
+          )}
+          {deliverBy && (
+            <span
+              className="text-(length:--fs-sm)"
+              style={{ color: deliverBy.tone === "warn" ? "var(--warn)" : "var(--muted)" }}
+            >
+              {deliverBy.text}
+            </span>
+          )}
+        </span>
         {price.tone === "muted" ? (
-          <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+          <span
+            className="ml-auto shrink-0 whitespace-nowrap text-(length:--fs-sm)"
+            style={{ color: "var(--muted)" }}
+            title="The post did not state a price"
+          >
             {price.headline}
           </span>
         ) : (
-          <span className="nums text-(length:--fs-base) font-semibold" style={{ color: "var(--ok)" }}>
+          <span
+            className="nums ml-auto shrink-0 whitespace-nowrap text-(length:--fs-base) font-semibold"
+            style={{ color: "var(--ok)" }}
+          >
             {price.headline}
             {price.sub && (
               <span className="font-normal" style={{ color: "var(--muted)" }}>
