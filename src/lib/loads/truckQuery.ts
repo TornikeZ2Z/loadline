@@ -653,6 +653,55 @@ function localToday(): string {
  * off the board and leave it a URL away -- and one `POST /api/trucks/:id/contact`
  * away from a phone number.
  */
+/**
+ * Both truck predicates, for the one module outside this file that builds its
+ * own `WHERE` against `trucks`: the matcher's candidate prefilter
+ * (`src/lib/match/candidates.ts`).
+ *
+ * Exported rather than copied, and the asymmetry with the job side is
+ * deliberate. This file copies the JOB board's demo fragment because the job
+ * query path is frozen for this feature; there is nothing frozen about this
+ * file, so the truck feature's own second reader shares the predicates instead
+ * of restating them. A scope that has to be passed and a fragment that cannot
+ * be forgotten are worth more here than a symmetry with a constraint that does
+ * not apply.
+ */
+export {
+  visibilityClause as truckVisibilityClause,
+  demoVisibilitySql as truckDemoVisibilitySql,
+};
+
+/**
+ * The rows behind a set of ids the caller already holds, in id order.
+ *
+ * The sibling of `loadsByIds`, and for the same caller: the matcher decides on
+ * a fourteen-column prefilter and then needs the full public rows for the few
+ * that survived, without a second copy of `TRUCK_SELECT_COLUMNS` living under
+ * `lib/match`. Both predicates apply, so a pending or somebody else's demo
+ * truck cannot arrive through the back door of a match list.
+ */
+export async function trucksByIds(
+  ids: number[],
+  scope: TruckScope,
+  audience?: TruckAudience | null,
+): Promise<TruckRow[]> {
+  if (!ids.length) return [];
+  const p = params();
+  const where = [`t.id = ANY(${p.add(ids)}::bigint[])`];
+  const vis = visibilityClause(scope);
+  if (vis) where.push(vis);
+  const demo = demoVisibilitySql(audience, p);
+  if (demo) where.push(demo);
+
+  return query<TruckRow>(
+    `SELECT ${TRUCK_SELECT_COLUMNS}, NULL::float8 AS distance_miles
+       ${TRUCK_FROM_SQL}
+      WHERE ${where.join("\n        AND ")}
+      ORDER BY t.id`,
+    p.values,
+  );
+}
+
 export async function getTruck(
   id: number,
   scope: TruckScope,
