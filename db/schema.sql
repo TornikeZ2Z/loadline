@@ -400,3 +400,57 @@ UPDATE users SET is_demo = true
 -- default and an admin can withdraw from one that abuses it. `role` keeps admin
 -- separate; for everyone else it only records which door they came in through.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS can_post boolean NOT NULL DEFAULT true;
+
+-- ---------------------------------------------------------------------------
+-- Problem reports v1: "this job is wrong", from anybody.
+-- Additive only; safe to replay.
+-- ---------------------------------------------------------------------------
+
+-- A viewer who spots a mis-parsed job had no way to say so. Everything on the
+-- board is derived from a WhatsApp message by rules, so the people best placed
+-- to notice a wrong ZIP or a job that is long gone are the drivers reading it --
+-- and most of them are not signed in, because browsing never needs an account.
+-- So this table takes reports from anonymous callers, and its SHAPE is what
+-- makes that survivable.
+--
+-- ONE ROW PER (job, reason), not one row per POST -- that is the abuse story.
+-- The number of rows this table can ever hold is bounded by the corpus times a
+-- handful of reasons, not by the number of requests, so a flood raises
+-- `occurrences` on rows that already exist instead of growing a queue an admin
+-- has to wade through. Ten people reporting the same wrong pickup is also
+-- better signal than ten rows each saying it once.
+--
+-- The reason vocabulary is deliberately NOT a CHECK: it is validated in
+-- src/app/api/reports/route.ts against a list the admin console renders its
+-- labels from, and it will change as we learn what people actually report.
+-- `status` is CHECKed, because those three words are not going to change.
+CREATE TABLE IF NOT EXISTS problem_reports (
+  id            bigserial PRIMARY KEY,
+  -- Soft reference, deliberately no FK: a report about a job that was since
+  -- deleted or superseded is still the thing an admin needs to read, and it is
+  -- often the report that explains why the row went.
+  load_id       bigint NOT NULL,
+  reason        text NOT NULL,
+  -- Free text typed by a stranger. Trimmed, control characters stripped and cut
+  -- to 500 characters on write; this CHECK is the second line of defence, for
+  -- the day a new caller forgets to do that. NULL when they said nothing, which
+  -- is the common case -- the reason is the part that carries the meaning.
+  details       text CHECK (details IS NULL OR length(details) <= 500),
+  -- users.id when the reporter happened to be signed in, NULL when not. No FK,
+  -- and no IP address anywhere in this table: a report is about a job, and
+  -- keeping less about the person who filed it is the whole of what we owe them.
+  reported_by   bigint,
+  status        text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'dismissed')),
+  occurrences   integer NOT NULL DEFAULT 1,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at  timestamptz NOT NULL DEFAULT now(),
+  -- Who closed it and when. Always a real admin: only requireWriteRole reaches
+  -- PATCH /api/admin/reports/:id.
+  resolved_at   timestamptz,
+  resolved_by   bigint,
+  UNIQUE (load_id, reason)
+);
+
+-- The queue's only read: open reports, most recently reported first.
+CREATE INDEX IF NOT EXISTS problem_reports_status_idx
+  ON problem_reports (status, last_seen_at DESC);

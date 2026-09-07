@@ -15,6 +15,7 @@
  * would double the work and race. The Reprocess button is the only caller.
  */
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/basePath";
 import type { ChatGroup, ChatLoad, ChatMessage } from "@/lib/demo/chats";
@@ -22,6 +23,7 @@ import type { LineAudit, LineClass } from "@/lib/extract/schema";
 import type { IgnoreLineRule, KeywordAs } from "@/lib/extract/rules-store";
 import type { HereStatus, ZipSurvey, ZipWarmResult } from "@/lib/geo/zips";
 import { formatCf } from "@/lib/loads/present";
+import { reportReasonLabel, type ProblemReport } from "@/lib/reports";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
 import { Chip } from "./ui";
 
@@ -264,6 +266,44 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
 
 type QueueMessage = ChatMessage & { processed_at: string | null; attempts: number };
 
+/**
+ * What is currently open in the right-hand pane.
+ *
+ * A union rather than two ids, because the two are mutually exclusive by
+ * definition: this queue shows one thing at a time, and a state that could hold
+ * both would have to decide which wins on every render.
+ */
+type QueueSelection = { kind: "message"; id: number } | { kind: "report"; id: number };
+
+/**
+ * The one chip that filters to reported jobs.
+ *
+ * It sits in the same row as the parser's attention codes, and it is lowercase
+ * like they are, because to an admin it is the same kind of fact: something
+ * about this job needs a human. It is not an attention code — no pipeline
+ * writes it — which is why it is a constant here rather than an entry in
+ * ATTENTION_CODES, where it would eventually be sent to the messages endpoint
+ * as `?attention=reported` and match nothing.
+ */
+const REPORTED = "reported";
+
+/** 500 characters is fine in the pane; in a 380 px card it is the whole column. */
+function preview(text: string, max = 110): string {
+  return text.length <= max ? text : `${text.slice(0, max).trimEnd()}…`;
+}
+
+/**
+ * Needs attention: messages the parser could not read, AND jobs somebody
+ * reported.
+ *
+ * One queue, deliberately. An admin's attention is a single thing, and a job a
+ * driver says is wrong belongs next to a message the rules choked on — they are
+ * both "the board is lying about something, go look". Two tabs would have made
+ * the second one the tab nobody opens.
+ *
+ * Reports lead the list when no filter is set, because they are the only rows
+ * here a person outside the company took the trouble to write.
+ */
 function Attention({
   initialMessageId,
   onToast,
@@ -273,16 +313,36 @@ function Attention({
 }) {
   const [code, setCode] = useState<string>("");
   const [sender, setSender] = useState("");
-  const [selectedId, setSelectedId] = useState<number | null>(initialMessageId ?? null);
+  const [selected, setSelected] = useState<QueueSelection | null>(
+    initialMessageId == null ? null : { kind: "message", id: initialMessageId },
+  );
 
-  const path = `/api/admin/messages?${new URLSearchParams({
-    ...(code ? { attention: code } : {}),
-    ...(sender ? { sender } : {}),
-    limit: "100",
-  })}`;
+  // A specific attention code is a question about the parser, and no report
+  // carries one, so asking for messages at all would be asking for nothing.
+  const showReports = code === "" || code === REPORTED;
+  const showMessages = code !== REPORTED;
+
+  const path = showMessages
+    ? `/api/admin/messages?${new URLSearchParams({
+        ...(code ? { attention: code } : {}),
+        ...(sender ? { sender } : {}),
+        limit: "100",
+      })}`
+    : null;
   const queue = useAdminResource<{ messages: QueueMessage[] }>(path);
 
-  const messages = queue.data?.messages ?? [];
+  // Always fetched, whatever the filter says, so the `reported` chip can carry a
+  // count: a queue that hides how much is in it is a queue nobody checks.
+  const reportsRes = useAdminResource<{ reports: ProblemReport[] }>(
+    "/api/admin/reports?status=open&limit=100",
+  );
+
+  const messages = showMessages ? (queue.data?.messages ?? []) : [];
+  const allReports = reportsRes.data?.reports ?? [];
+  const reports = showReports ? allReports : [];
+
+  const loading = (showMessages && queue.loading) || reportsRes.loading;
+  const empty = !loading && messages.length === 0 && reports.length === 0;
 
   return (
     <div className="grid gap-[var(--sp-4)] lg:grid-cols-[380px_1fr]">
@@ -290,6 +350,9 @@ function Attention({
         <div className="flex flex-wrap gap-[var(--sp-1)]">
           <FilterChip on={code === ""} onClick={() => setCode("")}>
             any
+          </FilterChip>
+          <FilterChip on={code === REPORTED} onClick={() => setCode(REPORTED)}>
+            {allReports.length > 0 ? `${REPORTED} (${allReports.length})` : REPORTED}
           </FilterChip>
           {ATTENTION_CODES.map((c) => (
             <FilterChip key={c} on={code === c} onClick={() => setCode(c)}>
@@ -302,63 +365,247 @@ function Attention({
           className="field mt-[var(--sp-2)]"
           placeholder="Filter by sender key"
           value={sender}
+          // A sender key belongs to a message; a report is filed against a job
+          // and carries none. Typing one is a question only messages can answer.
+          disabled={code === REPORTED}
           onChange={(e) => setSender(e.target.value)}
         />
 
         <div className="mt-[var(--sp-3)] flex flex-col gap-[var(--sp-2)]">
-          {queue.unavailable ? (
+          {queue.unavailable && reportsRes.unavailable ? (
             <Unavailable what="The attention queue" />
-          ) : queue.loading ? (
+          ) : loading ? (
             <p style={{ color: "var(--muted)" }}>Loading…</p>
-          ) : messages.length === 0 ? (
+          ) : empty ? (
             <p style={{ color: "var(--muted)" }}>Nothing needs attention.</p>
           ) : (
-            messages.map((m) => (
-              <button
-                key={m.id}
-                className={`card p-[var(--sp-2)] text-left${selectedId === m.id ? " card-selected" : ""}`}
-                onClick={() => setSelectedId(m.id)}
-              >
-                <div className="flex flex-wrap items-center gap-[var(--sp-1)]">
-                  <span className="font-semibold">{m.author_name ?? "Unknown"}</span>
-                  {m.group_name && (
-                    <span className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
-                      {m.group_name}
-                    </span>
-                  )}
-                  <span className="ml-auto text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
-                    {new Date(m.sent_at).toLocaleDateString()}
-                  </span>
-                </div>
-                <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
-                  {m.attention && <Chip tone="warn">{m.attention}</Chip>}
-                  {m.parse_status && (
-                    <Chip tone={m.parse_status === "clean" ? "ok" : "warn"}>{m.parse_status}</Chip>
-                  )}
-                  {m.snapshot_kind && <Chip tone="muted">{m.snapshot_kind}</Chip>}
-                  <Chip tone="muted">{m.load_count} jobs</Chip>
-                </div>
-                {m.format_signature && (
-                  <code className="mt-[var(--sp-1)] block text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
-                    {m.format_signature}
-                  </code>
-                )}
-              </button>
-            ))
+            <>
+              {reports.map((r) => {
+                const on = selected?.kind === "report" && selected.id === r.id;
+                return (
+                  <button
+                    key={`report-${r.id}`}
+                    className={`card p-[var(--sp-2)] text-left${on ? " card-selected" : ""}`}
+                    onClick={() => setSelected({ kind: "report", id: r.id })}
+                  >
+                    <div className="flex flex-wrap items-center gap-[var(--sp-1)]">
+                      <span className="font-semibold">Job {r.load_id}</span>
+                      {/* The job's own words when it still exists, and nothing
+                          at all when it does not -- never a placeholder that
+                          reads like a place. */}
+                      {r.pickup_label && r.delivery_label && (
+                        <span className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+                          {r.pickup_label} → {r.delivery_label}
+                        </span>
+                      )}
+                      <span className="ml-auto text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+                        {new Date(r.last_seen_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
+                      <Chip tone="review">{REPORTED}</Chip>
+                      <Chip tone="warn">{reportReasonLabel(r.reason)}</Chip>
+                      {r.occurrences > 1 && <Chip tone="muted">{r.occurrences}×</Chip>}
+                      {r.pickup_label === null && <Chip tone="muted">job is gone</Chip>}
+                    </div>
+                    {r.details && (
+                      <p
+                        className="mt-[var(--sp-1)] [overflow-wrap:anywhere] text-(length:--fs-xs)"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        {preview(r.details)}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+
+              {messages.map((m) => {
+                const on = selected?.kind === "message" && selected.id === m.id;
+                return (
+                  <button
+                    key={`message-${m.id}`}
+                    className={`card p-[var(--sp-2)] text-left${on ? " card-selected" : ""}`}
+                    onClick={() => setSelected({ kind: "message", id: m.id })}
+                  >
+                    <div className="flex flex-wrap items-center gap-[var(--sp-1)]">
+                      <span className="font-semibold">{m.author_name ?? "Unknown"}</span>
+                      {m.group_name && (
+                        <span className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+                          {m.group_name}
+                        </span>
+                      )}
+                      <span className="ml-auto text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+                        {new Date(m.sent_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
+                      {m.attention && <Chip tone="warn">{m.attention}</Chip>}
+                      {m.parse_status && (
+                        <Chip tone={m.parse_status === "clean" ? "ok" : "warn"}>{m.parse_status}</Chip>
+                      )}
+                      {m.snapshot_kind && <Chip tone="muted">{m.snapshot_kind}</Chip>}
+                      <Chip tone="muted">{m.load_count} jobs</Chip>
+                    </div>
+                    {m.format_signature && (
+                      <code className="mt-[var(--sp-1)] block text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+                        {m.format_signature}
+                      </code>
+                    )}
+                  </button>
+                );
+              })}
+            </>
           )}
         </div>
       </div>
 
-      {selectedId == null ? (
-        <p style={{ color: "var(--muted)" }}>Pick a message to see its lines and fix them.</p>
+      {selected == null ? (
+        <p style={{ color: "var(--muted)" }}>Pick a message or a report to work on it.</p>
+      ) : selected.kind === "report" ? (
+        <ReportPanel
+          report={allReports.find((r) => r.id === selected.id) ?? null}
+          onToast={(t) => {
+            onToast(t);
+            reportsRes.reload();
+            setSelected(null);
+          }}
+        />
       ) : (
         <MessageWorkbench
-          messageId={selectedId}
+          messageId={selected.id}
           onToast={(t) => {
             onToast(t);
             queue.reload();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * One reported job, and the two things an admin can do about it.
+ *
+ * RESOLVE means the job was wrong and has been dealt with; a fresh report about
+ * the same job and reason reopens the row, because a problem that comes back is
+ * news. DISMISS means the job is right and the report was not; POST /api/reports
+ * leaves a dismissed row alone, so nobody can push it back into this queue by
+ * clicking again. The wording of the two buttons has to carry that difference,
+ * because the API's behaviour depends on which one is pressed.
+ *
+ * `details` is a stranger's free text. It is rendered as a text node and nothing
+ * else -- not linked, not parsed, not trusted -- and it arrived stripped of
+ * control and bidirectional characters and cut to 500 (src/lib/reports.ts).
+ * `whitespace-pre-wrap` keeps their line breaks.
+ *
+ * `min-w-0` on the root and `overflow-wrap: anywhere` on the text are not
+ * cosmetic, and `break-words` was not enough: a grid child defaults to
+ * `min-width: auto`, so 500 characters with no space in them set this column's
+ * minimum and pushed the WHOLE PAGE to 4170 px with a horizontal scrollbar --
+ * a stranger's POST body reshaping an admin's screen. `anywhere` is the one
+ * value that also shrinks the min-content size, which is what the grid reads.
+ */
+function ReportPanel({
+  report,
+  onToast,
+}: {
+  report: ProblemReport | null;
+  onToast(text: string): void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  if (!report) return <p style={{ color: "var(--muted)" }}>That report is no longer open.</p>;
+
+  async function close(status: "resolved" | "dismissed") {
+    if (!report) return;
+    setBusy(true);
+    try {
+      const res = await fetch(api(`/api/admin/reports/${report.id}`), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (res.status === 404) {
+        onToast("The reports endpoint is not available yet.");
+        return;
+      }
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        onToast(body?.error ?? "Could not update the report");
+        return;
+      }
+      onToast(status === "resolved" ? "Report resolved." : "Report dismissed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="min-w-0">
+      <div className="flex flex-wrap items-center gap-[var(--sp-2)]">
+        <span className="font-semibold">Job {report.load_id}</span>
+        <Chip tone="review">{REPORTED}</Chip>
+        <Chip tone="warn">{reportReasonLabel(report.reason)}</Chip>
+        {report.occurrences > 1 && (
+          <Chip tone="muted" title="Distinct reports of this job for this reason">
+            {report.occurrences} reports
+          </Chip>
+        )}
+        <button className="btn btn-sm" disabled={busy} onClick={() => close("resolved")}>
+          Resolve
+        </button>
+        <button className="btn btn-sm" disabled={busy} onClick={() => close("dismissed")}>
+          Dismiss
+        </button>
+      </div>
+
+      <p className="mt-[var(--sp-2)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        {report.pickup_label && report.delivery_label ? (
+          <>
+            {report.pickup_label} → {report.delivery_label}
+            {report.load_status ? ` · ${report.load_status}` : ""} ·{" "}
+            {/* Link, not <a>: a hand-written href would miss the base path when
+                the app is served under a sub-path (see src/lib/basePath.ts). */}
+            <Link
+              href={`/jobs/${report.load_id}`}
+              target="_blank"
+              className="font-semibold"
+              style={{ color: "var(--accent)" }}
+            >
+              See it on the board →
+            </Link>
+          </>
+        ) : (
+          // Said, not hidden: the report outlives the job on purpose, and an
+          // admin looking for a row that is not there should be told why.
+          `Job ${report.load_id} is no longer in the database. The report is kept anyway.`
+        )}
+      </p>
+
+      <p className="mt-[var(--sp-1)] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+        First reported {new Date(report.first_seen_at).toLocaleString()} · last{" "}
+        {new Date(report.last_seen_at).toLocaleString()} ·{" "}
+        {/* "Not signed in" is the truth and the common case, and it is worth
+            seeing: an anonymous report is the one we can least follow up on. */}
+        {report.reporter_name
+          ? `first filed by ${report.reporter_name} (${report.reporter_email})`
+          : "filed by someone who was not signed in"}
+      </p>
+
+      {report.details ? (
+        <div className="card mt-[var(--sp-3)] p-[var(--sp-3)]">
+          <div className="mb-[var(--sp-1)] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+            What they wrote — untrusted text, shown as typed
+          </div>
+          <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-(length:--fs-sm)">
+            {report.details}
+          </p>
+        </div>
+      ) : (
+        <p className="mt-[var(--sp-3)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+          They picked a reason and wrote nothing else.
+        </p>
       )}
     </div>
   );
