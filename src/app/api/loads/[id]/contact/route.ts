@@ -139,5 +139,5 @@ function jobText(load: LoadRow, name: string | null, display: string | null): st
  */
 function waText(load: LoadRow): string {
   const size = load.cubic_feet ? ` (${load.cubic_feet.toLocaleString("en-US")} cf)` : "";
-  return `Hi, about your ${load.pickup_label} → ${load.delivery_label}${size} job on LoadLine — still available?`;
+  return `Hi, about your ${load.pickup_label} → ${load.delivery_label}${size} job on MoverMesh — still available?`;
 }
