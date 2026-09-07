@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Cookies",
   description:
-    "LoadLine sets one cookie — the signed session — and keeps four preferences in your browser. No analytics, no advertising, no third-party trackers.",
+    "MoverMesh sets one cookie — the signed session — and keeps four preferences in your browser. No analytics, no advertising, no third-party trackers.",
 };
 
 /**
@@ -70,6 +70,11 @@ export default async function CookiesPage() {
           <p>
             These live in your browser&rsquo;s local storage. They are never sent to us as stored
             values, they are not cookies, and they do not leave the device.
+          </p>
+          <p>
+            Their names still start with <code>loadline.</code>, which is what this product was
+            called before it was MoverMesh. Renaming the keys would silently discard the location
+            every existing visitor has saved, so the old prefix stays.
           </p>
           <StoredItem name="loadline.viewer.v1" where="Local storage">
             Where you said you will be when the trailer is empty, so the board can sort by distance
