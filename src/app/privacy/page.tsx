@@ -87,9 +87,9 @@ export default async function PrivacyPage() {
             scraper.
           </p>
           <p>
-            <strong>Jobs posted on the site.</strong> If a poster puts a job up through{" "}
-            <Link href="/post">Post a job</Link>, that job and its contact details are stored the
-            same way.
+            <strong>Listings posted on the site.</strong> If you put a job or space on a truck up
+            through <Link href="/post">Post to the board</Link>, that listing and its contact
+            details are stored the same way.
           </p>
         </Section>
 

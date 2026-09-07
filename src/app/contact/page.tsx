@@ -139,7 +139,7 @@ export default async function ContactPage({
         <Section title="Posting a job without a group">
           <p>
             A poster account can put a job on the board directly, from{" "}
-            <Link href="/post">Post a job</Link>. If you do not have one, say so and say what you
+            <Link href="/post/job">Post a job</Link>. If you do not have one, say so and say what you
             move.
           </p>
         </Section>

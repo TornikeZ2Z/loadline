@@ -69,7 +69,11 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
     { key: "board", href: "/", label: "Board", show: true },
     // Always shown: an anonymous or driver click lands on /login?next=/post or
     // the poster-only notice, which is how someone learns what posting needs.
-    { key: "post", href: "/post", label: "Post a job", short: "Post", show: true },
+    //
+    // "Post a job" until the board had one kind of listing. `/post` is a chooser
+    // now -- freight, or space on a truck -- and naming one of the two in the
+    // nav would have told a driver the other was not on offer.
+    { key: "post", href: "/post", label: "Post", short: "Post", show: true },
     { key: "admin", href: "/admin", label: "Admin", show: isAdmin },
     { key: "test", href: "/admin/test", label: "WhatsApp console", short: "Console", show: isAdmin },
   ];

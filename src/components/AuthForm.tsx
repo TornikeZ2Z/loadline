@@ -179,14 +179,26 @@ export function AuthForm({
             onSubmit={submit}
             className={`card space-y-3 p-5 ${demoAccounts.length ? "mt-3" : ""}`}
           >
+            {/* The two words are not a choice about what you may DO.
+                `Role` is "which door you came in through" and posting is
+                `users.can_post`, a capability every account has -- but this
+                control read as an exclusive pair ("See contacts on jobs" OR
+                "Post jobs from the website"), and a driver who picked the first
+                had every reason to think they could not post.
+
+                That was survivable while the only thing to post was somebody
+                else's freight. It stopped being survivable the day a driver
+                could post their own empty leg: the person this feature exists
+                for is exactly the person the old wording turned away. SPEC §20
+                flagged this copy as deferred and load-bearing here. */}
             {!isLogin && (
               <div>
-                <label className="label">I want to</label>
+                <label className="label">Mostly here to</label>
                 <div className="grid grid-cols-2 gap-2">
                   {(
                     [
-                      { value: "driver", title: "See contacts on jobs" },
-                      { value: "poster", title: "Post jobs from the website" },
+                      { value: "driver", title: "Find work for my truck" },
+                      { value: "poster", title: "Post freight I need moved" },
                     ] as const
                   ).map((opt) => (
                     <label
@@ -210,6 +222,10 @@ export function AuthForm({
                     </label>
                   ))}
                 </div>
+                <p className="mt-2 text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                  This only sets what we show you first. Either account can browse the board, see
+                  contacts, post a job, and post space on a truck.
+                </p>
               </div>
             )}
 

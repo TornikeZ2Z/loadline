@@ -38,7 +38,7 @@ export const SITE_SECTIONS: SiteSection[] = [
       { href: "/", label: "Board" },
       { href: "/for-movers", label: "For movers" },
       { href: "/how-it-works", label: "How it works" },
-      { href: "/post", label: "Post a job" },
+      { href: "/post", label: "Post to the board" },
     ],
   },
   {

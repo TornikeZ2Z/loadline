@@ -224,8 +224,12 @@ export default async function ForMoversPage() {
               <Link className="btn btn-primary" href="/">
                 Browse the board
               </Link>
+              {/* The chooser, not the job form: this page's reader is as
+                  likely to be a driver with an empty leg as a poster with
+                  freight, and naming one would tell the other they are not
+                  invited. */}
               <Link className="btn" href="/post">
-                Post a job
+                Post to the board
               </Link>
             </div>
             <p
@@ -297,7 +301,10 @@ export default async function ForMoversPage() {
                   signed-in account, one job at a time, on the record.
                 </>,
               ]}
-              cta={{ href: "/post", label: "Post a job" }}
+              /* This block is about a SENDER's freight -- reposting a batch,
+                 having their number stripped out of it -- so the word still
+                 means a shipment and the link goes straight to the job form. */
+              cta={{ href: "/post/job", label: "Post a job" }}
             />
           </div>
 
