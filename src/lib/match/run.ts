@@ -63,7 +63,7 @@ export async function matchesForTruck(
   const truck = await matchTruckById(truckId, scope, audience);
   if (!truck) return null;
 
-  const candidates = await candidateJobsForTruck(truck, audience as LoadAudience | null);
+  const candidates = await candidateJobsForTruck(truck, audience);
   const today = boardToday(now);
 
   const refusals: Partial<Record<RefusalCode, number>> = {};
@@ -77,10 +77,12 @@ export async function matchesForTruck(
     else tally(refusals, verdict.refusal);
   }
 
-  const rows = await loadsByIds([...ok.keys()], audience as LoadAudience | null);
+  const rows = await loadsByIds([...ok.keys()], audience);
   const matches = rows
-    .map((item) => ({ item, verdict: ok.get(item.id)! }))
-    .filter((m) => m.verdict != null)
+    .flatMap((item) => {
+      const v = ok.get(item.id);
+      return v ? [{ item, verdict: v }] : [];
+    })
     .sort((a, b) =>
       compareMatches(a, b, (job) => ({
         deadline: job.deliver_by,
@@ -110,7 +112,7 @@ export async function matchesForJob(
   const job = await matchJobById(jobId, audience);
   if (!job) return null;
 
-  const candidates = await candidateTrucksForJob(job, scope, audience as TruckAudience | null);
+  const candidates = await candidateTrucksForJob(job, scope, audience);
   const today = boardToday(now);
 
   const refusals: Partial<Record<RefusalCode, number>> = {};
@@ -122,10 +124,12 @@ export async function matchesForJob(
     else tally(refusals, verdict.refusal);
   }
 
-  const rows = await trucksByIds([...ok.keys()], scope, audience as TruckAudience | null);
+  const rows = await trucksByIds([...ok.keys()], scope, audience);
   const matches = rows
-    .map((item) => ({ item, verdict: ok.get(item.id)! }))
-    .filter((m) => m.verdict != null)
+    .flatMap((item) => {
+      const v = ok.get(item.id);
+      return v ? [{ item, verdict: v }] : [];
+    })
     .sort((a, b) =>
       compareMatches(a, b, (truck) => ({
         // A truck has no delivery deadline; the day its offer stops being true

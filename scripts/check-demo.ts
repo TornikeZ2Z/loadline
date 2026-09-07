@@ -721,22 +721,27 @@ async function matchDemoChecks(m: MatchMatrix): Promise<void> {
   );
 
   // ...and the preview, which reads jobs on behalf of a draft nobody has posted.
-  const anonPreview = await previewMatches(
-    { id: 0, status: "available", visibility: "public", sender_key: null, posted_by: null,
-      origin_lat: TRUCK.origin_lat, origin_lng: TRUCK.origin_lng,
-      dest_lat: TRUCK.dest_lat, dest_lng: TRUCK.dest_lng,
-      corridor_miles: TRUCK.corridor_miles, free_cf: TRUCK.free_cf,
-      avail_now: true, avail_from: null, avail_to: null },
-    { userId: null },
-  );
-  const posterPreview = await previewMatches(
-    { id: 0, status: "available", visibility: "public", sender_key: null, posted_by: null,
-      origin_lat: TRUCK.origin_lat, origin_lng: TRUCK.origin_lng,
-      dest_lat: TRUCK.dest_lat, dest_lng: TRUCK.dest_lng,
-      corridor_miles: TRUCK.corridor_miles, free_cf: TRUCK.free_cf,
-      avail_now: true, avail_from: null, avail_to: null },
-    { userId: m.demoPosterId },
-  );
+  // `posted_by: null` so gate 3 cannot hide the demo job for the poster's own
+  // audience -- what is being measured here is the demo predicate, not the
+  // same-party one.
+  const draft = {
+    id: 0,
+    status: "available" as const,
+    visibility: "public" as const,
+    sender_key: null,
+    posted_by: null,
+    origin_lat: TRUCK.origin_lat,
+    origin_lng: TRUCK.origin_lng,
+    dest_lat: TRUCK.dest_lat,
+    dest_lng: TRUCK.dest_lng,
+    corridor_miles: TRUCK.corridor_miles,
+    free_cf: TRUCK.free_cf,
+    avail_now: true,
+    avail_from: null,
+    avail_to: null,
+  };
+  const anonPreview = await previewMatches(draft, { userId: null });
+  const posterPreview = await previewMatches(draft, { userId: m.demoPosterId });
   assert(
     posterPreview.total === anonPreview.total + 1,
     `the posting preview counted ${posterPreview.total} for the demo poster and ${anonPreview.total} anonymously -- the demo job must be in exactly one of them`,

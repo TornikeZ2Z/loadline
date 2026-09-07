@@ -59,6 +59,11 @@ export interface EvaluateInput {
   dismissed?: boolean;
 }
 
+interface LatLng {
+  lat: number;
+  lng: number;
+}
+
 const refuse = (refusal: RefusalCode): MatchVerdict => ({ ok: false, refusal });
 
 /** An ISO date to the calendar shape the date helpers work in. */
@@ -99,11 +104,6 @@ export function legCourseAt(origin: LatLng, destination: LatLng, f: number): num
     intermediatePoint(origin, destination, Math.max(0, f - 0.02)),
     intermediatePoint(origin, destination, Math.min(1, f + 0.02)),
   );
-}
-
-interface LatLng {
-  lat: number;
-  lng: number;
 }
 
 /**
