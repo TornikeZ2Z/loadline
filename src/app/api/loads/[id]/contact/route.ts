@@ -55,7 +55,10 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
   });
   if (!load) notFound("Job not found");
 
-  const contact = await revealContact(load.id, user.id);
+  // `"job"` is the kind, and it is stated rather than defaulted: the reveal is
+  // one function over two tables now (SPEC §6), and a default would let the
+  // truck handler inherit the job branch by forgetting to say so.
+  const contact = await revealContact("job", load.id, user.id);
   if (!contact) notFound("Job not found");
 
   const phone = normalizePhone(contact.contact_phone);
@@ -101,7 +104,7 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
       url: link?.url ?? null,
       kind: link?.kind ?? null,
     },
-    jobText: jobText(load, contact.contact_name, display),
+    listingText: jobText(load, contact.contact_name, display),
     sourceBody: source?.body ?? null,
     viewer: { id: user.id, name: user.name, role: user.role },
   };

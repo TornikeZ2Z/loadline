@@ -196,8 +196,16 @@ export interface ContactResponse {
     url: string | null;
     kind: "invite" | "wa" | null;
   };
-  /** The job as plain text, for the clipboard: what a driver pastes into the group. */
-  jobText: string;
+  /**
+   * The listing as plain text, for the clipboard: what a driver pastes into the
+   * group.
+   *
+   * `listingText` and not `jobText`, because this response now answers for two
+   * kinds. The shape is deliberately identical for a job and a truck so the one
+   * `ContactGate` component serves both (SPEC §6); a field named for one of them
+   * would have made the shared component read the wrong noun out loud.
+   */
+  listingText: string;
   /** The original WhatsApp text, unmasked. */
   sourceBody: string | null;
   viewer: { id: number; name: string; role: Role };

@@ -75,9 +75,25 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
   // --- a person, whoever they are -------------------------------------------
   "POST /api/loads/[id]/contact": { guard: "user", why: "the ONE endpoint that returns a phone; logged per reveal" },
   "PATCH /api/loads/[id]/status": { guard: "user", why: "ownership, not role: own rows, or a real admin (isAdminActor)" },
+  "POST /api/trucks/[id]/contact": {
+    guard: "user",
+    why: "the ONE endpoint that returns a truck's phone; the same revealContact, logged into truck_events per reveal",
+  },
+  "PATCH /api/trucks/[id]": {
+    guard: "user",
+    why: "ownership, not role: the owner (posted_by) edits their own departure, or a real admin (isAdminActor). 404 before 403, so a pending or demo row stays invisible",
+  },
+  "PATCH /api/trucks/[id]/status": {
+    guard: "user",
+    why: "ownership, not role: booked/cancelled/available on your own truck. departed and expired are the sweep's conclusions and are refused by name",
+  },
 
   // --- the posting capability -----------------------------------------------
   "POST /api/loads": { guard: "posting", why: "users.can_post, not the poster role" },
+  "POST /api/trucks": {
+    guard: "posting",
+    why: "users.can_post, the same capability a job needs — a driver posting their own empty leg is the whole point of the feature",
+  },
 
   // --- a machine with a secret ----------------------------------------------
   "POST /api/cron/expire": { guard: "cron-secret", why: "scheduled sweep; bearer token" },

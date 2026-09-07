@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, rateLimit } from "@/lib/api";
-import { getCurrentUser, isAdminActor } from "@/lib/auth";
+import { getCurrentUser, isAdminActor, requirePosting } from "@/lib/auth";
 import { searchTrucks } from "@/lib/loads/truckQuery";
 import { parseTruckSearchParams, TruckSearchParamError } from "@/lib/loads/truckSearchParams";
 import { toPublicTrucks } from "@/lib/loads/publicView";
+import { insertWebTruck, WebTruckValidationError, type WebTruckBody } from "@/lib/pipeline/web";
 
 /**
  * The public truck board.
@@ -74,3 +75,63 @@ export const GET = handler(async (req: Request) => {
 
   return NextResponse.json({ ...result, rows: toPublicTrucks(result.rows) });
 });
+
+/**
+ * Publishing an empty leg from the website.
+ *
+ * `requirePosting()`, the same capability that gates a job (`users.can_post`),
+ * and deliberately not a role test: the whole point of stage 2 is that a driver
+ * who registered as a driver can post their own truck. Wave 1 turned posting
+ * into a capability precisely so a company that both hauls and posts would stop
+ * needing two accounts, and this is the feature that makes that decision
+ * load-bearing (SPEC §20).
+ *
+ * A demo account passes this gate and gets a 201, exactly as it does for a job.
+ * What it gets is a row stamped `trucks.is_demo`, which only that account can
+ * see. The stamp is read from the SESSION and from nowhere else -- there is no
+ * field in the body that can turn it off, and `searchTrucks`' audience is what
+ * keeps a stranger from ever seeing the row.
+ */
+export const POST = handler(async (req: Request) => {
+  const user = await requirePosting();
+  const body = await readTruckBody(req);
+
+  try {
+    const { id } = await insertWebTruck(
+      { id: user.id, name: user.name, phone: user.phone, isDemo: user.isDemo },
+      body,
+    );
+    return NextResponse.json({ id }, { status: 201 });
+  } catch (err) {
+    // A validation error names the field, so the form can say which one.
+    if (err instanceof WebTruckValidationError) badRequest(`${err.field}: ${err.message}`);
+    throw err;
+  }
+});
+
+/**
+ * JSON or FormData, both arriving as the same string-keyed shape.
+ *
+ * A copy of `readBody` in the job route rather than a shared import, for the
+ * same reason the query layer is a sibling rather than a generalisation: that
+ * file is frozen for this feature. The function is nine lines and the cost of
+ * the copy is visible.
+ */
+async function readTruckBody(req: Request): Promise<WebTruckBody> {
+  const type = req.headers.get("content-type") ?? "";
+
+  if (type.includes("application/json")) {
+    const raw = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (v == null) continue;
+      out[k] = typeof v === "string" ? v : String(v);
+    }
+    return out as unknown as WebTruckBody;
+  }
+
+  const form = await req.formData();
+  const out: Record<string, string> = {};
+  for (const [k, v] of form.entries()) if (typeof v === "string") out[k] = v;
+  return out as unknown as WebTruckBody;
+}

@@ -17,6 +17,8 @@ import { computeExpiry } from "@/lib/extract/dates";
 import { normalizePhone } from "@/lib/extract/phone";
 import { geocode, geocodeDestination } from "@/lib/geo/geocode";
 import { haversineMiles } from "@/lib/geo/math";
+import { truckExpiresAt } from "@/lib/pipeline/trucks";
+import { DEFAULT_TRUCK_CORRIDOR_MILES, TRUCK_CORRIDOR_OPTIONS } from "@/lib/loads/constants";
 
 export interface WebJobBody {
   pickup: string;                                   // required label as typed or picked
@@ -370,4 +372,616 @@ function titleCase(s: string): string {
     .split(/\s+/)
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
     .join(" ");
+}
+
+// --- available truck space ---------------------------------------------------
+
+/**
+ * A driver's empty leg, posted through the website.
+ *
+ * The sibling of `insertWebJob` above, in the same file for the reason §9 gives:
+ * same geocode path, same precision handling, same validator style, same demo
+ * stamp read from the session and from nowhere else. What it is NOT is a mode
+ * of `insertWebJob` -- the two write different tables, and the columns are
+ * deliberately named so that nothing here can be pasted into there.
+ *
+ * Every honesty rule in the form is enforced HERE as well as in the browser,
+ * because a POST is a public interface:
+ *
+ *   * an empty destination that was not explicitly ticked "not decided" is a
+ *     validation error naming the field. We will not guess which the driver
+ *     meant, and a truck silently given no destination is a truck whose lane
+ *     the board would print as unknown when in fact the driver just tabbed past
+ *     the box;
+ *   * `free_cf` blank is blank. It is never 0, never derived from `truck_cf`,
+ *     and never read out of `truck_text`: "26 ft box truck" is a length and a
+ *     body style, not a volume, and converting one into the other is the single
+ *     thing this product's voice refuses most loudly;
+ *   * `avail_now` is true only when the driver said so. There is no default and
+ *     no silent today, which is why `availMode` has four values and not three.
+ */
+export interface WebTruckBody {
+  origin: string;                                   // required label as typed or picked
+  originLat?: string;
+  originLng?: string;
+  originState?: string;
+  originZip?: string;
+  originPrecision?: string;
+
+  dest?: string;                                    // optional, but see destUndecided
+  destLat?: string;
+  destLng?: string;
+  destState?: string;
+  destZip?: string;
+  destPrecision?: string;
+  /** "on" -- the driver ticked "Not decided yet". Required when `dest` is blank. */
+  destUndecided?: "on" | "";
+
+  freeCf?: string;                                  // 10..20000, or blank for "not sure"
+  truckCf?: string;                                 // 10..20000, must be >= freeCf
+  truckText?: string;                               // the words; never converted to cf
+
+  /** No default: "now" | "from" | "between" | "unknown". */
+  availMode?: string;
+  availFrom?: string;                               // YYYY-MM-DD
+  availTo?: string;                                 // YYYY-MM-DD
+
+  corridorMiles?: string;                           // one of TRUCK_CORRIDOR_OPTIONS
+
+  equipment?: string;                               // comma list over the job TAG vocabulary
+  cannot?: string;                                  // comma list, disjoint from equipment
+  equipmentNotes?: string;
+
+  hasDotMc?: "on" | "";
+  hasHhgAuthority?: "on" | "";
+  hasCoi?: "on" | "";
+
+  requirements?: string;
+  notes?: string;
+  contactName?: string;
+  contactPhone?: string;                            // default user.phone; required after defaulting
+}
+
+/**
+ * The field name travels with the message so the route can answer
+ * "freeCf: must be between 10 and 20000 cubic feet" and the form can put the
+ * error under the input it belongs to. The type is the union of the post body
+ * and the patch body: `status` only exists on the second, and naming it in a
+ * message is the difference between a form that highlights a control and one
+ * that prints a sentence at the bottom.
+ */
+export class WebTruckValidationError extends Error {
+  constructor(
+    public field: keyof WebTruckBody | keyof WebTruckPatch,
+    message: string,
+  ) {
+    super(message);
+    this.name = "WebTruckValidationError";
+  }
+}
+
+/** Free space, in cubic feet. The column's own CHECK, restated where the message can name the field. */
+const FREE_CF_MIN = 10;
+const FREE_CF_MAX = 20000;
+
+/**
+ * A demo account's trucks are swept exactly as its jobs are.
+ *
+ * Same numbers, and the same reasoning: a demo listing is scratch that only its
+ * poster can see, the poster is an identity a stranger enters with one click,
+ * and the table must be bounded by the shape of the thing rather than by how
+ * hard somebody leans on the button. Separate constants would have been two
+ * numbers to keep in step for no benefit, so this reuses `DEMO_KEEP` and
+ * `DEMO_MAX_AGE_HOURS` above.
+ */
+export async function insertWebTruck(
+  user: { id: number; name: string; phone: string | null; isDemo: boolean },
+  body: WebTruckBody,
+): Promise<{ id: number }> {
+  const now = new Date();
+
+  // --- where it will be empty ----------------------------------------------
+  const originLabel = (body.origin ?? "").trim();
+  if (!originLabel) throw new WebTruckValidationError("origin", "required");
+
+  const origin = await placeFor(originLabel, {
+    lat: body.originLat,
+    lng: body.originLng,
+    state: body.originState,
+    zip: body.originZip,
+    precision: body.originPrecision,
+  });
+  if (!origin) throw new WebTruckValidationError("origin", "could not be found on the map");
+
+  // --- where it is headed ---------------------------------------------------
+  // Blank AND unticked is the error. The two are different answers and the form
+  // says so; conflating them is how a truck ends up claiming a lane it never
+  // claimed, or hiding one it did.
+  const destLabel = (body.dest ?? "").trim();
+  const undecided = body.destUndecided === "on";
+  if (!destLabel && !undecided) {
+    throw new WebTruckValidationError(
+      "dest",
+      'give a destination, or tick "Not decided yet" — we will not guess which you meant',
+    );
+  }
+  if (destLabel && undecided) {
+    throw new WebTruckValidationError(
+      "dest",
+      'you typed a destination and also ticked "Not decided yet" — pick one',
+    );
+  }
+
+  const dest = destLabel
+    ? await placeFor(destLabel, {
+        lat: body.destLat,
+        lng: body.destLng,
+        state: body.destState,
+        zip: body.destZip,
+        precision: body.destPrecision,
+      })
+    : null;
+  if (destLabel && !dest) throw new WebTruckValidationError("dest", "could not be found on the map");
+
+  const legMiles = dest
+    ? haversineMiles({ lat: origin.lat, lng: origin.lng }, { lat: dest.lat, lng: dest.lng })
+    : null;
+
+  // --- space ----------------------------------------------------------------
+  const freeCf = cfOrNull(body.freeCf, "freeCf");
+  const truckCf = cfOrNull(body.truckCf, "truckCf");
+  if (freeCf != null && truckCf != null && freeCf > truckCf) {
+    throw new WebTruckValidationError("freeCf", "free space cannot be larger than the truck");
+  }
+  const truckText = (body.truckText ?? "").trim() || null;
+
+  // --- when -----------------------------------------------------------------
+  const { availNow, availFrom, availTo, availSource } = parseAvailability(body);
+
+  // --- the one matcher knob -------------------------------------------------
+  const corridorMiles = corridorOrDefault(body.corridorMiles);
+
+  // --- what it can and cannot take -----------------------------------------
+  const equipment = tagList(body.equipment);
+  const cannot = tagList(body.cannot);
+  const both = equipment.filter((t) => cannot.includes(t));
+  if (both.length) {
+    throw new WebTruckValidationError(
+      "cannot",
+      `${both.join(", ")} is ticked in both columns — a truck cannot both handle and refuse the same thing`,
+    );
+  }
+
+  // --- contact --------------------------------------------------------------
+  const contactName = (body.contactName ?? "").trim() || user.name;
+  const rawPhone = (body.contactPhone ?? "").trim() || user.phone || "";
+  const phone = normalizePhone(rawPhone);
+  const contactPhone = phone.e164 ?? phone.display;
+  if (!contactPhone) {
+    throw new WebTruckValidationError(
+      "contactPhone",
+      "required — a truck with no phone cannot be answered",
+    );
+  }
+
+  const expiresAt = truckExpiresAt({ availFrom, availTo, lastSeenAt: now });
+
+  const row = await queryOne<{ id: number }>(
+    `INSERT INTO trucks (
+       source_message_id, group_id, posted_by, sender_key, truck_key,
+       status, status_source, visibility,
+       origin_label, origin_city, origin_state, origin_zip,
+       origin_lat, origin_lng, origin_precision,
+       dest_label, dest_city, dest_state, dest_zip,
+       dest_lat, dest_lng, dest_precision,
+       leg_miles,
+       free_cf, truck_cf, free_source, truck_text,
+       avail_now, avail_from, avail_to, avail_source,
+       corridor_miles,
+       has_dot_mc, has_hhg_authority, has_coi,
+       equipment, cannot, equipment_notes, requirements, notes,
+       contact_name, contact_phone, contact_phone_raw, contact_mode, contact_phone_source,
+       line_text, supply_phrase, shape, confidence, needs_review, flags,
+       first_seen_at, last_seen_at, seen_count,
+       expires_at, is_demo
+     ) VALUES (
+       NULL, NULL, $1, NULL, NULL,
+       'available', 'derived', 'public',
+       $2,$3,$4,$5,$6,$7,$8,
+       $9,$10,$11,$12,$13,$14,$15,
+       $16,
+       $17,$18,$19,$20,
+       $21,$22,$23,$24,
+       $25,
+       $26,$27,$28,
+       $29::text[],$30::text[],$31,$32,$33,
+       $34,$35,$36,'public','post',
+       NULL, NULL, 'form', 1.0, false, '{}',
+       now(), now(), 1,
+       $37, $38
+     ) RETURNING id`,
+    [
+      user.id,
+      originLabel, origin.city, origin.state, origin.zip,
+      origin.lat, origin.lng, origin.precision,
+      dest ? destLabel : null, dest?.city ?? null, dest?.state ?? null, dest?.zip ?? null,
+      dest?.lat ?? null, dest?.lng ?? null, dest?.precision ?? null,
+      legMiles,
+      // `free_source` is 'form' only when a number was actually typed. A NULL
+      // size with a source would say "the form stated it" about a blank.
+      freeCf, truckCf, freeCf != null ? "form" : null, truckText,
+      availNow, availFrom, availTo, availSource,
+      corridorMiles,
+      checkbox(body.hasDotMc), checkbox(body.hasHhgAuthority), checkbox(body.hasCoi),
+      equipment, cannot,
+      (body.equipmentNotes ?? "").trim() || null,
+      (body.requirements ?? "").trim() || null,
+      (body.notes ?? "").trim() || null,
+      contactName, contactPhone, rawPhone || null,
+      expiresAt, user.isDemo,
+    ],
+  );
+
+  const id = row!.id;
+  await query(`INSERT INTO truck_events (truck_id, actor_id, kind, detail) VALUES ($1,$2,'created',$3)`, [
+    id,
+    user.id,
+    JSON.stringify({ source: "web", demo: user.isDemo }),
+  ]);
+
+  if (user.isDemo) await sweepDemoTrucks(user.id);
+
+  return { id };
+}
+
+/**
+ * The fields a driver may change after posting, and the ones they may not.
+ *
+ * Editing exists for trucks and not for jobs, and that asymmetry is deliberate
+ * (SPEC §9.1): a departure slips, and a truck advertising last Tuesday is worse
+ * than no truck at all -- it costs a dispatcher the one phone call they were
+ * going to make. A job's date slipping costs nothing like as much.
+ *
+ * ORIGIN AND DESTINATION ARE NOT EDITABLE, and that is the load-bearing half of
+ * this function. Changing the lane makes it a different truck; the pairing
+ * history that stage 4 writes into `truck_matches` would silently become about
+ * something else, and a dispatcher who saved a link to "the Newark to Miami
+ * truck" would open a Denver one. The form says: post that as a second truck.
+ *
+ * Every call writes a `truck_events` row of kind `edited` carrying the before
+ * and after of exactly the fields that moved, and recomputes `expires_at` --
+ * without which extending a departure by a day would leave the listing expiring
+ * on yesterday's clock.
+ */
+export interface WebTruckPatch {
+  freeCf?: string | null;
+  truckCf?: string | null;
+  truckText?: string | null;
+  availMode?: string;
+  availFrom?: string | null;
+  availTo?: string | null;
+  corridorMiles?: string | null;
+  equipment?: string | null;
+  cannot?: string | null;
+  equipmentNotes?: string | null;
+  requirements?: string | null;
+  notes?: string | null;
+  hasDotMc?: "on" | "";
+  hasHhgAuthority?: "on" | "";
+  hasCoi?: "on" | "";
+  status?: string;
+}
+
+/** What a person may set. The other two are conclusions the sweep draws. */
+export const MANUAL_TRUCK_STATUSES = ["available", "booked", "cancelled"] as const;
+export type ManualTruckStatus = (typeof MANUAL_TRUCK_STATUSES)[number];
+
+interface EditableTruck {
+  id: number;
+  free_cf: number | null;
+  truck_cf: number | null;
+  truck_text: string | null;
+  avail_now: boolean;
+  avail_from: string | null;
+  avail_to: string | null;
+  avail_source: string | null;
+  corridor_miles: number;
+  equipment: string[];
+  cannot: string[];
+  equipment_notes: string | null;
+  requirements: string | null;
+  notes: string | null;
+  has_dot_mc: boolean | null;
+  has_hhg_authority: boolean | null;
+  has_coi: boolean | null;
+  status: string;
+  status_source: string;
+  last_seen_at: string | null;
+}
+
+export async function updateWebTruck(
+  truckId: number,
+  actorId: number,
+  patch: WebTruckPatch,
+): Promise<{ id: number; changed: string[] } | null> {
+  const before = await queryOne<EditableTruck>(
+    `SELECT id, free_cf, truck_cf, truck_text, avail_now,
+            avail_from::text AS avail_from, avail_to::text AS avail_to, avail_source,
+            corridor_miles, coalesce(equipment,'{}') AS equipment, coalesce(cannot,'{}') AS cannot,
+            equipment_notes, requirements, notes,
+            has_dot_mc, has_hhg_authority, has_coi, status, status_source,
+            last_seen_at::text AS last_seen_at
+       FROM trucks WHERE id = $1`,
+    [truckId],
+  );
+  if (!before) return null;
+
+  const next: Record<string, unknown> = {};
+
+  if ("freeCf" in patch) next.free_cf = cfOrNull(patch.freeCf ?? "", "freeCf");
+  if ("truckCf" in patch) next.truck_cf = cfOrNull(patch.truckCf ?? "", "truckCf");
+  const freeAfter = ("free_cf" in next ? next.free_cf : before.free_cf) as number | null;
+  const truckAfter = ("truck_cf" in next ? next.truck_cf : before.truck_cf) as number | null;
+  if (freeAfter != null && truckAfter != null && freeAfter > truckAfter) {
+    throw new WebTruckValidationError("freeCf", "free space cannot be larger than the truck");
+  }
+  // A size that was stated and is now blank loses its source with it: a
+  // `free_source` left behind on a NULL would claim the form stated nothing.
+  if ("free_cf" in next) next.free_source = next.free_cf != null ? "form" : null;
+
+  if ("truckText" in patch) next.truck_text = (patch.truckText ?? "").trim() || null;
+
+  if (patch.availMode) {
+    const a = parseAvailability({
+      availMode: patch.availMode,
+      availFrom: patch.availFrom ?? "",
+      availTo: patch.availTo ?? "",
+    });
+    next.avail_now = a.availNow;
+    next.avail_from = a.availFrom;
+    next.avail_to = a.availTo;
+    next.avail_source = a.availSource;
+  }
+
+  if (patch.corridorMiles != null) next.corridor_miles = corridorOrDefault(patch.corridorMiles);
+
+  if ("equipment" in patch || "cannot" in patch) {
+    const equipment = "equipment" in patch ? tagList(patch.equipment ?? "") : before.equipment;
+    const cannot = "cannot" in patch ? tagList(patch.cannot ?? "") : before.cannot;
+    const both = equipment.filter((t) => cannot.includes(t));
+    if (both.length) {
+      throw new WebTruckValidationError(
+        "cannot",
+        `${both.join(", ")} is ticked in both columns — a truck cannot both handle and refuse the same thing`,
+      );
+    }
+    next.equipment = equipment;
+    next.cannot = cannot;
+  }
+
+  if ("equipmentNotes" in patch) next.equipment_notes = (patch.equipmentNotes ?? "").trim() || null;
+  if ("requirements" in patch) next.requirements = (patch.requirements ?? "").trim() || null;
+  if ("notes" in patch) next.notes = (patch.notes ?? "").trim() || null;
+  if ("hasDotMc" in patch) next.has_dot_mc = checkbox(patch.hasDotMc);
+  if ("hasHhgAuthority" in patch) next.has_hhg_authority = checkbox(patch.hasHhgAuthority);
+  if ("hasCoi" in patch) next.has_coi = checkbox(patch.hasCoi);
+
+  if (patch.status != null) {
+    if (!(MANUAL_TRUCK_STATUSES as readonly string[]).includes(patch.status)) {
+      throw new WebTruckValidationError(
+        "status",
+        `status must be one of: ${MANUAL_TRUCK_STATUSES.join(", ")}`,
+      );
+    }
+    next.status = patch.status;
+    // A person said so, so the sweep's own reasoning no longer owns this field.
+    // Note that `expireTrucks` still revisits a MANUAL 'available' truck whose
+    // departure day has passed -- see the note in src/lib/pipeline/trucks.ts:
+    // a departure is a physical fact, not an inference about silence.
+    next.status_source = "manual";
+  }
+
+  // Only what actually moved. An "edited" event listing fields nobody touched
+  // would make the admin history unreadable within a week.
+  const changed = Object.keys(next).filter(
+    (k) => JSON.stringify(next[k]) !== JSON.stringify((before as unknown as Record<string, unknown>)[k]),
+  );
+
+  // The clock, recomputed from the dates as they now stand. `last_seen_at` is
+  // the truck's own anchor, not `now()`: a listing seen this morning and edited
+  // this afternoon keeps the TTL it was given, so editing a note cannot silently
+  // extend a truck's life on the board.
+  const lastSeen = before.last_seen_at ? new Date(before.last_seen_at) : new Date();
+  const expiresAt = truckExpiresAt({
+    availFrom: (("avail_from" in next ? next.avail_from : before.avail_from) as string | null) ?? null,
+    availTo: (("avail_to" in next ? next.avail_to : before.avail_to) as string | null) ?? null,
+    lastSeenAt: Number.isNaN(lastSeen.getTime()) ? new Date() : lastSeen,
+  });
+
+  const columns = Object.keys(next);
+  const sets = columns.map((c, i) => `${c} = $${i + 2}`);
+  sets.push(`expires_at = $${columns.length + 2}`);
+  sets.push(`updated_at = now()`);
+
+  await query(`UPDATE trucks SET ${sets.join(", ")} WHERE id = $1`, [
+    truckId,
+    ...columns.map((c) => next[c]),
+    expiresAt,
+  ]);
+
+  if (changed.length) {
+    const detail: Record<string, { from: unknown; to: unknown }> = {};
+    for (const k of changed) {
+      detail[k] = { from: (before as unknown as Record<string, unknown>)[k], to: next[k] };
+    }
+    await query(
+      `INSERT INTO truck_events (truck_id, actor_id, kind, detail) VALUES ($1,$2,'edited',$3)`,
+      [truckId, actorId, JSON.stringify(detail)],
+    );
+  }
+
+  return { id: truckId, changed };
+}
+
+/** This demo account's older trucks. See `sweepDemoJobs` — same bound, same reasoning. */
+async function sweepDemoTrucks(userId: number): Promise<number> {
+  const gone = await query<{ id: number }>(
+    `DELETE FROM trucks
+      WHERE is_demo = true
+        AND posted_by = $1
+        AND (
+          created_at < now() - ($2 || ' hours')::interval
+          OR id NOT IN (
+            SELECT id FROM trucks
+             WHERE is_demo = true AND posted_by = $1
+             ORDER BY id DESC
+             LIMIT $3
+          )
+        )
+      RETURNING id`,
+    [userId, String(DEMO_MAX_AGE_HOURS), DEMO_KEEP],
+  );
+  return gone.length;
+}
+
+/**
+ * A place from the picked suggestion, or from a geocode of what was typed.
+ *
+ * The same two-branch shape as the pickup in `insertWebJob`, written here rather
+ * than lifted into a helper the two share: `insertWebJob` is a shipped, gated
+ * path and this feature does not touch it.
+ */
+async function placeFor(
+  label: string,
+  picked: {
+    lat?: string;
+    lng?: string;
+    state?: string;
+    zip?: string;
+    precision?: string;
+  },
+): Promise<{
+  lat: number;
+  lng: number;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  precision: string;
+} | null> {
+  const lat = numberOrNull(picked.lat);
+  const lng = numberOrNull(picked.lng);
+  if (lat != null && lng != null) {
+    const zip = fiveDigits(picked.zip);
+    return {
+      lat,
+      lng,
+      city: null,
+      state: twoLetter(picked.state),
+      zip,
+      precision: precisionOrNull(picked.precision) ?? (zip ? "zip" : "city"),
+    };
+  }
+  const hit = await geocode(label);
+  if (!hit) return null;
+  return {
+    lat: hit.lat,
+    lng: hit.lng,
+    city: hit.city,
+    state: hit.state,
+    zip: hit.zip,
+    precision: hit.precision,
+  };
+}
+
+/**
+ * The four answers to "when are you empty?", and there is no fifth.
+ *
+ * `unknown` is a real answer and is stored as one: `avail_now` false, both dates
+ * NULL, and `avail_source` NULL so nothing downstream can claim the form said
+ * something. It is NOT the same as an absent `availMode`, which is a client that
+ * forgot the field -- that is a validation error, because silently choosing for
+ * the driver is exactly how a truck ends up advertising a departure it never
+ * promised.
+ */
+function parseAvailability(body: Pick<WebTruckBody, "availMode" | "availFrom" | "availTo">): {
+  availNow: boolean;
+  availFrom: string | null;
+  availTo: string | null;
+  availSource: "form" | null;
+} {
+  const mode = (body.availMode ?? "").trim();
+  const from = optionalTruckDate(body.availFrom, "availFrom");
+  const to = optionalTruckDate(body.availTo, "availTo");
+
+  if (mode === "now") return { availNow: true, availFrom: from, availTo: to, availSource: "form" };
+
+  if (mode === "from") {
+    if (!from) throw new WebTruckValidationError("availFrom", "give the date you are empty from");
+    return { availNow: false, availFrom: from, availTo: null, availSource: "form" };
+  }
+
+  if (mode === "between") {
+    if (!from || !to) {
+      throw new WebTruckValidationError("availFrom", "give both dates, or choose a single date");
+    }
+    if (to < from) {
+      throw new WebTruckValidationError("availTo", "the second date is before the first");
+    }
+    return { availNow: false, availFrom: from, availTo: to, availSource: "form" };
+  }
+
+  if (mode === "unknown") {
+    return { availNow: false, availFrom: null, availTo: null, availSource: null };
+  }
+
+  throw new WebTruckValidationError(
+    "availMode",
+    'say when the truck is empty — "Now", a date, a range, or "Not decided"',
+  );
+}
+
+function cfOrNull(v: string | undefined | null, field: keyof WebTruckBody): number | null {
+  const n = numberOrNull(v ?? undefined);
+  if (n == null) return null;
+  const rounded = Math.round(n);
+  if (rounded < FREE_CF_MIN || rounded > FREE_CF_MAX) {
+    throw new WebTruckValidationError(
+      field,
+      `must be between ${FREE_CF_MIN} and ${FREE_CF_MAX} cubic feet`,
+    );
+  }
+  return rounded;
+}
+
+function corridorOrDefault(v: string | undefined | null): number {
+  const n = numberOrNull(v ?? undefined);
+  if (n == null) return DEFAULT_TRUCK_CORRIDOR_MILES;
+  const rounded = Math.round(n);
+  // Snapped to the offered list rather than clamped to the column's 10..300
+  // CHECK: the value is a select, so anything else is a client that made one up,
+  // and a made-up 137 would be a matcher setting no driver chose.
+  return (TRUCK_CORRIDOR_OPTIONS as readonly number[]).includes(rounded)
+    ? rounded
+    : DEFAULT_TRUCK_CORRIDOR_MILES;
+}
+
+/** The job TAG vocabulary, shared on purpose: a truck handles what a job needs. */
+function tagList(raw: string | undefined | null): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((t) => t.trim().toLowerCase().replace(/[\s-]+/g, "_"))
+    .filter((t) => TAGS.has(t));
+}
+
+function checkbox(v: "on" | "" | undefined): boolean | null {
+  // NULL, not false: "the driver did not tick it" and "the driver said no" are
+  // different facts, and no surface prints either as a claim.
+  return v === "on" ? true : null;
+}
+
+function optionalTruckDate(v: string | undefined | null, field: keyof WebTruckBody): string | null {
+  const s = (v ?? "").trim();
+  if (!s) return null;
+  if (!ISO_DATE.test(s)) throw new WebTruckValidationError(field, "must be a date (YYYY-MM-DD)");
+  return s;
 }

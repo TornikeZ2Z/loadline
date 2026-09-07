@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
-import { getCurrentUser, isAdminActor } from "@/lib/auth";
-import { query } from "@/lib/db";
-import { getTruck } from "@/lib/loads/truckQuery";
+import { badRequest, handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
+import { HttpError, getCurrentUser, isAdminActor, requireUser } from "@/lib/auth";
+import { query, queryOne } from "@/lib/db";
+import { getTruck, isTruckVisible } from "@/lib/loads/truckQuery";
 import { toPublicSource, toPublicTruck, type PublicSource } from "@/lib/loads/publicView";
+import { updateWebTruck, WebTruckValidationError, type WebTruckPatch } from "@/lib/pipeline/web";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -65,4 +66,63 @@ export const GET = handler(async (req: Request, ctx: Ctx) => {
     truck: toPublicTruck(truck),
     source: toPublicSource(source[0] ?? null),
   });
+});
+
+/**
+ * Editing your own truck.
+ *
+ * EDITING EXISTS FOR TRUCKS AND NOT FOR JOBS, and the asymmetry is the point
+ * (SPEC §9.1): a departure slips, and a truck advertising last Tuesday is worse
+ * than no truck at all, because it costs a dispatcher the one call they were
+ * going to make. Job editing stays out of scope and this will be asked for the
+ * week trucks ship.
+ *
+ * Ownership, not role, exactly as `PATCH /api/loads/[id]/status`: `posted_by`,
+ * or `isAdminActor` -- a REAL admin, because the demo hands an admin session to
+ * anyone with the URL and editing away somebody's departure date is vandalism
+ * with a nice button. A WhatsApp-parsed truck has `posted_by` NULL and belongs
+ * to nobody but a real admin.
+ *
+ * The 404 comes before the 403, and that ordering is load-bearing: a row this
+ * caller may not SEE must be indistinguishable from a row that does not exist,
+ * or the error code becomes an oracle for the review queue and for other
+ * people's demo listings.
+ *
+ * Origin and destination are absent from the accepted fields. Changing the lane
+ * makes it a different truck, and stage 4's pairing history would silently
+ * become about something else.
+ */
+export const PATCH = handler(async (req: Request, ctx: Ctx) => {
+  const user = await requireUser();
+  const { id } = await ctx.params;
+
+  const truckId = jobIdFrom(id);
+  if (truckId == null) notFound("Truck not found");
+
+  const audience = { userId: user.id, includeDemo: isAdminActor(user) };
+  // "public" and not "admin": the edit form is the public board's, and a truck
+  // in the review queue is not editable by the person it was parsed from --
+  // it is not theirs until an admin publishes it.
+  const visible = await isTruckVisible(truckId, "public", audience);
+  if (!visible) notFound("Truck not found");
+
+  const owner = await queryOne<{ posted_by: number | null }>(
+    `SELECT posted_by FROM trucks WHERE id = $1`,
+    [truckId],
+  );
+  if (!owner) notFound("Truck not found");
+  if (!isAdminActor(user) && owner.posted_by !== user.id) {
+    throw new HttpError(403, "You can only edit trucks you posted");
+  }
+
+  const patch = (await req.json().catch(() => ({}))) as WebTruckPatch;
+
+  try {
+    const result = await updateWebTruck(truckId, user.id, patch);
+    if (!result) notFound("Truck not found");
+    return NextResponse.json(result);
+  } catch (err) {
+    if (err instanceof WebTruckValidationError) badRequest(`${err.field}: ${err.message}`);
+    throw err;
+  }
 });

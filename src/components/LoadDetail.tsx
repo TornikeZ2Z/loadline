@@ -229,7 +229,7 @@ export function LoadDetail({
    */
   const gate = (
     <ContactGate
-      loadId={row.id}
+      listingId={row.id}
       contactName={row.contact_name}
       hasPhone={row.has_phone}
       groupName={row.group_name}

@@ -36,7 +36,19 @@ import type { ContactResponse } from "@/lib/loads/publicView";
 import type { ContactMode } from "@/lib/loads/types";
 
 export interface ContactGateProps {
-  loadId: number;
+  /**
+   * Which board this listing is on, and therefore which endpoint the reveal
+   * goes to and which noun the buttons say.
+   *
+   * ONE COMPONENT FOR BOTH KINDS. A second implementation of the phone gate is
+   * not acceptable (SPEC §6): the sign-in step, the demo path, the
+   * already-revealed-in-this-tab memory, the group fallback and the error
+   * recovery are five states each, and two copies of them would drift within a
+   * month. What the kind changes is the URL and four words.
+   */
+  kind?: "job" | "truck";
+  /** The listing's id, on whichever table `kind` names. */
+  listingId: number;
   contactName: string | null;
   /**
    * PublicLoadRow.has_phone. False -> the reveal shows the group instead of a
@@ -61,8 +73,9 @@ export interface ContactGateProps {
 type GateState = "idle" | "gate" | "revealing" | "revealed" | "error";
 
 /**
- * Job ids this tab has already revealed, kept outside React so a remount does
- * not lose them.
+ * Listings this tab has already revealed, kept outside React so a remount does
+ * not lose them. Keyed "job:12" / "truck:12", because the two id spaces are
+ * different tables and truck 12 is not job 12.
  *
  * Signing in here has to refresh the server tree (the header, and Board's
  * `signedIn`), and that refresh always remounts this component: Board rewrites
@@ -73,7 +86,7 @@ type GateState = "idle" | "gate" | "revealing" | "revealed" | "error";
  * number itself is re-requested through POST /api/loads/:id/contact, which
  * stays the only way one reaches the page.
  */
-const revealedInTab = new Set<number>();
+const revealedInTab = new Set<string>();
 
 /** Where to come back to after a real (non-demo) registration. */
 function currentPath(): string {
@@ -115,7 +128,8 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 export function ContactGate({
-  loadId,
+  kind = "job",
+  listingId,
   contactName,
   hasPhone,
   groupName,
@@ -136,12 +150,16 @@ export function ContactGate({
   const [copied, setCopied] = useState<"yes" | "no" | null>(null);
   const autoRan = useRef(false);
 
+  const isTruck = kind === "truck";
+  const tabKey = `${kind}:${listingId}`;
+  const endpoint = isTruck ? `/api/trucks/${listingId}/contact` : `/api/loads/${listingId}/contact`;
+
   const reveal = useCallback(
     async (opts?: { afterSignIn?: boolean }) => {
       setState("revealing");
       setError(null);
       try {
-        const res = await fetch(api(`/api/loads/${loadId}/contact`), { method: "POST" });
+        const res = await fetch(api(endpoint), { method: "POST" });
         if (res.status === 401) {
           setState("gate");
           return;
@@ -149,7 +167,7 @@ export function ContactGate({
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error ?? "Could not load the contact");
         const data = body as ContactResponse;
-        revealedInTab.add(loadId);
+        revealedInTab.add(tabKey);
         setContact(data);
         setState("revealed");
         onRevealed?.(data);
@@ -163,19 +181,19 @@ export function ContactGate({
         setState("error");
       }
     },
-    [loadId, onRevealed, router],
+    [endpoint, tabKey, onRevealed, router],
   );
 
   // The card's Show contact button opens the detail with autoOpen set; a job
   // this tab already revealed re-opens itself after the sign-in remount.
   useEffect(() => {
     if (autoRan.current) return;
-    const resume = revealedInTab.has(loadId);
+    const resume = revealedInTab.has(tabKey);
     if (!autoOpen && !resume) return;
     autoRan.current = true;
     if (signedIn) void reveal();
     else setState("gate");
-  }, [autoOpen, signedIn, reveal, loadId]);
+  }, [autoOpen, signedIn, reveal, tabKey]);
 
   async function signInDemo() {
     setError(null);
@@ -209,7 +227,7 @@ export function ContactGate({
     }
   }
 
-  async function copyJob(text: string) {
+  async function copyListing(text: string) {
     const ok = await copyText(text);
     setCopied(ok ? "yes" : "no");
     setTimeout(() => setCopied(null), 2000);
@@ -220,7 +238,9 @@ export function ContactGate({
       ? "flex flex-col gap-2"
       : "card flex flex-col gap-2 p-[var(--sp-4)]";
 
-  const copyLabel = copied === "yes" ? "Copied" : copied === "no" ? "Press ⌘/Ctrl+C" : "Copy the job";
+  const noun = isTruck ? "truck" : "job";
+  const copyLabel =
+    copied === "yes" ? "Copied" : copied === "no" ? "Press ⌘/Ctrl+C" : `Copy the ${noun}`;
 
   // --- 4. Revealed -----------------------------------------------------------
   if (state === "revealed" && contact) {
@@ -236,7 +256,7 @@ export function ContactGate({
         <div className="text-(length:--fs-md) font-semibold">{c.name ?? contactName ?? "Not named"}</div>
         {contactMode === "dm" && (
           <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-            The sender asked to be messaged privately.
+            The {isTruck ? "driver" : "sender"} asked to be messaged privately.
           </p>
         )}
 
@@ -248,7 +268,7 @@ export function ContactGate({
                 promise from "the number in this post". */}
             <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               {c.source === "sender"
-                ? "This sender's usual number — this post did not carry one."
+                ? `This ${isTruck ? "driver" : "sender"}'s usual number — this post did not carry one.`
                 : "The number in this post."}
             </p>
           </>
@@ -305,8 +325,8 @@ export function ContactGate({
           <>
             {!c.display && (
               <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-                No phone number in this post, and none from this sender’s other posts
-                {contactMode === "dm" ? " — they asked to be messaged privately" : ""}.
+                No phone number in this post, and none from this {isTruck ? "driver" : "sender"}’s
+                other posts{contactMode === "dm" ? " — they asked to be messaged privately" : ""}.
               </p>
             )}
             {g.name && (
@@ -330,13 +350,13 @@ export function ContactGate({
                 type="button"
                 className={g.url ? "btn" : "btn btn-primary"}
                 style={{ minHeight: "var(--tap-min)" }}
-                onClick={() => void copyJob(contact.jobText)}
+                onClick={() => void copyListing(contact.listingText)}
               >
                 {copyLabel}
               </button>
             </div>
             <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-              WhatsApp cannot open one message from a link, so paste the job into the group
+              WhatsApp cannot open one message from a link, so paste the {noun} into the group
               {g.url ? "" : " and ask for it"}.
             </p>
           </>
@@ -346,7 +366,7 @@ export function ContactGate({
           <button
             type="button"
             className="btn btn-ghost btn-sm self-start"
-            onClick={() => void copyJob(contact.jobText)}
+            onClick={() => void copyListing(contact.listingText)}
           >
             {copyLabel}
           </button>
@@ -448,12 +468,12 @@ export function ContactGate({
       <div className="text-(length:--fs-md) font-semibold">{contactName ?? "Not named"}</div>
       {contactMode === "dm" && (
         <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-          The sender asked to be messaged privately.
+          The {isTruck ? "driver" : "sender"} asked to be messaged privately.
         </p>
       )}
       {!hasPhone && (
         <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-          No phone number in this post — the sender wants to be messaged
+          No phone number in this post — the {isTruck ? "driver" : "sender"} wants to be messaged
           {groupName ? (
             <>
               {" "}

@@ -243,6 +243,7 @@ const RAW_SOURCES = [
   "getLoad",
   "getDuplicates",
   "revealContact",
+  "revealTruckContact",
   "listMessages",
   "loadsForMessage",
   // The truck board's reads. Same shape, same phone columns, same rule.
@@ -266,6 +267,7 @@ const RAW_SOURCE_MODULES: Record<string, string> = {
   searchTrucks: "../src/lib/loads/truckQuery",
   getTruck: "../src/lib/loads/truckQuery",
   revealContact: "../src/lib/pipeline/reconcile",
+  revealTruckContact: "../src/lib/pipeline/reconcile",
   listMessages: "../src/lib/demo/chats",
   loadsForMessage: "../src/lib/demo/chats",
   query: "../src/lib/db",
@@ -287,12 +289,16 @@ const SANITIZERS = [
 /**
  * Handlers that emit row data on purpose, and why that is right.
  *
- * One entry, and it is the entire access model: the contact reveal is the one
- * door a phone number leaves by. It needs an account, it is rate-limited per
- * account, and every pass is logged with an actor id.
+ * Two entries, one per kind, and together they are the entire access model:
+ * the contact reveal is the one door a phone number leaves by. Each needs an
+ * account, each is rate-limited per account in its OWN bucket, and every pass
+ * is logged with an actor id -- into `load_events` for a job and `truck_events`
+ * for a truck, because `load_events.load_id` is `REFERENCES loads(id)` and
+ * cannot hold a truck.
  */
 const EMITS_RAW_ON_PURPOSE: Record<string, string> = {
   "POST /api/loads/[id]/contact": "the one gated reveal; returns the number by design",
+  "POST /api/trucks/[id]/contact": "the truck board's one gated reveal; the same gate, the same log, by design",
 };
 
 /** The text `NextResponse.json(...)` / `Response.json(...)` is given, per return. */

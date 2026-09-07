@@ -718,19 +718,49 @@ export interface RevealedContact {
 }
 
 /**
- * The one place a phone number leaves the server.
+ * The one place a phone number leaves the server -- for either kind of listing.
  *
  * Returns the unredacted contact, where the number came from, and how to reach
  * the group the post was made in -- then records the reveal, at most one event
- * per actor per job per rolling hour, because clicking Call twice is not twice
- * the interest and an inflated count would make the only signal the board has
- * about demand useless.
+ * per actor per listing per rolling hour, because clicking Call twice is not
+ * twice the interest and an inflated count would make the only signal the board
+ * has about demand useless.
  *
  * The group link rides along here rather than on the public row on purpose: a
  * `wa.me` link is a phone number written as a URL, and the gate exists so that
  * reaching the sender at all takes an account.
+ *
+ * ONE FUNCTION FOR BOTH KINDS, AND `kind` IS THE FIRST ARGUMENT (SPEC §6). A
+ * second implementation of the phone gate is not acceptable: the dedupe window,
+ * the event, the `detail` payload and the shape of the answer are the whole of
+ * the accountability story, and two copies of them would drift within a month
+ * of the first bug fix. What the branch changes is only which table is read and
+ * which event table the reveal is written into -- `truck_events` exists because
+ * `load_events.load_id` is `REFERENCES loads(id)` and a truck's reveal cannot be
+ * written there without pointing a foreign key at a row that is not the listing.
+ *
+ * THE TRUCK BRANCH CARRIES `AND t.visibility = 'public'` AND THE JOB BRANCH HAS
+ * NO EQUIVALENT, and that asymmetry is the specification's, not an oversight.
+ * Every job row on this table is on the board; a truck can be sitting in the
+ * review queue, and an unreviewed, machine-invented listing must not hand out a
+ * phone number by id. The caller checks visibility too (`getTruck(id,"public")`
+ * in the handler); this clause is the one that survives a caller forgetting.
+ *
+ * Neither branch has a status predicate, deliberately: a taken job and a booked
+ * truck are still worth a call, and refusing the number would tell the driver
+ * less than the board already shows them.
  */
-export async function revealContact(loadId: number, userId: number): Promise<RevealedContact | null> {
+export type ContactKind = "job" | "truck";
+
+export async function revealContact(
+  kind: ContactKind,
+  id: number,
+  userId: number,
+): Promise<RevealedContact | null> {
+  return kind === "truck" ? revealTruckContact(id, userId) : revealJobContact(id, userId);
+}
+
+async function revealJobContact(loadId: number, userId: number): Promise<RevealedContact | null> {
   const load = await queryOne<RevealedContact>(
     `SELECT l.contact_name, l.contact_phone, l.contact_mode, l.contact_phone_source,
             g.name AS group_name, g.invite_url AS group_link
@@ -761,4 +791,52 @@ export async function revealContact(loadId: number, userId: number): Promise<Rev
   }
 
   return load;
+}
+
+/**
+ * Exported so `scripts/check-redact.ts` can name it in `RAW_SOURCES`.
+ *
+ * That list recognises a phone-carrying call BY NAME, so a handler calling
+ * something absent from it passes the route assertion vacuously -- green, and
+ * proving nothing. Acceptance R4 requires the name to arrive in the same commit
+ * as the function, and the suite's own self-test fails if a name there stops
+ * resolving to an exported symbol.
+ */
+export async function revealTruckContact(
+  truckId: number,
+  userId: number,
+): Promise<RevealedContact | null> {
+  const truck = await queryOne<RevealedContact>(
+    `SELECT t.contact_name, t.contact_phone, t.contact_mode, t.contact_phone_source,
+            g.name AS group_name, g.invite_url AS group_link
+       FROM trucks t LEFT JOIN whatsapp_groups g ON g.id = t.group_id
+      WHERE t.id = $1 AND t.visibility = 'public'`,
+    [truckId],
+  );
+  if (!truck) return null;
+
+  const recent = await queryOne<{ id: number }>(
+    `SELECT id FROM truck_events
+      WHERE truck_id = $1 AND actor_id = $2 AND kind = 'viewed_contact'
+        AND created_at > now() - interval '1 hour'
+      LIMIT 1`,
+    [truckId, userId],
+  );
+
+  if (!recent) {
+    await query(
+      `INSERT INTO truck_events (truck_id, actor_id, kind, detail)
+       VALUES ($1, $2, 'viewed_contact', $3)`,
+      [
+        truckId,
+        userId,
+        JSON.stringify({
+          has_phone: truck.contact_phone != null,
+          phone_source: truck.contact_phone_source,
+        }),
+      ],
+    );
+  }
+
+  return truck;
 }
