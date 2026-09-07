@@ -152,9 +152,7 @@ async function readWatermark(): Promise<Date> {
  * evaluating it would be work with no consumer.
  */
 async function subjectTrucks(watermark: Date, listingMoved: boolean): Promise<SubjectTruck[]> {
-  const changed = listingMoved
-    ? `TRUE`
-    : `(t.created_at > $1 OR t.updated_at > $1)`;
+  const changed = listingMoved ? `TRUE` : `(t.created_at > $1 OR t.updated_at > $1)`;
   return query<SubjectTruck>(
     `SELECT ${SUBJECT_TRUCK_COLUMNS}
        FROM trucks t
@@ -163,7 +161,9 @@ async function subjectTrucks(watermark: Date, listingMoved: boolean): Promise<Su
         AND t.posted_by IS NOT NULL
         AND ${changed}
       ORDER BY t.id`,
-    [watermark.toISOString()],
+    // No placeholder in the statement means no bind value with it: PGlite
+    // refuses a parameter the prepared statement does not name.
+    listingMoved ? [] : [watermark.toISOString()],
   );
 }
 
@@ -184,7 +184,7 @@ async function subjectJobs(watermark: Date, listingMoved: boolean): Promise<Subj
         AND l.posted_by IS NOT NULL
         AND ${changed}
       ORDER BY l.id`,
-    [watermark.toISOString()],
+    listingMoved ? [] : [watermark.toISOString()],
   );
 }
 
