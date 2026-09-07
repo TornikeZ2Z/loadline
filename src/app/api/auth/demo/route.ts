@@ -6,7 +6,7 @@ import {
   createDemoAccounts,
   demoModeEnabled,
   ensureDemoData,
-  findDemoAccount,
+  findOneClickAccount,
 } from "@/lib/demo/accounts";
 
 /**
@@ -16,12 +16,13 @@ import {
  * is a demo running on sample data. `DEMO_MODE=off` disables it without any
  * code change, which is the switch to throw the day real data goes in.
  *
- * What it hands out is bounded by the rows it signs in to, not by anything
- * here: all three carry `users.is_demo`, so the admin session it issues opens
- * every console and cannot change one (src/lib/auth.ts `requireWriteRole`).
- * That is what makes handing a stranger an admin session survivable, and it
- * holds for the ordinary password form too -- the limit is on the account, not
- * on this door.
+ * TWO ACCOUNTS ONLY: driver and poster. `findOneClickAccount` will not return
+ * the admin row, so `{"role":"admin"}` gets the same 400 as `{"role":"wombat"}`
+ * -- an admin session is not something a POST with no credential can produce
+ * any more, whatever the sign-in page happens to render. Both remaining rows
+ * carry `users.is_demo`, so neither can change anything either
+ * (src/lib/auth.ts `requireWriteRole`); the limit is on the account, not on
+ * this door, and it holds for the ordinary password form too.
  */
 export const POST = handler(async (req: Request) => {
   if (!demoModeEnabled()) {
@@ -29,7 +30,7 @@ export const POST = handler(async (req: Request) => {
   }
 
   const { role } = (await req.json().catch(() => ({}))) as { role?: string };
-  const account = findDemoAccount(role ?? "driver");
+  const account = findOneClickAccount(role ?? "driver");
   if (!account) badRequest("Unknown demo role");
 
   // A cold start on a hosted demo can arrive with an empty database.

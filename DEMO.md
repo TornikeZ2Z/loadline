@@ -128,9 +128,11 @@ ones.
 
 ## 5. Admin: teach it a format it has never seen
 
-Sign out, then sign in as **demo admin** and open **Admin**. It opens on **Needs
-attention**, because that is the only tab with work waiting in it. Four of the nineteen
-messages carry a code, and the row of chips above the list filters by it.
+Sign out, then sign in as the admin and open **Admin**. There is no button for this one —
+the console is not part of the demo any more, so it takes the e-mail form and the password
+below. It opens on **Needs attention**, because that is the only tab with work waiting in
+it. Four of the nineteen messages carry a code, plus anything a reader has reported, and the
+row of chips above the list filters by it.
 
 Exactly one is `unknown_format`: **Dispatcher U · FL Movers Backhaul**, 0 jobs. Open it. Its
 lines get a coloured gutter — blue for a header, green for a destination, red for a line
@@ -192,19 +194,28 @@ the board is half the product.
 
 ---
 
-## The demo accounts
+## The accounts
 
-| Button | Account | What it adds |
+| How you get in | Account | What it adds |
 |---|---|---|
 | **Sign in as demo driver** | `driver@example.com` | The contact on any job — nothing else |
 | **Sign in as demo poster** | `poster@example.com` | Post jobs from the website and mark them taken |
-| **Sign in as demo admin** | `admin@example.com` | The pipeline, the needs-attention queue and both consoles |
+| the e-mail form | `admin@movermesh.com` | Every console, and every button inside one |
 
-The three buttons need no password. The e-mail form behind the *or sign in with an email and
-password* link needs one, and it is not printed here on purpose: this repo and the demo are
-both public, so a password written down is a live admin credential. It is derived from
-`SESSION_SECRET` unless you set `DEMO_PASSWORD`. They see the same data; switching between them is just switching hats. The
-normal way a driver signs in is the **Show contact** button inside a job, not this page.
+The two buttons need no password, and they are all the demo is. **There is no demo admin
+button any more.** It used to hand a stranger an admin session in one click; those seeded
+accounts now carry `users.is_demo`, which costs them every write, so a one-click console was
+a console with nothing working in it. The real admin above is a normal account with a normal
+password, reached through the *or sign in with an email and password* link.
+
+That password is not printed here, and neither is the demo one. This repo and the deployment
+are both public, so a password written down in a file is a live credential. The demo password
+is derived from `SESSION_SECRET` unless you set `DEMO_PASSWORD`; the admin's is whatever
+`ADMIN_PASSWORD` is set to, and on a deployment where nobody has set it, the committed
+default in `src/lib/demo/accounts.ts` — read the comment there before relying on it. Running
+this locally, the quickest way through section 5 is to set `ADMIN_PASSWORD` yourself and
+restart. The normal way a driver signs in is the **Show contact** button inside a job, not
+this page.
 
 ---
 

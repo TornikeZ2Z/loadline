@@ -114,9 +114,14 @@ export function AuthForm({
         {demoAccounts.length > 0 && (
           <div className="card p-5">
             <div className="mb-1 text-(length:--fs-lg) font-bold">Try the demo</div>
+            {/* This sentence used to end "...or run the admin console", which
+                was true when a third button opened one. The console is not a
+                demo any more -- it is password-only -- so the copy has to stop
+                promising it, and has to say where the door went instead. */}
             <p className="mb-3 text-(length:--fs-sm) text-muted">
-              Browsing the board needs no account. Sign in to see contacts, post a job, or run the
-              admin console.
+              Browsing the board needs no account. These two see a sender&rsquo;s contact and post
+              jobs. The admin console is not part of the demo — it needs a real password, through
+              the form below.
             </p>
 
             <div className="space-y-2">

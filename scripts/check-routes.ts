@@ -59,6 +59,10 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
   "GET /api/loads/[id]/route": { guard: "public", why: "road geometry; carries no personal data" },
   "GET /api/places/suggest": { guard: "public", why: "place autocomplete, rate-limited" },
   "POST /api/places/resolve": { guard: "public", why: "place lookup, rate-limited" },
+  "POST /api/reports": {
+    guard: "public",
+    why: "anyone may report a wrong job; rate-limited, and UNIQUE (load_id, reason) bounds the queue",
+  },
 
   // --- a person, whoever they are -------------------------------------------
   "POST /api/loads/[id]/contact": { guard: "user", why: "the ONE endpoint that returns a phone; logged per reveal" },
@@ -79,6 +83,7 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
   "GET /api/admin/issues": { guard: "role:admin", why: "the needs-attention queue" },
   "GET /api/admin/messages": { guard: "role:admin", why: "raw messages, unredacted, for triage" },
   "GET /api/admin/messages/[id]": { guard: "role:admin", why: "one raw message and what it produced" },
+  "GET /api/admin/reports": { guard: "role:admin", why: "reported jobs, inside the needs-attention queue" },
   "GET /api/admin/rules": { guard: "role:admin", why: "the extraction rule set" },
   "GET /api/admin/senders": { guard: "role:admin", why: "sender directory, including phone keys" },
   "GET /api/admin/twins": { guard: "role:admin", why: "cross-sender twin detection" },
@@ -95,6 +100,7 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
   "POST /api/admin/messages/[id]/accept": { guard: "write:admin", why: "freezes an expectation into the fixture" },
   "POST /api/admin/messages/[id]/reprocess": { guard: "write:admin", why: "re-derives one message's jobs" },
   "POST /api/admin/reprocess": { guard: "write:admin", why: "re-derives the corpus in bulk" },
+  "PATCH /api/admin/reports/[id]": { guard: "write:admin", why: "empties a shared queue; records resolved_by" },
   "POST /api/admin/rules": { guard: "write:admin", why: "a new rule changes every future extraction" },
   "PATCH /api/admin/rules/[id]": { guard: "write:admin", why: "edits a rule and re-runs what it touched" },
   "DELETE /api/admin/rules/[id]": { guard: "write:admin", why: "removes a rule and re-runs what it touched" },

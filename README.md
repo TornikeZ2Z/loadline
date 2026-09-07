@@ -48,12 +48,18 @@ npm run dev
 
 Open <http://localhost:3000> — **the board is public**, so there is nothing to sign in to
 first. Press **Show contact** on any job and choose **Sign in as demo driver** to see a
-number; **Sign in as demo poster** to post a job of your own; **demo admin** for the
-consoles. The accounts are `driver@ / poster@ / admin@example.com`; their password is
-derived from `SESSION_SECRET`, or whatever you set `DEMO_PASSWORD` to, and is deliberately
-not written down here — this repository is public and the deployment is public, so a
-password in this file is a published credential for a live admin account. Use the one-click
-buttons, or set `DEMO_PASSWORD` yourself if you need the e-mail form.
+number, or **Sign in as demo poster** to post a job of your own. Those two accounts are
+`driver@ / poster@example.com` and their password is derived from `SESSION_SECRET`, or
+whatever you set `DEMO_PASSWORD` to.
+
+**The consoles are not a demo account.** They belong to `admin@movermesh.com`, which signs
+in through the e-mail form like any other account — there is no button for it, because a
+one-click admin is an admin anyone with the URL has. Set `ADMIN_PASSWORD` and restart to
+choose its password; a deployment where nobody has falls back to a committed default, and
+`src/lib/demo/accounts.ts` says plainly what that costs you.
+
+No password is written down in this file on purpose: this repository is public and the
+deployment is public, so a password here is a published credential for a live account.
 
 The database **seeds itself when empty**, so a fresh deployment is usable on first visit
 without anyone running a script.
