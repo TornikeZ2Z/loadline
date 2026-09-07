@@ -57,6 +57,14 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
   "GET /api/loads": { guard: "public", why: "the public board; admin-only filter keys stripped" },
   "GET /api/loads/[id]": { guard: "public", why: "public job detail, redacted through publicView" },
   "GET /api/loads/[id]/route": { guard: "public", why: "road geometry; carries no personal data" },
+  "GET /api/trucks": {
+    guard: "public",
+    why: "the public truck board; searchTrucks(\"public\", …) pins visibility='public' in SQL, and the admin-only keys sender/review are stripped",
+  },
+  "GET /api/trucks/[id]": {
+    guard: "public",
+    why: "public truck detail, redacted through publicView; getTruck(id, \"public\") 404s a non-public row",
+  },
   "GET /api/places/suggest": { guard: "public", why: "place autocomplete, rate-limited" },
   "POST /api/places/resolve": { guard: "public", why: "place lookup, rate-limited" },
   "POST /api/reports": {

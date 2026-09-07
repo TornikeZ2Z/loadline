@@ -228,7 +228,16 @@ async function corpusChecks() {
 
 // --- the route layer ---------------------------------------------------------
 
-/** Calls that hand back a row with a phone number still on it. */
+/**
+ * Calls that hand back a row with a phone number still on it.
+ *
+ * The route scan below recognises a raw row BY THE NAME OF THE CALL that
+ * produced it, so a handler calling something that is not in this list passes
+ * the assertion vacuously -- it looks green and proves nothing. A new
+ * row-returning function has to arrive here in the same commit that creates it,
+ * and `rawSourceChecks` below fails if a name here no longer resolves to an
+ * exported symbol, so the next rename cannot quietly empty the list.
+ */
 const RAW_SOURCES = [
   "searchLoads",
   "getLoad",
@@ -236,6 +245,9 @@ const RAW_SOURCES = [
   "revealContact",
   "listMessages",
   "loadsForMessage",
+  // The truck board's reads. Same shape, same phone columns, same rule.
+  "searchTrucks",
+  "getTruck",
   // Only counted in a handler whose SQL actually names a load or message table:
   // /api/auth/* reads `users` with these too, and a user's own row is not a
   // redaction question.
@@ -243,8 +255,34 @@ const RAW_SOURCES = [
   "queryOne",
 ];
 
+/**
+ * Where each of those lives, so the list above can be proved rather than
+ * trusted. `query`/`queryOne` are the database module itself.
+ */
+const RAW_SOURCE_MODULES: Record<string, string> = {
+  searchLoads: "../src/lib/loads/query",
+  getLoad: "../src/lib/loads/query",
+  getDuplicates: "../src/lib/loads/query",
+  searchTrucks: "../src/lib/loads/truckQuery",
+  getTruck: "../src/lib/loads/truckQuery",
+  revealContact: "../src/lib/pipeline/reconcile",
+  listMessages: "../src/lib/demo/chats",
+  loadsForMessage: "../src/lib/demo/chats",
+  query: "../src/lib/db",
+  queryOne: "../src/lib/db",
+};
+
 /** The only functions allowed to turn one of those into a response. */
-const SANITIZERS = ["toPublicLoad", "toPublicLoads", "toPublicSource", "redactJob", "redactPhones"];
+const SANITIZERS = [
+  "toPublicLoad",
+  "toPublicLoads",
+  "toPublicSource",
+  "toPublicTruck",
+  "toPublicTrucks",
+  "redactJob",
+  "redactTruck",
+  "redactPhones",
+];
 
 /**
  * Handlers that emit row data on purpose, and why that is right.
@@ -423,13 +461,266 @@ async function liveRouteChecks() {
   console.log(`${DIM}invoked the real GET /api/loads/:id on ${ids.length} jobs that carry a phone${RESET}`);
 }
 
+// --- trucks ------------------------------------------------------------------
+
+/**
+ * R1: `redactTruck` over a row that carries a number in every field a driver
+ * can type into.
+ *
+ * The field list is the whole of this function. `redactJob` and `redactTruck`
+ * mask different columns because the two rows HAVE different columns, and the
+ * way a masking list goes wrong is by omission -- so each field is asserted by
+ * name rather than by scanning the output for digits, which would pass a
+ * function that had quietly stopped masking a field the fixture left empty.
+ */
+async function truckUnitChecks() {
+  const { redactTruck } = await import("../src/lib/loads/redact");
+  const base = {
+    contact_phone: "+12015550199",
+    sender_key: "phone:+12015550199",
+    contact_name: "+1 (201) 555-0199",
+    line_text: "empty NJ to FL Friday 700cf 201-555-0199",
+    notes: "text me 7865550128",
+    requirements: "COI before loading — call (201) 555-0199",
+    equipment_notes: "lift gate, ask for Ana 786.555.0128",
+    truck_text: "26 ft box truck 786-555-0128",
+    origin_label: "Newark, NJ 07102 — gate code, ask for Ana 786.555.0128",
+    dest_label: "Miami, FL 33101 — call +17865550128 on arrival",
+  };
+  const r = redactTruck(base);
+  assert(r.contact_phone === null, "redactTruck: contact_phone not null");
+  assert(r.sender_key === null, "redactTruck: sender_key not null");
+  assert(r.contact_name === null, `redactTruck: phone-shaped contact_name not null (${r.contact_name})`);
+  assert(r.line_text === `empty NJ to FL Friday 700cf ${PHONE_MASK}`, `redactTruck: line_text = ${JSON.stringify(r.line_text)}`);
+  assert(r.notes === `text me ${PHONE_MASK}`, `redactTruck: notes = ${JSON.stringify(r.notes)}`);
+  assert(r.requirements === `COI before loading — call ${PHONE_MASK}`, `redactTruck: requirements = ${JSON.stringify(r.requirements)}`);
+  assert(r.equipment_notes === `lift gate, ask for Ana ${PHONE_MASK}`, `redactTruck: equipment_notes = ${JSON.stringify(r.equipment_notes)}`);
+  assert(r.truck_text === `26 ft box truck ${PHONE_MASK}`, `redactTruck: truck_text = ${JSON.stringify(r.truck_text)}`);
+  assert(r.origin_label === `Newark, NJ 07102 — gate code, ask for Ana ${PHONE_MASK}`, `redactTruck: origin_label = ${JSON.stringify(r.origin_label)}`);
+  assert(r.dest_label === `Miami, FL 33101 — call ${PHONE_MASK} on arrival`, `redactTruck: dest_label = ${JSON.stringify(r.dest_label)}`);
+
+  // A truck's size in words is not a phone, and a named driver keeps their name.
+  const plain = redactTruck({ ...base, contact_name: "Marco", truck_text: "26 ft box truck" });
+  assert(plain.contact_name === "Marco", `redactTruck: "Marco" became ${plain.contact_name}`);
+  assert(plain.truck_text === "26 ft box truck", "redactTruck: a size in feet was masked");
+  // Idempotent, like everything else built on redactPhones.
+  assert(
+    JSON.stringify(redactTruck(r)) === JSON.stringify(r),
+    "redactTruck is not idempotent",
+  );
+}
+
+/**
+ * R4: every name in RAW_SOURCES resolves to an exported function.
+ *
+ * The route scan recognises a raw row by the name of the call that produced it.
+ * A rename anywhere in src/ would leave a name here matching nothing, and the
+ * scan would then pass every handler VACUOUSLY -- green, and blind. This is the
+ * check that fails instead.
+ */
+async function rawSourceChecks() {
+  for (const name of RAW_SOURCES) {
+    const where = RAW_SOURCE_MODULES[name];
+    assert(where != null, `RAW_SOURCES lists "${name}" but RAW_SOURCE_MODULES does not say where it lives`);
+    if (!where) continue;
+    const mod = (await import(where)) as Record<string, unknown>;
+    assert(
+      typeof mod[name] === "function",
+      `RAW_SOURCES lists "${name}", which ${where} does not export — the route scan is matching nothing for it`,
+    );
+  }
+}
+
+/**
+ * R2 and R3: the truck corpus, serialized.
+ *
+ * R2 is a COLUMN scan rather than a reading of the row type: TypeScript
+ * interfaces do not exist at runtime, so what is asserted is the payload. Every
+ * column of `trucks` whose name matches /phone/ must be either absent from the
+ * public row or null in it, which is a property the next phone column added
+ * inherits automatically.
+ */
+async function truckCorpusChecks() {
+  const { seedTrucks } = await import("./fixtures/trucks");
+  const { searchTrucks } = await import("../src/lib/loads/truckQuery");
+  const { toPublicTrucks } = await import("../src/lib/loads/publicView");
+  const { query } = await import("../src/lib/db");
+
+  const ids = await seedTrucks(new Date());
+  assert(ids.length >= 6, `the truck fixture seeded ${ids.length} rows`);
+
+  // "admin" scope on purpose: the pending row is IN this serialization, so the
+  // patterns below are run over the row that must never reach a browser as well
+  // as over the five that may.
+  const statuses = ["available", "booked", "departed", "expired", "cancelled"] as const;
+  const { rows } = await searchTrucks("admin", { limit: 500, statuses: [...statuses] });
+  assert(rows.length === ids.length, `searchTrucks("admin") returned ${rows.length} of ${ids.length} seeded trucks`);
+
+  const publicTrucks = JSON.stringify(toPublicTrucks(rows));
+  for (const [re, what] of PAYLOAD_PATTERNS) {
+    const hit = publicTrucks.match(re);
+    assert(
+      !hit,
+      `serialized trucks contain a ${what}: ...${publicTrucks.slice(Math.max(0, (hit?.index ?? 0) - 60), (hit?.index ?? 0) + 40)}...`,
+    );
+  }
+
+  // Each seeded format really was there to begin with -- otherwise the patterns
+  // above would pass over a corpus that never carried a phone.
+  const raw = JSON.stringify(rows);
+  const { SEEDED_PHONES } = await import("./fixtures/trucks");
+  for (const [name, phone] of Object.entries(SEEDED_PHONES)) {
+    assert(raw.includes(phone), `the truck fixture no longer carries a ${name}-format phone (${phone})`);
+  }
+
+  // R2: the column scan.
+  const phoneColumns = await query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'trucks' AND column_name LIKE '%phone%'
+      ORDER BY column_name`,
+  );
+  assert(phoneColumns.length >= 3, `only ${phoneColumns.length} phone-ish columns found on trucks -- the scan is reading nothing`);
+  const publicRows = toPublicTrucks(rows) as unknown as Array<Record<string, unknown>>;
+  for (const { column_name } of phoneColumns) {
+    if (column_name in PHONE_COLUMN_EXEMPT) {
+      const values = new Set(publicRows.map((r) => r[column_name]).filter((v) => v != null));
+      assert(
+        [...values].every((v) => v === "post" || v === "sender"),
+        `${column_name} is exempt as an enum but carries ${[...values].join(", ")}`,
+      );
+      continue;
+    }
+    for (const row of publicRows) {
+      assert(
+        !(column_name in row) || row[column_name] === null,
+        `trucks.${column_name} reaches the public wire as ${JSON.stringify(row[column_name])} — add it to redactTruck, or keep it out of TruckRow and TRUCK_SELECT_COLUMNS`,
+      );
+    }
+  }
+  assert(
+    !raw.includes("contact_phone_raw"),
+    "contact_phone_raw is in TRUCK_SELECT_COLUMNS — the number as it was typed must never enter a row shape",
+  );
+
+  console.log(`${DIM}checked ${rows.length} public truck rows over ${phoneColumns.length} phone-ish columns${RESET}`);
+}
+
+/**
+ * A column whose name says "phone" but whose value is not one.
+ *
+ * Listing it here is a decision somebody has to write down, and the check
+ * asserts the claim -- the enum's values -- rather than taking it on trust.
+ */
+const PHONE_COLUMN_EXEMPT: Record<string, string> = {
+  contact_phone_source:
+    "an enum ('post' | 'sender') saying where the number came from, never a number; the CHECK constraint in db/schema.sql is what keeps it one",
+};
+
+/**
+ * R5 and R7: the real truck handlers, invoked.
+ *
+ * R5 -- `GET /api/trucks/:id` and `GET /api/trucks` are imported and called the
+ * way Next calls them, and their actual bytes go through the same patterns as
+ * everything else. Not a simulation of the routes; the routes.
+ *
+ * R7 -- a `visibility='pending'` truck is INDISTINGUISHABLE from an id that was
+ * never issued: same status, same body. It is absent from the board, and
+ * `?visibility=pending` is a 400 rather than a filter. The anonymous caller is
+ * the one this can reproduce exactly (getCurrentUser answers null with no
+ * request scope); the signed-in cases are asserted one call below the handler,
+ * where the scope and the audience are both visible.
+ */
+async function liveTruckRouteChecks() {
+  const { query } = await import("../src/lib/db");
+  const { getTruck } = await import("../src/lib/loads/truckQuery");
+
+  const rows = await query<{ id: number; visibility: string }>(
+    `SELECT id, visibility FROM trucks ORDER BY id`,
+  );
+  const publicIds = rows.filter((r) => r.visibility === "public").map((r) => r.id);
+  const pendingId = rows.find((r) => r.visibility === "pending")!.id;
+  const noSuchTruck = Math.max(...rows.map((r) => r.id)) + 1000;
+  assert(publicIds.length > 0 && pendingId != null, "the truck fixture seeded no pending row to hide");
+
+  const detail = (await import("../src/app/api/trucks/[id]/route")) as {
+    GET: (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
+  };
+  const call = (id: number) =>
+    detail.GET(new Request(`http://localhost/api/trucks/${id}`), {
+      params: Promise.resolve({ id: String(id) }),
+    });
+
+  for (const id of publicIds) {
+    const res = await call(id);
+    assert(res.status === 200, `GET /api/trucks/${id} answered ${res.status}`);
+    const text = await res.text();
+    assert(text.includes('"origin_label"'), `GET /api/trucks/${id} returned no truck to check`);
+    for (const [re, what] of PAYLOAD_PATTERNS) {
+      const hit = text.match(re);
+      assert(!hit, `GET /api/trucks/${id} returned a ${what}: ...${text.slice(Math.max(0, (hit?.index ?? 0) - 60), (hit?.index ?? 0) + 40)}...`);
+    }
+  }
+
+  const pending = await call(pendingId);
+  const missing = await call(noSuchTruck);
+  assert(pending.status === 404, `GET /api/trucks/:id answered ${pending.status} for a pending truck`);
+  const pendingText = await pending.text();
+  assert(
+    pendingText === (await missing.text()),
+    "GET /api/trucks/:id tells a pending truck apart from an id that was never issued",
+  );
+
+  const board = (await import("../src/app/api/trucks/route")) as {
+    GET: (req: Request) => Promise<Response>;
+  };
+  const listed = await board.GET(new Request("http://localhost/api/trucks?limit=500&status=available,booked,departed,expired,cancelled"));
+  assert(listed.status === 200, `GET /api/trucks answered ${listed.status}`);
+  const listedBody = (await listed.text());
+  for (const [re, what] of PAYLOAD_PATTERNS) {
+    const hit = listedBody.match(re);
+    assert(!hit, `GET /api/trucks returned a ${what}: ...${listedBody.slice(Math.max(0, (hit?.index ?? 0) - 60), (hit?.index ?? 0) + 40)}...`);
+  }
+  const parsed = JSON.parse(listedBody) as { rows: Array<{ id: number }>; total: number };
+  assert(!parsed.rows.some((r) => r.id === pendingId), "GET /api/trucks returned the pending truck");
+  assert(parsed.rows.length === publicIds.length, `GET /api/trucks returned ${parsed.rows.length} of ${publicIds.length} public trucks`);
+  assert(parsed.total === parsed.rows.length, `GET /api/trucks counted ${parsed.total} but returned ${parsed.rows.length}`);
+
+  // The quarantine is not a filter axis: asking for it by name is a 400, not a
+  // query. This is the whole reason `visibility` is a column separate from
+  // `status`, which api/loads/route.ts does NOT strip for anonymous callers.
+  const asked = await board.GET(new Request("http://localhost/api/trucks?visibility=pending"));
+  assert(asked.status === 400, `GET /api/trucks?visibility=pending answered ${asked.status}, not 400`);
+  const jobUrl = await board.GET(new Request("http://localhost/api/trucks?minCf=600&readyOnly=1"));
+  assert(jobUrl.status === 400, `a job board's URL on the truck board answered ${jobUrl.status}, not 400`);
+
+  // No audience un-hides it: scope and the demo predicate are independent, and
+  // the quarantine is the one that does not depend on who is asking.
+  for (const audience of [
+    { label: "anonymous", value: { userId: null } },
+    { label: "a signed-in user", value: { userId: 1 } },
+    { label: "a caller asking for demo rows", value: { userId: 1, includeDemo: true } },
+  ]) {
+    assert(
+      (await getTruck(pendingId, "public", audience.value)) == null,
+      `getTruck(pending, "public") returned the row to ${audience.label}`,
+    );
+  }
+  assert((await getTruck(pendingId, "admin")) != null, "an admin console cannot reach the review queue");
+
+  console.log(`${DIM}invoked GET /api/trucks and GET /api/trucks/:id on ${publicIds.length} public trucks and 1 pending one${RESET}`);
+}
+
 async function main() {
   fixtureChecks();
   unitChecks();
+  await truckUnitChecks();
   groupLinkChecks();
   routeChecks();
+  await rawSourceChecks();
   await corpusChecks();
   await liveRouteChecks();
+  await truckCorpusChecks();
+  await liveTruckRouteChecks();
 
   if (failures.length) {
     console.log(`\n${RED}${failures.length} of ${checks} redaction checks failed${RESET}`);
