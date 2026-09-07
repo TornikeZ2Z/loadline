@@ -49,6 +49,11 @@ export function geometryClause(f: MatchFacts): string {
   if (f.off_route_miles == null) {
     return "no destination on your truck — this load is near you, not on a route";
   }
+  // A pickup on the line reads "on your route", not "0.0 mi off your route".
+  // The same rule as the detour clause below, for the same reason: a rounded
+  // zero is a sentence, not a measurement, and printing it as a number invites
+  // the reader to wonder what the tenth of a mile was.
+  if (f.off_route_miles < 0.5) return "on your route";
   return `${formatMiles(f.off_route_miles)} off your route`;
 }
 

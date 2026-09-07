@@ -29,7 +29,14 @@ import {
 import { MATCH_CANDIDATE_CAP } from "./constants";
 import { evaluateMatch } from "./evaluate";
 import { compareMatches } from "./order";
-import type { MatchJob, MatchOk, MatchResult, MatchTruck, RefusalCode } from "./types";
+import type {
+  MatchJob,
+  MatchOk,
+  MatchPreview,
+  MatchResult,
+  MatchTruck,
+  RefusalCode,
+} from "./types";
 
 /** `now` is a parameter everywhere below it, so a test can hold time still. */
 function boardToday(now: Date) {
@@ -139,17 +146,6 @@ export async function matchesForJob(
   };
 }
 
-/** What the posting form shows while a driver is still typing: counts, no rows. */
-export interface MatchPreview {
-  strong: number;
-  possible: number;
-  total: number;
-  candidates: number;
-  truncated: boolean;
-  refusals: Partial<Record<RefusalCode, number>>;
-  gates: { service: "thin"; deadline: "inert" | "live" };
-}
-
 /**
  * The live preview over an UNSAVED draft.
  *
@@ -191,4 +187,4 @@ export async function previewMatches(
   };
 }
 
-export type { MatchJob, MatchTruck };
+export type { MatchJob, MatchPreview, MatchTruck };

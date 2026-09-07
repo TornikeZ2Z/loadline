@@ -42,6 +42,7 @@ import {
   TAG_LABELS,
 } from "@/lib/loads/present";
 import { ContactGate } from "./ContactGate";
+import { MatchPanel } from "./MatchPanel";
 import { ReportProblem } from "./ReportProblem";
 import { Chip, PrecisionNote, StatusChip } from "./ui";
 
@@ -487,6 +488,15 @@ export function LoadDetail({
             {gate}
           </section>
         )}
+
+        {/* 6b — the mirror of the truck page's panel.
+            Public, and phone-free like everything above it: a match is a
+            pointer, not an introduction, and reaching a driver still means
+            going through the contact gate on the truck itself. It sits after
+            the contact block because it answers a different question -- "who
+            could take this?" rather than "who posted it?" -- and a reader who
+            has already decided to call should not have to scroll past it. */}
+        <MatchPanel side="job" path={`/api/loads/${row.id}/matches`} jobCf={row.cubic_feet} />
 
         {/* 7 — the post it came from */}
         {data?.source && (

@@ -638,8 +638,8 @@ function copyChecks(): void {
     );
   }
 
-  // "no extra driving" when the detour rounds to zero: a job that runs exactly
-  // along the truck's own leg costs nothing extra.
+  // The two rounded zeroes read as sentences, not as measurements: a job that
+  // runs exactly along the truck's own leg is on the route and costs nothing.
   const onTheLine = verdict(
     truck({ corridor_miles: 75 }),
     job({
@@ -650,7 +650,10 @@ function copyChecks(): void {
     }),
   );
   assert(onTheLine.ok, "a job along the truck's own leg does not match");
-  if (onTheLine.ok) eq(onTheLine.reasons[1], "no extra driving", "the zero-detour clause");
+  if (onTheLine.ok) {
+    eq(onTheLine.reasons[0], "on your route", "the zero-off-route clause");
+    eq(onTheLine.reasons[1], "no extra driving", "the zero-detour clause");
+  }
 
   // Neither side stated a size.
   const noSizes = verdict(truck({ free_cf: null, corridor_miles: 75 }), job({ cubic_feet: null }));

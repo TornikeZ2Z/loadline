@@ -40,6 +40,7 @@ import {
 } from "@/lib/loads/truckPresent";
 import { TRUCK_CORRIDOR_OPTIONS } from "@/lib/loads/constants";
 import { ContactGate } from "./ContactGate";
+import { MatchPanel } from "./MatchPanel";
 import { Chip, PrecisionNote } from "./ui";
 
 export interface TruckDetailProps {
@@ -84,6 +85,16 @@ export function TruckDetail({
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  /**
+   * Bumped whenever the owner changes something, so the match list is refetched.
+   *
+   * Editing exists on a truck and not on a job precisely because a departure
+   * slips, and a slipped departure changes which loads fit -- gate 12 is the
+   * one that answers "have you already driven past". A panel still showing
+   * yesterday's answer under today's dates would be the exact failure the edit
+   * button exists to prevent.
+   */
+  const [matchKey, setMatchKey] = useState(0);
 
   const load = useCallback(async () => {
     const res = await fetch(api(`/api/trucks/${truckId}`));
@@ -136,6 +147,7 @@ export function TruckDetail({
       });
       if (res.ok) {
         onChanged();
+        setMatchKey((k) => k + 1);
         setData(await load().catch(() => data));
       }
     } finally {
@@ -160,6 +172,7 @@ export function TruckDetail({
       }
       setEditing(false);
       onChanged();
+      setMatchKey((k) => k + 1);
       setData(await load().catch(() => data));
     } finally {
       setBusy(false);
@@ -420,6 +433,19 @@ export function TruckDetail({
 
           {/* 6 — the only place a phone number reaches the page. */}
           {!mobile && <section className="mt-[var(--sp-5)]">{gate}</section>}
+
+          {/* 6b — what this truck could carry.
+              Public, like the truck itself, and phone-free: every job in it is
+              one the board would already have shown this reader. The panel is
+              the driver's own answer to "was posting this worth it?", so it is
+              above the WhatsApp text rather than at the bottom of the page. */}
+          <MatchPanel
+            side="truck"
+            path={`/api/trucks/${row.id}/matches`}
+            freeCf={row.free_cf}
+            radius={row.dest_lat == null}
+            refreshKey={matchKey}
+          />
 
           {/* 7 — the post it came from, when there was one. */}
           {data?.source && (

@@ -155,6 +155,23 @@ export interface MatchResult<T> {
 }
 
 /**
+ * What the posting form shows while a driver is still typing: counts, and the
+ * same refusal histogram the panels print.
+ *
+ * Here rather than beside `previewMatches` in `run.ts` so the form can import
+ * the shape without `@/lib/db` appearing anywhere near a client bundle.
+ */
+export interface MatchPreview {
+  strong: number;
+  possible: number;
+  total: number;
+  candidates: number;
+  truncated: boolean;
+  refusals: Partial<Record<RefusalCode, number>>;
+  gates: { service: "thin"; deadline: "inert" | "live" };
+}
+
+/**
  * The truck, as the decision sees it. A `Pick`, so a renamed column is a
  * compile error rather than a silent behaviour change.
  */
