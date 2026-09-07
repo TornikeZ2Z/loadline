@@ -22,6 +22,19 @@
  * Four of those six were `WHERE l.id = $1` with no predicate to extend, which is
  * precisely why a filter on the board query alone would have been theatre.
  *
+ * AND EVERY PATH THAT RETURNS A TRUCK:
+ *
+ *   GET  /api/trucks                 searchTrucks("public", params, audience)
+ *   GET  /api/trucks/[id]            getTruck(id, "public", audience)
+ *
+ * A truck carries TWO independent predicates, and both are checked here. The
+ * scope decides whether an unreviewed row exists at all and does not depend on
+ * who is asking; the audience decides whose demo scratch work is whose and is
+ * the same question the job board answers. `truckQuery.ts` writes its own copy
+ * of the demo fragment, because the job query path is frozen for the truck
+ * feature -- so the audience matrix below is run over BOTH tables and asserts
+ * the two answers agree, which is what keeps the copy from drifting.
+ *
  * The board pages (`/`, `/jobs/[id]`) render `Board`, a client component that
  * reads the two API routes above and no database of its own, so they carry no
  * seventh path. The admin consoles are excluded on purpose: `/api/admin/*` and
@@ -93,6 +106,38 @@ const PICKUP = {
   pickupPrecision: "zip",
 };
 
+/**
+ * A truck at the same yard, for the other half of every assertion below.
+ *
+ * Deliberately placeable and deliberately ordinary: the question this file asks
+ * is never "is this row well formed?" but "who can see it?", and a fixture with
+ * anything unusual about it would make a failure ambiguous.
+ */
+const TRUCK = {
+  origin_label: "Kearny, NJ 07032",
+  origin_city: "Kearny",
+  origin_state: "NJ",
+  origin_zip: "07032",
+  origin_lat: 40.7684,
+  origin_lng: -74.1454,
+  origin_precision: "zip",
+  dest_label: "Boynton Beach, FL 33435",
+  dest_city: "Boynton Beach",
+  dest_state: "FL",
+  dest_zip: "33435",
+  dest_lat: 26.5254,
+  dest_lng: -80.0664,
+  dest_precision: "zip",
+  free_cf: 800,
+  free_source: "form",
+  avail_now: true,
+  corridor_miles: 60,
+  contact_name: "Rosa Poster",
+  contact_phone: "+19085557788",
+  contact_phone_source: "post",
+  shape: "form",
+};
+
 function jobBody(marker: string) {
   return {
     ...PICKUP,
@@ -123,6 +168,8 @@ async function main() {
   const { getLoad, getDuplicates, isLoadVisible, searchLoads } = await import(
     "../src/lib/loads/query"
   );
+  const { getTruck, isTruckVisible, searchTrucks } = await import("../src/lib/loads/truckQuery");
+  const { insertTruck } = await import("./fixtures/trucks");
   const { insertWebJob } = await import("../src/lib/pipeline/web");
   const { hashPassword } = await import("../src/lib/password");
   const { isAdminActor } = await import("../src/lib/session");
@@ -138,6 +185,14 @@ async function main() {
   );
   assert((corpus?.total ?? 0) > 0, "the corpus seeded no jobs, so nothing below proves anything");
   assert(corpus?.demo === 0, `${corpus?.demo} seeded corpus rows are marked is_demo; the pipeline must never set it`);
+
+  // Trucks default to public, so the DEFAULT is the thing worth asserting: a
+  // row nobody stamped is everybody's, and only the poster's session can stamp
+  // one. The demo walkthrough's own trucks arrive with the form in stage 2.
+  const truckCorpus = await queryOne<{ total: number; demo: number }>(
+    `SELECT count(*)::int AS total, count(*) FILTER (WHERE is_demo)::int AS demo FROM trucks`,
+  );
+  assert(truckCorpus?.demo === 0, `${truckCorpus?.demo} seeded trucks are marked is_demo`);
 
   // --- the cast --------------------------------------------------------------
   const find = async (email: string, label: string): Promise<Actor> => {
@@ -181,6 +236,24 @@ async function main() {
     { id: realPoster.id, name: "Rae Real", phone: "+12015550111", isDemo: false },
     jobBody("real-posted-listing"),
   );
+
+  // The same two listings, in the other table. There is no truck writer yet --
+  // the form is stage 2 -- so these are inserted directly, stamped the way the
+  // session will stamp them, which is exactly the pair the predicate is about.
+  const demoTruck = await insertTruck({
+    ...TRUCK,
+    posted_by: demoPoster.id,
+    is_demo: true,
+    truck_key: "demo-posted-truck",
+    notes: "demo-posted-truck",
+  });
+  const realTruck = await insertTruck({
+    ...TRUCK,
+    posted_by: realPoster.id,
+    is_demo: false,
+    truck_key: "real-posted-truck",
+    notes: "real-posted-truck",
+  });
 
   const stamps = await query<{ id: number; is_demo: boolean; posted_by: number }>(
     `SELECT id, is_demo, posted_by FROM loads WHERE id = ANY($1::bigint[])`,
@@ -239,7 +312,74 @@ async function main() {
     const control = await getLoad(realJob, audience);
     assert(control != null, `getLoad: ${label} cannot open the real control listing`);
     assert(await isLoadVisible(realJob, audience), `isLoadVisible: ${label} cannot see the real control listing`);
+
+    // --- the same matrix, over trucks ---------------------------------------
+    //
+    // `demoVisibilitySql` in truckQuery.ts is a deliberate SIBLING of the one in
+    // query.ts rather than a shared fragment, because the job query path is
+    // frozen for the truck feature. The cost of a copy is drift, and this is the
+    // answer to it: every audience is asked the same question of both tables and
+    // the two answers must agree, so a predicate that changes on one side and
+    // not the other fails here rather than in production.
+    const truck = await getTruck(demoTruck, "public", audience);
+    assert(
+      (truck != null) === sees,
+      `getTruck: ${label} ${truck ? "CAN" : "cannot"} open the demo truck (expected ${sees ? "can" : "cannot"})`,
+    );
+    assert(
+      (truck != null) === (found != null),
+      `getTruck and getLoad disagree about ${label}: the two demo predicates have drifted apart`,
+    );
+    assert(
+      (await isTruckVisible(demoTruck, "public", audience)) === sees,
+      `isTruckVisible: ${label} disagrees with getTruck about the demo truck`,
+    );
+
+    const truckBoard = await searchTrucks("public", { limit: 500 }, audience);
+    const truckIds = new Set(truckBoard.rows.map((r) => r.id));
+    assert(
+      truckIds.has(demoTruck) === sees,
+      `searchTrucks: ${label} ${truckIds.has(demoTruck) ? "sees" : "does not see"} the demo truck on the board`,
+    );
+    assert(truckIds.has(realTruck), `searchTrucks: ${label} lost the real control truck -- the filter is too wide`);
+    assert(
+      truckBoard.summary.count === truckBoard.total && truckBoard.total === truckBoard.rows.length,
+      `searchTrucks: ${label} got a summary count (${truckBoard.summary.count}) that disagrees with the rows (${truckBoard.rows.length})`,
+    );
+    // The headline is the other half: a demo truck that slipped into the counts
+    // would be visible as free space even with no row carrying it.
+    assert(
+      (truckBoard.summary.totalFreeCf === (TRUCK.free_cf as number) * 2) === sees,
+      `searchTrucks: ${label} sees ${truckBoard.summary.totalFreeCf} cf free, which ${sees ? "should" : "must not"} include the demo truck`,
+    );
+    assert(
+      (await getTruck(realTruck, "public", audience)) != null,
+      `getTruck: ${label} cannot open the real control truck`,
+    );
   }
+
+  // The scope is the OTHER predicate, and it does not depend on who is asking.
+  // An admin console reaches an unreviewed row; nobody on the public board does,
+  // not even the account that posted it.
+  const quarantined = await insertTruck({
+    ...TRUCK,
+    posted_by: demoPoster.id,
+    is_demo: true,
+    visibility: "pending",
+    truck_key: "pending-demo-truck",
+  });
+  assert(
+    (await getTruck(quarantined, "public", { userId: demoPoster.id })) == null,
+    "the demo poster can open their own truck while it is in the review queue",
+  );
+  assert(
+    (await getTruck(quarantined, "admin", { userId: demoPoster.id })) != null,
+    "an admin console cannot reach a pending truck",
+  );
+  assert(
+    (await getTruck(quarantined, "admin")) == null,
+    "an admin console with no audience sees a DEMO row -- scope must not imply includeDemo",
+  );
 
   // The default is the strict one: a caller who passes no audience at all is
   // treated as anonymous. Forgetting the argument must cost rows, never leak.
@@ -248,6 +388,14 @@ async function main() {
   assert(!(await isLoadVisible(demoJob)), "isLoadVisible with no audience admitted the demo listing");
   const bare = await searchLoads({ limit: 500 });
   assert(!bare.rows.some((r) => r.id === demoJob), "searchLoads with no audience returned the demo listing");
+
+  // Same default on the truck side. `scope` is required and cannot be forgotten;
+  // the audience can be, and forgetting it must cost rows rather than leak them.
+  assert((await getTruck(demoTruck, "public")) == null, "getTruck with no audience returned the demo truck");
+  assert((await getTruck(realTruck, "public")) != null, "getTruck with no audience lost the real truck");
+  assert(!(await isTruckVisible(demoTruck, "public")), "isTruckVisible with no audience admitted the demo truck");
+  const bareTrucks = await searchTrucks("public", { limit: 500 });
+  assert(!bareTrucks.rows.some((r) => r.id === demoTruck), "searchTrucks with no audience returned the demo truck");
 
   // A demo admin must not be an admin actor -- `includeDemo` is spelled
   // `isAdminActor(user)` at every call site, and this is what that rests on.
@@ -280,6 +428,7 @@ async function main() {
 
   // --- 3. the real handlers, invoked -----------------------------------------
   await liveRouteChecks(demoJob, realJob);
+  await liveTruckRouteChecks(demoTruck, realTruck);
 
   // --- 4. the route layer as text --------------------------------------------
   routeTextChecks();
@@ -393,10 +542,82 @@ async function liveRouteChecks(demoJob: number, realJob: number) {
   console.log(`${DIM}invoked GET /api/loads, GET /api/loads/:id, GET /api/loads/:id/route and POST /api/reports anonymously${RESET}`);
 }
 
+/**
+ * The truck handlers, called the way Next calls them, anonymously.
+ *
+ * A demo truck must be indistinguishable from an id that was never issued --
+ * same status, same body -- so each assertion is made against a control id past
+ * the end of the table as well as against the real control truck.
+ */
+async function liveTruckRouteChecks(demoTruck: number, realTruck: number) {
+  const { queryOne } = await import("../src/lib/db");
+  const max = await queryOne<{ id: number }>(`SELECT coalesce(max(id), 0)::int AS id FROM trucks`);
+  const noSuchTruck = (max?.id ?? 0) + 1000;
+
+  const board = (await import("../src/app/api/trucks/route")) as {
+    GET: (req: Request) => Promise<Response>;
+  };
+  const res = await board.GET(new Request("http://localhost/api/trucks?limit=500"));
+  assert(res.status === 200, `GET /api/trucks answered ${res.status}`);
+  const body = (await res.json()) as {
+    rows: Array<{ id: number }>;
+    total: number;
+    summary: { count: number; totalFreeCf: number };
+  };
+  assert(!body.rows.some((r) => r.id === demoTruck), "GET /api/trucks returned the demo truck to an anonymous caller");
+  assert(body.rows.some((r) => r.id === realTruck), "GET /api/trucks lost the real control truck");
+  assert(body.total === body.rows.length, `GET /api/trucks counted ${body.total} but returned ${body.rows.length}`);
+  assert(
+    body.summary.count === body.rows.length,
+    `GET /api/trucks summarised ${body.summary.count} trucks over ${body.rows.length} rows -- a demo truck is in the headline`,
+  );
+
+  const detail = (await import("../src/app/api/trucks/[id]/route")) as {
+    GET: (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
+  };
+  const call = (id: number) =>
+    detail.GET(new Request(`http://localhost/api/trucks/${id}`), {
+      params: Promise.resolve({ id: String(id) }),
+    });
+
+  const demoDetail = await call(demoTruck);
+  const missingDetail = await call(noSuchTruck);
+  const realDetail = await call(realTruck);
+  assert(demoDetail.status === 404, `GET /api/trucks/:id answered ${demoDetail.status} for a demo truck`);
+  assert(realDetail.status === 200, `GET /api/trucks/:id answered ${realDetail.status} for the real truck`);
+  const demoText = await demoDetail.text();
+  assert(
+    demoText === (await missingDetail.text()),
+    "GET /api/trucks/:id tells a demo truck apart from an id that was never issued",
+  );
+  assert(!demoText.includes("demo-posted-truck"), "GET /api/trucks/:id echoed the demo truck's own text");
+
+  console.log(`${DIM}invoked GET /api/trucks and GET /api/trucks/:id anonymously${RESET}`);
+}
+
 // --- 4. the route layer, as text ---------------------------------------------
 
 /** Reads that hand back a job and therefore have to be told who is asking. */
 const AUDIENCED = ["searchLoads", "getLoad", "getDuplicates", "isLoadVisible"];
+
+/**
+ * Reads that hand back a TRUCK, which have to be told two things: which rows
+ * exist at all (`scope`, first and required) and who is asking (the audience).
+ *
+ * The scope is asserted to be the LITERAL "public" rather than merely present,
+ * and that is the point of the check: a scope computed from a variable in a
+ * handler a non-admin can reach is one `?admin=1` away from serving the review
+ * queue. An admin console passes "admin" -- and is excluded from this scan,
+ * because reading the queue is its whole purpose.
+ */
+const SCOPED: Record<string, { scopeAt: number; args: number }> = {
+  // The scope leads a search, because it decides which rows the params are
+  // filtering; it follows the id on an id-addressed read, where the id leads for
+  // the same reason `getLoad(id, audience)` does. Both are required.
+  searchTrucks: { scopeAt: 0, args: 3 },
+  getTruck: { scopeAt: 1, args: 3 },
+  isTruckVisible: { scopeAt: 1, args: 3 },
+};
 
 /**
  * Non-admin handlers that write their own `FROM loads` SQL, and why that is
@@ -426,13 +647,26 @@ function argsOf(body: string, name: string, at: number): string | null {
 
 /** True when the argument list has a comma outside any nested bracket. */
 function hasSecondArgument(args: string): boolean {
+  return splitArgs(args).length > 1;
+}
+
+/** The top-level arguments of a call, split on commas outside any bracket. */
+function splitArgs(args: string): string[] {
+  const out: string[] = [];
   let depth = 0;
-  for (const c of args) {
+  let start = 0;
+  for (let i = 0; i < args.length; i++) {
+    const c = args[i];
     if (c === "(" || c === "{" || c === "[") depth++;
     else if (c === ")" || c === "}" || c === "]") depth--;
-    else if (c === "," && depth === 0) return true;
+    else if (c === "," && depth === 0) {
+      out.push(args.slice(start, i).trim());
+      start = i + 1;
+    }
   }
-  return false;
+  const last = args.slice(start).trim();
+  if (last || out.length) out.push(last);
+  return out.filter((a, i) => a !== "" || i < out.length - 1);
 }
 
 function routeTextChecks() {
@@ -441,6 +675,7 @@ function routeTextChecks() {
 
   let scanned = 0;
   let audienced = 0;
+  let scoped = 0;
   const declaredSeen = new Set<string>();
 
   for (const h of handlers) {
@@ -463,6 +698,23 @@ function routeTextChecks() {
       }
     }
 
+    for (const [name, shape] of Object.entries(SCOPED)) {
+      const re = new RegExp(String.raw`\b${name}\s*\(`, "g");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(h.body))) {
+        const args = splitArgs(argsOf(h.body, name, m.index) ?? "");
+        assert(
+          args[shape.scopeAt] === `"public"`,
+          `${h.id} (${h.file}) calls ${name}() with scope ${args[shape.scopeAt] ?? "nothing"} — a handler a non-admin can reach must pass the literal "public", or the review queue is one query parameter away`,
+        );
+        assert(
+          args.length >= shape.args,
+          `${h.id} (${h.file}) calls ${name}() with no audience — a truck read by a non-admin handler must be told who is asking, or a demo listing is one URL away`,
+        );
+        scoped++;
+      }
+    }
+
     if (/\bFROM loads\b/.test(h.body)) {
       const why = RAW_LOADS_SQL[h.id];
       assert(
@@ -471,6 +723,11 @@ function routeTextChecks() {
       );
       if (why) declaredSeen.add(h.id);
     }
+
+    assert(
+      !/\bFROM trucks\b/.test(h.body),
+      `${h.id} (${h.file}) queries "FROM trucks" directly. Route it through src/lib/loads/truckQuery.ts: a hand-written truck query has neither the scope nor the audience predicate, and both are what keep an unreviewed row and a demo row off the wire`,
+    );
   }
 
   for (const id of Object.keys(RAW_LOADS_SQL)) {
@@ -479,7 +736,11 @@ function routeTextChecks() {
 
   assert(scanned >= 8, `only ${scanned} non-admin handlers were scanned -- the guard classifier is over-excluding`);
   assert(audienced >= 5, `only ${audienced} audienced job reads found across the public routes -- the scanner is matching nothing`);
-  console.log(`${DIM}scanned ${scanned} handlers a non-admin can reach; ${audienced} job reads carry an audience${RESET}`);
+  assert(scoped >= 2, `only ${scoped} scoped truck reads found across the public routes -- the scanner is matching nothing`);
+  console.log(
+    `${DIM}scanned ${scanned} handlers a non-admin can reach; ${audienced} job reads carry an audience, ` +
+      `${scoped} truck reads carry a public scope and an audience${RESET}`,
+  );
 }
 
 main()
