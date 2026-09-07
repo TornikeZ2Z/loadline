@@ -1480,8 +1480,13 @@ export function LoadMap({
       const off = single.off_route_miles;
       const detour = single.detour_miles;
       const parts: string[] = [];
-      if (off != null) parts.push(`${off.toLocaleString("en-US")} mi off your route`);
-      if (detour != null) parts.push(`+${detour.toLocaleString("en-US")} mi of driving`);
+      // Both numbers arrive already rounded, so a zero is "under half a mile"
+      // and not "exactly none" -- said in words, because "0 mi off your route"
+      // reads as a measurement precise to the foot.
+      if (off != null) parts.push(off === 0 ? "on your route" : `${off.toLocaleString("en-US")} mi off your route`);
+      if (detour != null) {
+        parts.push(detour === 0 ? "no extra driving" : `+${detour.toLocaleString("en-US")} mi of driving`);
+      }
       if (parts.length) {
         const why = document.createElement("div");
         why.className = "s";
@@ -1947,8 +1952,14 @@ export function LoadMap({
             handles its own error, and would go back to lying, silently, the
             day that changes. */}
         {error ? (
+          // Said in the panel's own voice, not as a second announcement of the
+          // outage: the Board already prints "Could not load jobs to plot."
+          // over the middle of the map with the retry on it, and two notices
+          // saying the same sentence in one rectangle is the failure this
+          // map's error states were arranged to avoid. This one only has to
+          // explain the missing number.
           <div className="text-(length:--fs-sm)" style={{ color: "var(--approx)" }}>
-            {compact ? "Jobs could not be loaded" : "Jobs could not be loaded — nothing to count."}
+            {compact ? "No count" : "No count — the board did not load."}
           </div>
         ) : inView == null || loading ? (
           <>
@@ -2119,7 +2130,11 @@ export function LoadMap({
                 boxShadow: "none",
               }}
             />{" "}
-            ±{corridor.miles} mi of your route
+            {/* Three keys will not fit on one line at 390 px, and a legend
+                that wraps to two lines on a map band 261 px tall is taking a
+                tenth of the phone to explain itself. The words the swatch can
+                carry alone are the ones that go. */}
+            {compact ? `±${corridor.miles} mi` : `±${corridor.miles} mi of your route`}
           </b>
         )}
       </div>
