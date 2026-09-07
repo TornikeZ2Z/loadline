@@ -601,9 +601,13 @@ function ActiveChips({
           <span aria-hidden>✕</span>
         </button>
       ))}
+      {/* A chip, not a button: on a phone every control in this row is 44 px
+          tall for a thumb, and a `btn` among them was a taller, wider shape
+          that pushed the wrap one item earlier than it had to. */}
       <button
         type="button"
-        className="btn btn-ghost btn-sm"
+        className="chip chip-muted chip-button"
+        title="Remove every filter. Sort and map end are left alone."
         onClick={() => onChange(clearedFilters(filters))}
       >
         Clear all
