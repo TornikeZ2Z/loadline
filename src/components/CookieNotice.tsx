@@ -19,7 +19,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-/** Also listed on /cookies, and cleared by `clearLoadLineStorage`. */
+/** Also listed on /cookies, and cleared by `ClearStorageButton` below. */
 export const NOTICE_KEY = "loadline.notice.storage.v1";
 
 /** Every key this app writes, so /cookies can offer a truthful "clear it" button. */
@@ -73,9 +73,9 @@ export function CookieNotice() {
       <div className="card mx-auto flex max-w-[820px] flex-col gap-[var(--sp-3)] p-[var(--sp-4)] sm:flex-row sm:items-center">
         <p className="text-(length:--fs-base) leading-relaxed" style={{ color: "var(--text-2)" }}>
           <strong style={{ color: "var(--text)" }}>One cookie, and only if you sign in.</strong>{" "}
-          LoadLine sets a single signed session cookie, and keeps the location you pick in your own
-          browser. No analytics, no advertising, no third-party trackers &mdash; so there is nothing
-          here to opt out of.{" "}
+          MoverMesh sets a single signed session cookie, and keeps the location you pick in your
+          own browser. No analytics, no advertising, no third-party trackers &mdash; so there is
+          nothing here to opt out of.{" "}
           <Link href="/cookies" className="underline" style={{ color: "var(--accent)" }}>
             What is stored
           </Link>
