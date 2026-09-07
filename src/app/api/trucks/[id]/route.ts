@@ -32,7 +32,9 @@ interface Ctx {
  * "abc" and "0x10" 404 instead of reaching the database.
  */
 export const GET = handler(async (req: Request, ctx: Ctx) => {
-  rateLimit(req, "detail", 120);
+  // Its own bucket, like the board's: a truck detail and a job detail are
+  // different endpoints, and one must not spend the other's allowance.
+  rateLimit(req, "trucks-detail", 120);
   const { id } = await ctx.params;
 
   const truckId = jobIdFrom(id);

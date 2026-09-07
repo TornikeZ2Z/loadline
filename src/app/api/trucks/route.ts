@@ -40,7 +40,11 @@ const DEMO_KEY = "demo";
 
 /** Search. Public: no session, no redirect, no sign-in wall in front of the board. */
 export const GET = handler(async (req: Request) => {
-  rateLimit(req, "search", 120);
+  // Its OWN bucket, not the job board's. The board fetches both surfaces for
+  // one screen, so a shared allowance would be spent twice per view -- and,
+  // worse, a scraper hammering trucks would 429 the job board with it. The two
+  // are required to fail independently.
+  rateLimit(req, "trucks-search", 120);
   const url = new URL(req.url);
 
   // A session read that does NOT gate the route -- it decides whether the
