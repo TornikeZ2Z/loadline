@@ -45,6 +45,40 @@ export interface CorridorFit {
 }
 
 /**
+ * The six numbers, measured and not judged.
+ *
+ * `corridorFit` collapses every way of being off the route into one `null`,
+ * which is exactly right for a search loop and exactly wrong for a matcher that
+ * owes the driver a REASON: "38 weren't near your route" and "11 were going the
+ * wrong way" are different sentences, and a caller handed `null` cannot tell
+ * them apart. `evaluateMatch` needs the measurements before the thresholds, so
+ * the measuring lives here and `corridorFit` applies its thresholds to it.
+ *
+ * One implementation of the geometry, two callers with different questions.
+ * The alternative -- the matcher measuring cross-track and along-track itself
+ * -- is the drift this module was lifted in stage 0 to prevent.
+ *
+ * npm run check:equiv (T-A2b) evaluates `corridorFit` against the pre-lift
+ * geometry over 4,444 pairs and asserts every result identical to the bit, so
+ * this refactor is proved rather than argued.
+ */
+export function corridorMeasure(
+  pickup: GeoPoint,
+  delivery: GeoPoint,
+  origin: GeoPoint,
+  destination: GeoPoint,
+): CorridorFit {
+  return {
+    offRoute: crossTrackMiles(pickup, origin, destination),
+    deliveryOffRoute: crossTrackMiles(delivery, origin, destination),
+    pickupProgress: alongTrackFraction(pickup, origin, destination),
+    deliveryProgress: alongTrackFraction(delivery, origin, destination),
+    detour: detourMiles(origin, destination, pickup, delivery),
+    legMiles: haversineMiles(origin, destination),
+  };
+}
+
+/**
  * `null` means outside the corridor -- the same "skip this row" the board's
  * loop has always meant, with no partial result to misread.
  *
@@ -66,13 +100,11 @@ export function corridorFit(
 ): CorridorFit | null {
   const { origin, destination, halfWidthMiles: miles } = route;
 
-  const offRoute = crossTrackMiles(pickup, origin, destination);
-  if (offRoute > miles) return null;
+  const fit = corridorMeasure(pickup, delivery, origin, destination);
 
-  const pickupProgress = alongTrackFraction(pickup, origin, destination);
-  const deliveryProgress = alongTrackFraction(delivery, origin, destination);
+  if (fit.offRoute > miles) return null;
 
-  if (deliveryProgress <= pickupProgress) {
+  if (fit.deliveryProgress <= fit.pickupProgress) {
     if (opts.strictForward) return null;
     const closerToDest =
       haversineMiles(delivery, destination) < haversineMiles(pickup, destination);
@@ -82,15 +114,12 @@ export function corridorFit(
   // The delivery has to stay near the route too. Heading to New Jersey,
   // Miami -> Seattle technically makes "forward progress" (north) while
   // being nobody's idea of a job on the way.
-  const deliveryOffRoute = crossTrackMiles(delivery, origin, destination);
-  if (deliveryOffRoute > miles * 2) return null;
+  if (fit.deliveryOffRoute > miles * 2) return null;
 
   // Cap total extra driving, scaled against the trip as well as the corridor
   // width: 150 extra miles is a rounding error coast to coast and a different
   // trip entirely on a 400-mile run.
-  const legMiles = haversineMiles(origin, destination);
-  const detour = detourMiles(origin, destination, pickup, delivery);
-  if (detour > Math.min(miles * 2, legMiles * 0.3)) return null;
+  if (fit.detour > Math.min(miles * 2, fit.legMiles * 0.3)) return null;
 
-  return { offRoute, deliveryOffRoute, pickupProgress, deliveryProgress, detour, legMiles };
+  return fit;
 }

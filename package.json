@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "eval": "tsx scripts/eval.ts",
     "eval:lifecycle": "tsx scripts/eval-lifecycle.ts",
+    "eval:match": "tsx scripts/eval-match.ts",
     "score": "tsx scripts/score-fixture.ts",
     "check:redact": "tsx scripts/check-redact.ts",
     "check:routes": "tsx scripts/check-routes.ts",
