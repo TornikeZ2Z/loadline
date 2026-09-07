@@ -295,16 +295,40 @@ async function here(q: string, expectState: string | null): Promise<GeocodeResul
   }
 }
 
-/** The nearest gazetteer city to a ZIP inside the ZIP's own state: an approximation, labelled as one. */
+/**
+ * A ZIP nobody could place precisely: the nearest gazetteer city inside the
+ * ZIP's own state supplies a POINT, and nothing else.
+ *
+ * It deliberately reports no city. The name would be a guess about where the
+ * ZIP is, not a reading of what the sender wrote, and the guess is weaker than
+ * it looks: `CITIES` is "deliberately curated rather than exhaustive" by its
+ * own docblock — three entries for the whole of New Mexico — and when no entry
+ * shares the ZIP's first three digits the tie-break is `closestByZip`, which
+ * compares the ZIPs as NUMBERS. Numeric ZIP distance is not geography, so on a
+ * thinly covered state it returns whatever is arithmetically nearest: NM 87825
+ * answers "Santa Fe" because 87501 is 324 away, and FL 32606 answers "Orlando".
+ *
+ * Returning that name put it in `loads.delivery_city`, where the API served it
+ * as fact and no flag disputed it: live, "VA 24040" read back as Roanoke and
+ * "ID 83664" as Boise (§6.6). Whether a particular guess lands near the truth
+ * is beside the point — the row was asserting a city the message never said.
+ *
+ * The coordinates stay: a nearby city beats a state centroid, and
+ * `precision: "state"` already tells the map and the card to call the point
+ * approximate. Only the claim goes.
+ *
+ * Downstream both writers fall back to the destination the message itself
+ * carried — `process.ts` to `e.dest_city`, `web.ts` to the city the poster
+ * typed — so a stated city is untouched and an unstated one is simply absent.
+ * Once a real geocoder places the ZIP, `geo/zips.ts` fills the name in.
+ */
 function zipApprox(zip: string): GeocodeResult | null {
   const st = stateForZip(zip);
   if (!st) return null;
   const inState = CITIES.filter((c) => c.state === st.abbr);
   const best = inState.find((c) => c.zip.slice(0, 3) === zip.slice(0, 3)) ?? closestByZip(inState, zip);
-  if (best) {
-    return { label: `${best.city}, ${best.state} ${zip}`, city: best.city, state: best.state, zip, lat: best.lat, lng: best.lng, precision: "state", source: "zip-approx" };
-  }
-  return { label: `${st.abbr} ${zip}`, city: null, state: st.abbr, zip, lat: st.lat, lng: st.lng, precision: "state", source: "zip-approx" };
+  const at = best ?? st;
+  return { label: `${st.abbr} ${zip}`, city: null, state: st.abbr, zip, lat: at.lat, lng: at.lng, precision: "state", source: "zip-approx" };
 }
 
 /**

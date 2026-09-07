@@ -16,7 +16,8 @@
  *       delisted -- the latest post wins.
  *   S4  the same lane at 300 cf yesterday and 350 cf today pairs into one job;
  *       reprocessing yesterday's post, or receiving it late, never writes 300
- *       back over it.
+ *       back over it; and a lane offering two candidates on either side pairs
+ *       with neither, claims no edit, and flags the snapshot instead.
  *   S5  a reprocess that no longer parses as a load post still rebuilds the
  *       sender: the earlier list comes back instead of staying delisted.
  *   S6  a sender's expired jobs are not resurrected wholesale by a later
@@ -31,6 +32,13 @@
  *       nothing; the same bodies without the phrase, and "UPDATED LIST", are
  *       still full and still retire what they omit; a truncated post delists
  *       nothing either.
+ *   S10 the truncated branch on its own: a post cut off with no "Read more"
+ *       marker, a cut-off post that also carries a partial phrase, the jobs
+ *       such a post repeats still being sighted, and `last_full_at` staying
+ *       on the earlier list so a later full post still retires what it omits.
+ *   S11 who may name a city: an unresolved ZIP carries none, the geo/zips.ts
+ *       sweep supplies one once a real geocoder places the ZIP, and a city the
+ *       poster wrote is never overwritten.
  */
 process.env.PGLITE_DIR = "memory://";
 
@@ -217,6 +225,62 @@ async function main() {
   expect(
     cf?.cubic_feet === 350 && cf.price_per_cf === 4 && c.available === 1 && c.delisted === 1,
     `yesterday's post arriving late is delisted, not merged backwards (got ${JSON.stringify(cf)}, ${c.available}/${c.delisted})`,
+  );
+
+  // The lane alone was the pairing key, so two distinct same-lane jobs plus one
+  // new size collapsed into one row that kept the older first_seen_at and
+  // seen_count and gained an `edited` event asserting a correction that never
+  // happened. Nothing may pair when the lane offers more than one candidate.
+  const edits = async (phone: string) =>
+    (await queryOne<{ n: number }>(
+      `SELECT count(*)::int AS n FROM load_events e JOIN loads l ON l.id = e.load_id
+        WHERE l.sender_key = $1 AND e.kind = 'edited'`,
+      [`phone:${phone}`],
+    ))!.n;
+  const snapReview = async (phone: string) =>
+    (await queryOne<{ needs_review: boolean }>(
+      `SELECT needs_review FROM sender_snapshots WHERE sender_key = $1 ORDER BY sent_at DESC, id DESC LIMIT 1`,
+      [`phone:${phone}`],
+    ))!.needs_review;
+
+  const S4c = "+17865550403";
+  await post(S4c, "FROM MIAMI FL:\n350 - GA 30303 $3.00\n900 - GA 30303 $2.50", new Date(T0.getTime() - DAY), T0);
+  await post(S4c, "FROM MIAMI FL:\n400 - GA 30303 $3.50", T0, T0);
+  c = await counts(S4c);
+  const kept4c = await queryOne<{ cubic_feet: number; seen_count: number; first_seen: string }>(
+    `SELECT cubic_feet::int AS cubic_feet, seen_count, first_seen_at::text AS first_seen
+       FROM loads WHERE sender_key = $1 AND status = 'available'`,
+    [`phone:${S4c}`],
+  );
+  expect(
+    c.total === 3 && c.available === 1 && c.delisted === 2 &&
+      kept4c?.cubic_feet === 400 && kept4c.seen_count === 1 &&
+      new Date(kept4c.first_seen).getTime() === T0.getTime(),
+    `two same-lane jobs plus one new size stay three rows, and the new one keeps its own history ` +
+      `(got ${c.available}/${c.delisted}/${c.total}, ${JSON.stringify(kept4c)})`,
+  );
+  expect(await edits(S4c) === 0, `no edit is claimed when the lane offers two candidates (got ${await edits(S4c)})`);
+  expect(await snapReview(S4c), "the ambiguous snapshot is flagged for review");
+
+  // The same ambiguity in the other direction: one absent row, two new sizes.
+  // Greedy |Δcf| would have paired the closest and called the other new.
+  const S4d = "+17865550404";
+  await post(S4d, "FROM MIAMI FL:\n350 - GA 30303 $3.00", new Date(T0.getTime() - DAY), T0);
+  await post(S4d, "FROM MIAMI FL:\n400 - GA 30303 $3.50\n500 - GA 30303 $3.25", T0, T0);
+  c = await counts(S4d);
+  expect(
+    c.total === 3 && c.available === 2 && c.delisted === 1 && (await edits(S4d)) === 0,
+    `two new sizes against one absent row pair with neither (got ${c.available}/${c.delisted}/${c.total}, ${await edits(S4d)} edits)`,
+  );
+
+  // Guard the feature the rule must not retire: one against one still pairs.
+  const S4e = "+17865550405";
+  await post(S4e, "FROM MIAMI FL:\n300 - GA 30303 $3.00\n400 - NC 28202 $3.10", new Date(T0.getTime() - DAY), T0);
+  await post(S4e, "FROM MIAMI FL:\n350 - GA 30303 $4.00\n400 - NC 28202 $3.10", T0, T0);
+  c = await counts(S4e);
+  expect(
+    c.total === 2 && c.available === 2 && (await edits(S4e)) === 1,
+    `one candidate per side on a two-lane list still pairs (got ${c.available}/${c.total}, ${await edits(S4e)} edits)`,
   );
 
   // ------------------------------------------------------------------ S5
@@ -519,6 +583,124 @@ async function main() {
     first.kind === "partial" && first.available === 3 && first.delisted === 0,
     `a marked first post still lists its jobs (${first.kind}/${first.kind_reason}, ` +
       `${first.available} available / ${first.delisted} delisted)`,
+  );
+
+  // ----------------------------------------------------------------- S10
+  // The `truncated` branch runs before every other test in `recordSnapshot`
+  // and had no check of its own beyond the one read_more case above: a post
+  // WhatsApp cut off is a fragment of a list, never a replacement for it.
+  console.log(`\n${DIM}S10: a post WhatsApp cut off is a fragment, not a new list${RESET}`);
+
+  // (a) No "Read more" marker at all -- the tail is simply gone mid-line, and
+  //     the shape of the last line is the only evidence.
+  const S10a = "+17865559090";
+  await post(S10a, subset(10), new Date(T0.getTime() - DAY), T0);
+  const tailId = await post(S10a, subset(6) + "\n300 - OR", T0, T0);
+  const tail = { ...(await kindOf(tailId)), ...(await counts(S10a)) };
+  expect(
+    tail.kind === "truncated" && tail.kind_reason === "truncated:tail" &&
+      tail.available === 10 && tail.delisted === 0,
+    `a post cut off with no "Read more" is truncated:tail and delists nothing (${tail.kind}/${tail.kind_reason}, ` +
+      `${tail.available} available / ${tail.delisted} delisted)`,
+  );
+
+  // (b) Truncation is decided before the partial phrase and before the size
+  //     gate, so a cut-off post is truncated whatever else it says.
+  const S10b = "+17865559091";
+  await post(S10b, subset(10), new Date(T0.getTime() - DAY), T0);
+  const bothId = await post(S10b, "STILL AVAILABLE:\n" + subset(6) + "\nRead more", T0, T0);
+  const both = { ...(await kindOf(bothId)), ...(await counts(S10b)) };
+  expect(
+    both.kind === "truncated" && both.available === 10 && both.delisted === 0,
+    `a cut-off post carrying a partial phrase is still truncated (${both.kind}/${both.kind_reason}, ` +
+      `${both.available} available / ${both.delisted} delisted)`,
+  );
+
+  // (c) Not delisting is not the same as being ignored. The jobs a truncated
+  //     post names are sighted, so their freshness and expiry clocks advance.
+  const S10c = "+17865559092";
+  await post(S10c, subset(10), new Date(T0.getTime() - DAY), T0);
+  await post(S10c, subset(6) + "\nRead more", T0, T0);
+  const sight = await queryOne<{ named: number; unnamed: number }>(
+    `SELECT count(*) FILTER (WHERE seen_count = 2)::int AS named,
+            count(*) FILTER (WHERE seen_count = 1)::int AS unnamed
+       FROM loads WHERE sender_key = $1`,
+    [`phone:${S10c}`],
+  );
+  expect(
+    sight?.named === 6 && sight.unnamed === 4,
+    `the 6 jobs a truncated post repeats are seen again; the 4 it omits are not (got ${JSON.stringify(sight)})`,
+  );
+
+  // (d) The point of the branch: a truncated post must not become the
+  //     reference every later delisting is measured against. `last_full_at`
+  //     stays on the earlier full list, and a genuine full post afterwards
+  //     still retires what it omits.
+  const s10cSender = await queryOne<{ full: string; last: string }>(
+    `SELECT last_full_at::text AS full, last_snapshot_at::text AS last FROM senders WHERE key = $1`,
+    [`phone:${S10c}`],
+  );
+  expect(
+    new Date(s10cSender!.full).getTime() === T0.getTime() - DAY &&
+      new Date(s10cSender!.last).getTime() === T0.getTime(),
+    `the truncated post advances last_snapshot_at but not last_full_at (got ${JSON.stringify(s10cSender)})`,
+  );
+  const T0h12 = new Date(T0.getTime() + 12 * HOUR);
+  await post(S10c, subset(3), T0h12, T0h12);
+  const after10c = await counts(S10c);
+  expect(
+    after10c.available === 3 && after10c.delisted === 7,
+    `a real full post after a truncated one still retires the 7 it omits (got ${after10c.available}/${after10c.delisted})`,
+  );
+
+  // ----------------------------------------------------------------- S11
+  // Who is allowed to name a city. `zipApprox` places a ZIP it cannot resolve
+  // at the nearest gazetteer city's coordinates and reports NO city, because
+  // the nearest in-state entry is a guess about the ZIP rather than anything
+  // the sender wrote -- live, that guess was being served as `delivery_city`
+  // for "VA 24040" (Roanoke) and "ID 83664" (Boise) with needs_review false.
+  // A real geocoder answer is the first thing entitled to name one, so the
+  // name arrives with the geo/zips.ts sweep, and only where the poster did not
+  // supply one themselves.
+  console.log(`\n${DIM}S11: only a real geocoder names a city the sender did not${RESET}`);
+  const { warmBoardZips } = await import("../src/lib/geo/zips");
+  const S11 = "+17865559100";
+  // 30303 is Atlanta and the message never says so; 24011 says "Roanoke".
+  await post(S11, "FROM NEWARK NJ:\n350 - GA 30303 $3.00\n400 - Roanoke, VA 24011 $3.10", T0, T0);
+  const dest11 = async (zip: string) =>
+    (await queryOne<{ city: string | null; prec: string | null }>(
+      `SELECT delivery_city AS city, delivery_precision AS prec
+         FROM loads WHERE sender_key = $1 AND delivery_zip = $2`,
+      [`phone:${S11}`, zip],
+    ))!;
+  const preUnsaid = await dest11("30303");
+  const preStated = await dest11("24011");
+  expect(
+    preUnsaid.city === null && preUnsaid.prec === "state" && preStated.city === "Roanoke",
+    `an unresolved ZIP carries no city and a stated one keeps it ` +
+      `(got ${JSON.stringify(preUnsaid)}, ${JSON.stringify(preStated)})`,
+  );
+
+  // Stand in for a warmed cache: HERE is unconfigured in this run, so write the
+  // precise answers straight into `places` and let the sweep move the rows.
+  await query(
+    `UPDATE places SET city = 'Atlanta', state = 'GA', lat = 33.749, lng = -84.388,
+            precision = 'zip', source = 'here' WHERE query = 'zip:30303'`,
+  );
+  await query(
+    `UPDATE places SET city = 'Roanoke', state = 'VA', lat = 37.271, lng = -79.941,
+            precision = 'zip', source = 'here' WHERE query = 'zip:24011'`,
+  );
+  await warmBoardZips({ onlyCoarse: true });
+  const postUnsaid = await dest11("30303");
+  const postStated = await dest11("24011");
+  expect(
+    postUnsaid.city === "Atlanta" && postUnsaid.prec === "zip",
+    `the sweep names the ZIP-only endpoint once a real geocoder places it (got ${JSON.stringify(postUnsaid)})`,
+  );
+  expect(
+    postStated.city === "Roanoke" && postStated.prec === "zip",
+    `the poster's own city is never overwritten by the sweep (got ${JSON.stringify(postStated)})`,
   );
 
   console.log("");

@@ -3,11 +3,13 @@
  *
  * The pipeline never blocks an insert on a geocoder. A destination written as
  * "FL 33180" is stored the moment it is read, and if HERE is unreachable — no
- * key, spent budget, an outage — `geocodeZip` falls back to `zipApprox`: the
- * nearest gazetteer city inside the ZIP's own state, honestly recorded as
- * precision `state`, source `zip-approx`. That is the right trade at ingest
- * time. It is the wrong thing to leave on the map, because a state-precision
- * point draws as a hollow "approximate" marker sitting nowhere near the job.
+ * key, spent budget, an outage — `geocodeZip` falls back to `zipApprox`: a
+ * point borrowed from the nearest gazetteer city inside the ZIP's own state,
+ * carrying no city name and honestly recorded as precision `state`, source
+ * `zip-approx`. That is the right trade at ingest time. It is the wrong thing
+ * to leave on the map, because a state-precision point draws as a hollow
+ * "approximate" marker sitting nowhere near the job — and it leaves a
+ * ZIP-only endpoint with no city until a real geocoder supplies one.
  *
  * `npm run zips:warm` fixed that locally by walking the board's ZIPs with a key
  * configured. Production could never run it: the database is inside a VPC and
@@ -389,18 +391,21 @@ async function upgradeEnd(
       row.lat !== null && row.lng !== null &&
       Math.abs(row.lat - place.lat) < 1e-7 && Math.abs(row.lng - place.lng) < 1e-7;
 
-    // The city stored on a destination came from the geocoder, so when the old
-    // answer was the in-state approximation the stored city is that
-    // approximation's city — "Orlando" for a Miami ZIP. Replace it, but only
-    // when it is still exactly that: a city the post itself stated, or one the
-    // pipeline took from the extractor, is the poster's word and stays.
+    // Naming the city is this sweep's job, because a real geocoder answer is
+    // the first thing here that is entitled to name one. `zipApprox` reports
+    // no city at all (see geo/geocode.ts), so a ZIP-only endpoint arrives with
+    // `city` NULL and gets its name filled in here, on both ends.
+    //
+    // Rows written before that change still carry the approximation's guess —
+    // "Orlando" for a Gainesville ZIP — so those are replaced too, but only
+    // when the stored name is still exactly that guess. A city the post itself
+    // stated, or one the pipeline took from the extractor, is the poster's
+    // word and stays.
     const wasApprox = z ? before.get(z) : undefined;
-    const cityFromApprox =
-      end === "delivery" &&
-      wasApprox?.source === "zip-approx" &&
-      row.city !== null &&
-      wasApprox.city === row.city;
-    const city = cityFromApprox ? (place.city ?? row.city) : row.city;
+    const cityIsNotThePosters =
+      row.city === null ||
+      (end === "delivery" && wasApprox?.source === "zip-approx" && wasApprox.city !== null && wasApprox.city === row.city);
+    const city = cityIsNotThePosters ? (place.city ?? row.city) : row.city;
 
     // No early exit on "the point did not move": the row is here because its
     // precision is coarse and the place's is not, so at minimum that word is
