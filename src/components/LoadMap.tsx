@@ -50,10 +50,11 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { FeatureCollection, Point as GeoPoint } from "geojson";
 import type { BoundsInput, LoadSummary, MapEnd } from "@/lib/loads/types";
 import type { PublicLoadRow } from "@/lib/loads/publicView";
-import type { StoredLocation } from "@/lib/location";
+import { LOCATION_KEYS, type StoredLocation } from "@/lib/location";
 import { STATE_BY_ABBR } from "@/lib/geo/states";
 import { api } from "@/lib/basePath";
 import { formatCf, jobSummary, truckLine } from "@/lib/loads/present";
+import { corridorRing, intermediatePoint, type Point as LatLng } from "@/lib/geo/math";
 import {
   buildGroups,
   endLabelText,
@@ -84,7 +85,11 @@ export interface LoadMapProps {
   viewer: StoredLocation | null;
   home: StoredLocation | null;
   towardHome: boolean;
-  /** Changes only when the filter set changes, which is the only time we refit. */
+  /**
+   * The shareable query string. Changes only when the filter set changes,
+   * which is the only time we refit -- and it is also how the corridor reaches
+   * this map: see `parseCorridorQuery` below.
+   */
   fitKey: string;
   /** Height of the mobile sheet, so the route is fitted into the visible half. */
   bottomPadding?: number;
@@ -93,6 +98,13 @@ export interface LoadMapProps {
   filteredSummary: LoadSummary | null;
   /** The first search has not answered yet; the panel must not report a 0. */
   loading?: boolean;
+  /**
+   * The board fetch FAILED. Different from `loading` and from an empty result:
+   * `jobs` is empty because nothing could be read, so every number the panel
+   * would print is a number about nothing. Optional, and false by default, so
+   * a caller that does not pass it gets exactly the old behaviour.
+   */
+  error?: boolean;
 }
 
 /** What `/api/loads/:id/route` answers with. */
@@ -208,6 +220,123 @@ function overlaps(a: Box, b: Box): boolean {
 const BASEMAP_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
+
+/* ------------------------------- the corridor -----------------------------
+ *
+ * "Near my route" is a real filter with a real shape, and until now the map
+ * drew a decoration instead: a flat quad at a hardcoded 100 miles around the
+ * viewer-to-home chord, which was neither the width the server used nor the
+ * shape it tested nor, once a driver can type a route of their own, the right
+ * pair of endpoints.
+ *
+ * Where the numbers come from: the QUERY STRING, which is this product's one
+ * description of a search -- the same keys `searchParams.ts` parses on the way
+ * in (`routeMode=corridor`, `corridor`, `originLat`/`originLng`,
+ * `destLat`/`destLng`, and the `origin`/`dest` labels). Reading them here
+ * rather than taking a prop means whichever control emits them -- today's
+ * Toward-home toggle, tomorrow's typed route and width slider -- lights up the
+ * same band with no second contract to keep in step. `fitKey` is that string:
+ * the Board passes the URL it just wrote.
+ *
+ * What is NOT in the shareable URL is the viewer's own coordinates, on
+ * purpose (`location.ts`: a position is the one thing a job board should not
+ * keep). So an endpoint the query does not carry falls back to the stored slot
+ * that produced it -- current for the origin, home for the destination -- and
+ * an endpoint with neither draws nothing at all rather than a guessed band.
+ */
+
+/**
+ * The server's own default when a corridor search arrives with no width.
+ * Kept in step with DEFAULT_CORRIDOR_MILES in `lib/loads/query.ts` by hand:
+ * that module reaches the database driver and cannot be imported here. Drawing
+ * a different number would be the map disagreeing with the filter.
+ */
+const DEFAULT_CORRIDOR_MILES = 75;
+
+interface CorridorQuery {
+  miles: number;
+  origin: LatLng | null;
+  destination: LatLng | null;
+  originLabel: string | null;
+  destLabel: string | null;
+}
+
+/** The corridor as it can actually be drawn: both ends resolved. */
+interface Corridor extends CorridorQuery {
+  origin: LatLng;
+  destination: LatLng;
+}
+
+function queryPoint(sp: URLSearchParams, latKey: string, lngKey: string): LatLng | null {
+  const lat = Number(sp.get(latKey));
+  const lng = Number(sp.get(lngKey));
+  if (!sp.get(latKey) || !sp.get(lngKey)) return null;
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
+/** `routeMode=corridor` and everything that describes it, or null. */
+function parseCorridorQuery(query: string): CorridorQuery | null {
+  const sp = new URLSearchParams(query);
+  if (sp.get("routeMode") !== "corridor") return null;
+  const miles = Number(sp.get("corridor"));
+  return {
+    miles: Number.isFinite(miles) && miles > 0 ? miles : DEFAULT_CORRIDOR_MILES,
+    origin: queryPoint(sp, "originLat", "originLng"),
+    destination: queryPoint(sp, "destLat", "destLng"),
+    originLabel: sp.get("origin"),
+    destLabel: sp.get("dest"),
+  };
+}
+
+/** Two positions the same marker would be drawn on, to within ~half a mile. */
+function samePlace(a: LatLng, b: LatLng | null | undefined): boolean {
+  return b != null && Math.abs(a.lat - b.lat) < 0.01 && Math.abs(a.lng - b.lng) < 0.01;
+}
+
+/**
+ * Free space, in cubic feet: how much of the truck is EMPTY, which is a
+ * different number from how big the truck is and the only one a fit is
+ * measured against.
+ *
+ * Read straight out of the stored location record rather than off the
+ * `StoredLocation` the Board hands down, because `StoredLocation` does not
+ * carry the field yet and `parseStored` drops what it does not know. There is
+ * no input for it anywhere in the product today, which is recorded in
+ * `.design/impl/wave1-map.md`: this reads the key the input will write, so the
+ * fit lines below come alive the moment it exists, and shows nothing until
+ * then. When the field lands on `StoredLocation`, this whole function becomes
+ * `viewer.freeCf` and should go.
+ */
+function readFreeSpaceCf(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(LOCATION_KEYS.current);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as { freeCf?: unknown };
+    const cf = value?.freeCf;
+    return typeof cf === "number" && Number.isFinite(cf) && cf > 0 ? cf : null;
+  } catch {
+    // Private mode, blocked storage, or a half-written record.
+    return null;
+  }
+}
+
+/**
+ * "57% of your 700 cf free · 300 cf left", and its honest other half,
+ * "129% of your 700 cf free · 200 cf over".
+ *
+ * A percentage of a truck is the one number on this map that a driver could
+ * read as a promise, so the sentence it sits in never says "fits": volume is
+ * the only thing being compared, and the caveat under it says so.
+ */
+function fitAgainstFreeSpace(cf: number, freeCf: number): string {
+  const pct = Math.round((cf / freeCf) * 100);
+  const left = freeCf - cf;
+  const size = freeCf.toLocaleString("en-US");
+  return left >= 0
+    ? `${pct}% of your ${size} cf free · ${left.toLocaleString("en-US")} cf left`
+    : `${pct}% of your ${size} cf free · ${Math.abs(left).toLocaleString("en-US")} cf over`;
+}
 
 /** The palette, read from globals.css once the document exists. */
 interface Palette {
@@ -430,6 +559,7 @@ export function LoadMap({
   compact = false,
   filteredSummary,
   loading = false,
+  error = false,
 }: LoadMapProps) {
   const container = useRef<HTMLDivElement>(null);
   /** The canvas plus everything floating over it; the declutter frame. */
@@ -485,6 +615,41 @@ export function LoadMap({
    * saves the round trip.
    */
   const roadCache = useRef(new Map<number, RoadRouteResponse>());
+
+  /**
+   * The corridor to draw, or null. See the note above `parseCorridorQuery`.
+   *
+   * `towardHome` is the same switch arriving as a prop, and it is kept as a
+   * second way in so the existing toggle cannot be broken by a query string
+   * that stops carrying `routeMode` -- but the width and the endpoints come
+   * from the query wherever it has them, so a control that changes either one
+   * changes the band without touching this component.
+   */
+  const corridor = useMemo<Corridor | null>(() => {
+    const q = parseCorridorQuery(fitKey);
+    if (!q && !towardHome) return null;
+    const spec: CorridorQuery = q ?? {
+      miles: DEFAULT_CORRIDOR_MILES,
+      origin: null,
+      destination: null,
+      originLabel: null,
+      destLabel: null,
+    };
+    const origin = spec.origin ?? (viewer ? { lat: viewer.lat, lng: viewer.lng } : null);
+    const destination = spec.destination ?? (home ? { lat: home.lat, lng: home.lng } : null);
+    // Half a corridor is not a corridor. A search can be running in corridor
+    // mode with the coordinates deliberately kept out of the shareable URL and
+    // the slot that held them since cleared; the honest picture of that is no
+    // band, not a band drawn from whatever is left.
+    if (!origin || !destination) return null;
+    return {
+      ...spec,
+      origin,
+      destination,
+      originLabel: spec.originLabel ?? viewer?.label ?? null,
+      destLabel: spec.destLabel ?? home?.label ?? null,
+    };
+  }, [fitKey, towardHome, viewer, home]);
 
   const built = useMemo(() => buildGroups(jobs, end), [jobs, end]);
   // Read by the map's own event handlers, which are registered once and must
@@ -810,13 +975,24 @@ export function LoadMap({
       instance.addSource("road", { type: "geojson", data: EMPTY, lineMetrics: true });
       instance.addSource("toward", { type: "geojson", data: EMPTY });
 
-      // Toward-home corridor sits under everything: it is context, not content.
+      // The route corridor sits under everything: it is context, not content.
       instance.addLayer({
         id: "toward-fill",
         type: "fill",
         source: "toward",
         filter: ["==", ["geometry-type"], "Polygon"],
         paint: { "fill-color": colors.you, "fill-opacity": 0.06 },
+      });
+      // Where the corridor STOPS. A 6%-opacity wash has no edge a driver can
+      // point at, and the edge is the whole claim the band is making: a job
+      // outside this line was not in the result. Thin and quiet -- it is a
+      // boundary, not a route.
+      instance.addLayer({
+        id: "toward-edge",
+        type: "line",
+        source: "toward",
+        filter: ["==", ["geometry-type"], "Polygon"],
+        paint: { "line-color": colors.you, "line-width": 1, "line-opacity": 0.35 },
       });
       instance.addLayer({
         id: "toward-line",
@@ -828,6 +1004,22 @@ export function LoadMap({
           "line-width": 1.5,
           "line-dasharray": [1, 3],
           "line-opacity": 0.5,
+        },
+      });
+      // The two ends of a typed route, which -- unlike the viewer's own two
+      // slots -- have no marker of their own. Emitted only when they are not
+      // already under one; see `corridorFeatures`.
+      instance.addLayer({
+        id: "toward-ends",
+        type: "circle",
+        source: "toward",
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-radius": 4,
+          "circle-color": colors.you,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#fff",
+          "circle-opacity": 0.9,
         },
       });
 
@@ -1170,18 +1362,19 @@ export function LoadMap({
     lastFitPad.current = bottomPadding;
     viewerFramed.current = false;
 
-    // The viewer/home box answers "between me and home", which is the question
-    // only while the corridor is on. With the toggle off the map has to frame
-    // the search, or an explicit pickup/delivery filter draws nothing on it.
-    if (towardHome && viewer && home) {
+    // The corridor's own box answers "what counts as on my way", which is the
+    // question only while a route is set. The box is the BAND, not the two
+    // endpoints it runs between: a corridor framed to its centre line puts
+    // half its own width off screen at both edges, so the jobs nearest the
+    // limit -- the ones a driver is deciding about -- are the ones cropped.
+    // With no route the map has to frame the search instead, or an explicit
+    // pickup/delivery filter draws nothing on it.
+    const band = corridor
+      ? bboxOf(corridorRing(corridor.origin, corridor.destination, corridor.miles))
+      : null;
+    if (band) {
       lastFit.current = fitKey;
-      m.fitBounds(
-        [
-          [Math.min(viewer.lng, home.lng), Math.min(viewer.lat, home.lat)],
-          [Math.max(viewer.lng, home.lng), Math.max(viewer.lat, home.lat)],
-        ],
-        { padding, duration },
-      );
+      m.fitBounds(band, { padding, duration });
       return;
     }
 
@@ -1276,6 +1469,26 @@ export function LoadMap({
 
     box.append(title);
     if (caption.textContent) box.append(caption);
+
+    // Why this job is in a corridor search at all, in the two numbers the API
+    // already computed and nothing rendered: how far off the route its pickup
+    // stands, and what taking it adds to the drive. Only for a single job --
+    // a place holding eleven of them has eleven different answers, and one of
+    // them printed as if it were the place's is exactly the kind of tidy
+    // half-truth this map keeps refusing to tell.
+    if (single) {
+      const off = single.off_route_miles;
+      const detour = single.detour_miles;
+      const parts: string[] = [];
+      if (off != null) parts.push(`${off.toLocaleString("en-US")} mi off your route`);
+      if (detour != null) parts.push(`+${detour.toLocaleString("en-US")} mi of driving`);
+      if (parts.length) {
+        const why = document.createElement("div");
+        why.className = "s";
+        why.textContent = parts.join(" · ");
+        box.append(why);
+      }
+    }
     // The soft dots do not wear their caveat; this is where it is worn.
     if (group.approx) {
       const q = document.createElement("div");
@@ -1469,18 +1682,14 @@ export function LoadMap({
     }
   }, [viewer, home, ready]);
 
-  // --- toward-home band ----------------------------------------------------
+  // --- the route corridor --------------------------------------------------
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
     const source = m.getSource("toward") as GeoJSONSource | undefined;
     if (!source) return;
-    if (!towardHome || !viewer || !home) {
-      source.setData(EMPTY);
-      return;
-    }
-    source.setData(corridorFeatures(viewer, home, 100));
-  }, [towardHome, viewer, home, ready]);
+    source.setData(corridor ? corridorFeatures(corridor, viewer, home) : EMPTY);
+  }, [corridor, viewer, home, ready]);
 
   // --- counts on the markers that hold more than one job -------------------
   // Only the groups that need it: a singleton's name is on its card and in its
@@ -1664,6 +1873,21 @@ export function LoadMap({
   const totalCf = inView?.cf ?? 0;
   const allShown = inView != null && inView.count >= jobs.length;
   const notPlotted = jobs.length - built.plotted;
+
+  // Re-read on every write to the location record, which is what `setAt`
+  // stamps -- and not on every render, which on this component means once per
+  // card the pointer crosses.
+  const locationStamp = viewer?.setAt ?? null;
+  const freeCf = useMemo(() => (locationStamp ? readFreeSpaceCf() : null), [locationStamp]);
+  /**
+   * The one job the panel can say something about: the open one, or the one
+   * under the pointer. Selection wins -- it is deliberate, and a fit line that
+   * changed while the driver ran their eye down the list would be unreadable.
+   */
+  const focusJob = useMemo(() => {
+    const id = selectedId ?? hoveredId;
+    return id == null ? null : (jobs.find((j) => j.id === id) ?? null);
+  }, [selectedId, hoveredId, jobs]);
   const noRoad = selectedId != null && route?.id === selectedId && route.road.path == null;
 
   // The map is not going to draw. Re-throwing here, rather than rendering a
@@ -1711,8 +1935,22 @@ export function LoadMap({
         {compact ? null : <div className="label">On screen</div>}
         {/* The map is ready long before the first search answers, so `inView`
             is a truthful 0 over an empty map -- and a confident "All 0 jobs"
-            is the wrong thing to say to someone who is waiting. */}
-        {inView == null || loading ? (
+            is the wrong thing to say to someone who is waiting.
+
+            The board fetch FAILING is the same failure one step further on:
+            `inView` is then a real measurement of a real empty map, which is
+            how this panel came to answer "All 0 jobs · 0 cf" to a visitor
+            whose board could not be read at all. Nothing is wrong with the
+            arithmetic; the input is not a result. It takes a prop because the
+            alternative -- inferring the failure from `filteredSummary == null`
+            once loading is over -- reads a private detail of how the Board
+            handles its own error, and would go back to lying, silently, the
+            day that changes. */}
+        {error ? (
+          <div className="text-(length:--fs-sm)" style={{ color: "var(--approx)" }}>
+            {compact ? "Jobs could not be loaded" : "Jobs could not be loaded — nothing to count."}
+          </div>
+        ) : inView == null || loading ? (
           <>
             <span className="skeleton h-[16px] w-[150px]" />
             {compact ? null : <span className="skeleton mt-[4px] h-[12px] w-[110px]" />}
@@ -1732,10 +1970,34 @@ export function LoadMap({
                 {totalCf > 0
                   ? truckLine(totalCf, viewer?.truckCf ?? null)
                   : "No stated sizes on screen"}
+                {/* Total capacity and free space are two different numbers and
+                    this line has always quoted the first one. Saying the
+                    second one next to it is the whole distinction: a truck is
+                    how much you could ever carry, free space is how much of
+                    this screenful you could actually take. */}
+                {freeCf != null && ` · ${freeCf.toLocaleString("en-US")} cf free`}
                 {inView.unsized > 0 && ` · ${inView.unsized} without size`}
               </div>
             )}
           </>
+        )}
+
+        {/* What one job does to the space that is actually left -- the
+            question a driver with a half-full truck is asking, and the one a
+            truckload divisor cannot answer. Shown only when they have said
+            how much room they have; there is no honest default for it, and
+            guessing one is how "≈ 28.3 truckloads" got written. */}
+        {!compact && !error && freeCf != null && focusJob && (
+          <div className="mt-[var(--sp-2)] border-t border-border pt-[var(--sp-2)]">
+            <div className="text-(length:--fs-sm)" style={{ color: "var(--text-2)" }}>
+              {focusJob.cubic_feet == null
+                ? "This job never stated a size — nothing to measure"
+                : `${formatCf(focusJob.cubic_feet)} · ${fitAgainstFreeSpace(focusJob.cubic_feet, freeCf)}`}
+            </div>
+            <div className="text-(length:--fs-xs)" style={{ color: "var(--muted-2)" }}>
+              Volume only — dimensional fit, weight and loading order still decide.
+            </div>
+          </div>
         )}
         {notPlotted > 0 && (
           <div className="mt-[2px] text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
@@ -1828,6 +2090,38 @@ export function LoadMap({
             <i className="road" /> road route
           </b>
         )}
+        {/* The band has to say how wide it is, or it is a shape rather than a
+            number. It earns its row for the same reason the road route does:
+            a corridor is set deliberately and stays set, so this panel -- which
+            the label placer treats as occupied ground -- is not resizing under
+            a pointer.
+
+            The `title` is where the band's honest limit is written. The
+            corridor is one of three tests the search runs, and a driver
+            reading a shape on a map would reasonably assume it was the only
+            one. */}
+        {corridor && (
+          <b
+            title={
+              `Jobs whose pickup stands within ${corridor.miles} miles of your route.` +
+              " They also have to move you further along it and keep the extra" +
+              " driving under a cap, so the band is not the whole test."
+            }
+          >
+            <i
+              style={{
+                width: 18,
+                height: 9,
+                borderRadius: 2,
+                border: "1px solid var(--you)",
+                background: "var(--you)",
+                opacity: 0.32,
+                boxShadow: "none",
+              }}
+            />{" "}
+            ±{corridor.miles} mi of your route
+          </b>
+        )}
       </div>
       )}
     </div>
@@ -1854,23 +2148,36 @@ function endMarker(
 }
 
 /**
- * The dashed line from where the viewer is to home, plus the corridor they are
- * willing to detour into, as a simple offset quad around the chord.
+ * The corridor: the driver's route, and the band around it the search
+ * actually matched inside.
+ *
+ * Three geometries, all from the same great circle the server projects onto
+ * (`corridorRing` / `intermediatePoint` in `geo/math`), so what is drawn is
+ * what was filtered rather than a straight-line approximation of it:
+ *
+ *  - the route itself, dashed, because it is a line the driver stated and not
+ *    a road anyone has checked;
+ *  - the capsule around it, filled and outlined;
+ *  - a dot on each end, but ONLY where there is not already a marker -- the
+ *    viewer's own two slots are drawn as "you are here" and the little house,
+ *    and a second dot under either one is a second claim about one place.
  */
 function corridorFeatures(
-  from: StoredLocation,
-  to: StoredLocation,
-  miles: number,
+  corridor: Corridor,
+  viewer: StoredLocation | null,
+  home: StoredLocation | null,
 ): FeatureCollection {
-  const dLat = to.lat - from.lat;
-  const dLng = to.lng - from.lng;
-  const length = Math.hypot(dLat, dLng) || 1;
-  // Degrees of latitude per mile; longitude is scaled by the local cosine so
-  // the band does not balloon at the top of the map.
-  const padLat = miles / 69;
-  const padLng = miles / (69 * Math.max(0.2, Math.cos((((from.lat + to.lat) / 2) * Math.PI) / 180)));
-  const nx = (-dLat / length) * padLng;
-  const ny = (dLng / length) * padLat;
+  const { origin, destination, miles } = corridor;
+  const steps = 48;
+  const centre: [number, number][] = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const p = intermediatePoint(origin, destination, i / steps);
+    centre.push([p.lng, p.lat]);
+  }
+
+  const ends = [origin, destination].filter(
+    (p) => !samePlace(p, viewer) && !samePlace(p, home),
+  );
 
   return {
     type: "FeatureCollection",
@@ -1878,30 +2185,18 @@ function corridorFeatures(
       {
         type: "Feature",
         properties: {},
-        geometry: {
-          type: "LineString",
-          coordinates: [
-            [from.lng, from.lat],
-            [to.lng, to.lat],
-          ],
-        },
+        geometry: { type: "LineString", coordinates: centre },
       },
       {
         type: "Feature",
         properties: {},
-        geometry: {
-          type: "Polygon",
-          coordinates: [
-            [
-              [from.lng + nx, from.lat + ny],
-              [to.lng + nx, to.lat + ny],
-              [to.lng - nx, to.lat - ny],
-              [from.lng - nx, from.lat - ny],
-              [from.lng + nx, from.lat + ny],
-            ],
-          ],
-        },
+        geometry: { type: "Polygon", coordinates: [corridorRing(origin, destination, miles)] },
       },
+      ...ends.map((p) => ({
+        type: "Feature" as const,
+        properties: {},
+        geometry: { type: "Point" as const, coordinates: [p.lng, p.lat] },
+      })),
     ],
   };
 }

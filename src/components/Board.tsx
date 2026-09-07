@@ -550,6 +550,12 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
           compact={mobile || shortScreen}
           filteredSummary={summary}
           loading={firstLoad}
+          /* The fetch failed, so `jobs` is empty because nothing could be
+             read. Without this the map's "on screen" panel counts that empty
+             list truthfully and reports "All 0 jobs · 0 cf" to a visitor whose
+             board never loaded -- the same failure the list already states
+             plainly two columns away. */
+          error={error != null}
         />
 
         {showNudge && (
