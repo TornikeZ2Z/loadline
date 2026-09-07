@@ -716,6 +716,136 @@ async function liveTruckRouteChecks() {
   console.log(`${DIM}invoked GET /api/trucks and GET /api/trucks/:id on ${publicIds.length} public trucks and 1 pending one${RESET}`);
 }
 
+/**
+ * The contact arm: the one door a truck's phone number leaves by.
+ *
+ * `POST /api/trucks/:id/contact` is the only handler in the repo besides its
+ * job twin that is ALLOWED to answer with a number, so the assertions here are
+ * about who never gets one:
+ *
+ *   * an anonymous caller gets 401 and the sentence the gate is named for. Not
+ *     a redirect, not a 404 -- the listing exists, the number is what needs an
+ *     account;
+ *   * a PENDING truck answers exactly as an id that was never issued does, for
+ *     an anonymous caller and (through `getTruck`, one call below the handler)
+ *     for a signed-in one and a caller asking for demo rows. An unreviewed,
+ *     machine-invented listing must not be a phone oracle addressable by
+ *     incrementing a bigserial. That is the defect that sank the one-table
+ *     design, restated as a test;
+ *   * `revealTruckContact` carries `visibility = 'public'` in its own WHERE
+ *     clause, so it refuses a pending row even when called directly -- which is
+ *     what survives a future handler forgetting to check;
+ *   * R6: a truck whose phone came from the SENDER rather than from its own
+ *     post still reveals, and says which line it is.
+ *
+ * The reveal is asserted to write exactly one `truck_events` row per actor per
+ * hour, which is the accountability the whole gate exists for: an inflated
+ * count would make the only demand signal the board has useless.
+ */
+async function truckContactChecks() {
+  const { query, queryOne } = await import("../src/lib/db");
+  const { revealTruckContact } = await import("../src/lib/pipeline/reconcile");
+  const { hashPassword } = await import("../src/lib/password");
+
+  const rows = await query<{ id: number; visibility: string; contact_phone: string | null; contact_phone_source: string | null }>(
+    `SELECT id, visibility, contact_phone, contact_phone_source FROM trucks ORDER BY id`,
+  );
+  const pendingId = rows.find((r) => r.visibility === "pending")!.id;
+  const withPhone = rows.find((r) => r.visibility === "public" && r.contact_phone != null)!;
+  const fromSender = rows.find(
+    (r) => r.visibility === "public" && r.contact_phone_source === "sender",
+  );
+  const noSuchTruck = Math.max(...rows.map((r) => r.id)) + 1000;
+
+  const contact = (await import("../src/app/api/trucks/[id]/contact/route")) as {
+    POST: (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
+  };
+  const call = (id: number) =>
+    contact.POST(new Request(`http://localhost/api/trucks/${id}/contact`, { method: "POST" }), {
+      params: Promise.resolve({ id: String(id) }),
+    });
+
+  // Anonymous: the gate, not the site.
+  const anon = await call(withPhone.id);
+  assert(anon.status === 401, `POST /api/trucks/:id/contact answered ${anon.status} to an anonymous caller`);
+  const anonBody = await anon.text();
+  assert(
+    anonBody.includes("Sign in to see the contact"),
+    `the anonymous refusal reads ${anonBody}, not the gate's own sentence`,
+  );
+  for (const [re, what] of PAYLOAD_PATTERNS) {
+    assert(!re.test(anonBody), `the anonymous refusal carried a ${what}`);
+  }
+
+  // A pending truck, and an id that was never issued, answer alike.
+  const pendingAnon = await call(pendingId);
+  const missingAnon = await call(noSuchTruck);
+  assert(
+    pendingAnon.status === missingAnon.status,
+    `POST /api/trucks/:id/contact answered ${pendingAnon.status} for a pending truck and ${missingAnon.status} for a missing id`,
+  );
+
+  // Below the handler, where a session can be named: the reveal itself refuses
+  // the review queue, whoever is asking.
+  const actor = await queryOne<{ id: number }>(
+    `INSERT INTO users (email, name, role, password_hash, can_post)
+     VALUES ('redact-truck-contact@example.com', 'Reveal Tester', 'driver', $1, true)
+     ON CONFLICT (email) DO UPDATE SET name = excluded.name
+     RETURNING id`,
+    [await hashPassword("not-a-real-password")],
+  );
+  const actorId = actor!.id;
+
+  assert(
+    (await revealTruckContact(pendingId, actorId)) == null,
+    "revealTruckContact handed back a pending truck's contact — its own visibility clause is gone",
+  );
+  assert(
+    (await revealTruckContact(noSuchTruck, actorId)) == null,
+    "revealTruckContact answered for an id that was never issued",
+  );
+
+  const revealed = await revealTruckContact(withPhone.id, actorId);
+  assert(revealed != null, "revealTruckContact returned nothing for a public truck that carries a phone");
+  assert(
+    revealed?.contact_phone === withPhone.contact_phone,
+    `revealTruckContact returned ${revealed?.contact_phone} rather than the stored number`,
+  );
+
+  // R6: a number that arrived from the sender rather than from this post still
+  // reveals, and still says which line it is.
+  if (fromSender) {
+    const bySender = await revealTruckContact(fromSender.id, actorId);
+    assert(
+      bySender?.contact_phone != null && bySender.contact_phone_source === "sender",
+      "a truck whose phone is known only from its sender did not reveal as such",
+    );
+  }
+
+  // One event per actor per listing per hour: clicking Call twice is not twice
+  // the interest.
+  await revealTruckContact(withPhone.id, actorId);
+  await revealTruckContact(withPhone.id, actorId);
+  const events = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n FROM truck_events
+      WHERE truck_id = $1 AND actor_id = $2 AND kind = 'viewed_contact'`,
+    [withPhone.id, actorId],
+  );
+  assert(
+    events?.n === 1,
+    `three reveals in one hour wrote ${events?.n} truck_events rows, not 1`,
+  );
+  const pendingEvents = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n FROM truck_events WHERE truck_id = $1 AND kind = 'viewed_contact'`,
+    [pendingId],
+  );
+  assert(pendingEvents?.n === 0, `a refused reveal on a pending truck still logged ${pendingEvents?.n} events`);
+
+  console.log(
+    `${DIM}invoked POST /api/trucks/:id/contact anonymously and drove revealTruckContact over a public, a pending and a missing truck${RESET}`,
+  );
+}
+
 async function main() {
   fixtureChecks();
   unitChecks();
@@ -727,6 +857,7 @@ async function main() {
   await liveRouteChecks();
   await truckCorpusChecks();
   await liveTruckRouteChecks();
+  await truckContactChecks();
 
   if (failures.length) {
     console.log(`\n${RED}${failures.length} of ${checks} redaction checks failed${RESET}`);
