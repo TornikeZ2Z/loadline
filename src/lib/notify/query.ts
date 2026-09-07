@@ -27,9 +27,19 @@ export async function listNotifications(
   userId: number,
   limit: number = PAGE,
 ): Promise<NotificationRow[]> {
+  // ISO-8601 UTC, spelled out, and NOT `::text`.
+  //
+  // Postgres renders a timestamptz as "2026-09-07 23:18:46.661+04", whose
+  // whole-hour offset has no minutes -- which is not ISO 8601, so `new Date()`
+  // in the browser returns Invalid Date and the row prints the raw column. It
+  // did exactly that on the first page ever rendered. The value is a timestamp
+  // read by a person in their own timezone, so it leaves here unambiguous.
+  const AS_ISO = `to_char(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
   return query<NotificationRow>(
     `SELECT id, kind, subject_kind, subject_id, payload,
-            created_at::text AS created_at, read_at::text AS read_at
+            ${AS_ISO.replace("%s", "created_at")} AS created_at,
+            CASE WHEN read_at IS NULL THEN NULL
+                 ELSE ${AS_ISO.replace("%s", "read_at")} END AS read_at
        FROM notifications
       WHERE user_id = $1
       ORDER BY created_at DESC, id DESC

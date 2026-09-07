@@ -35,9 +35,16 @@ const TIER_LABEL = {
   possible: { label: "Worth a look", tone: "default" as const },
 };
 
-/** "Thu 11 Sep, 14:20" from a timestamp, in the reader's own browser. */
+/**
+ * "Thu 11 Sep, 14:20" from a timestamp, in the reader's own browser.
+ *
+ * `listNotifications` hands over real ISO-8601 UTC; the space-separated form is
+ * still handled because a raw `::text` timestamptz is what any future caller
+ * would most plausibly pass, and printing a database string at a driver would
+ * be a worse failure than printing the wrong hour.
+ */
 function when(iso: string): string {
-  const d = new Date(iso.replace(" ", "T"));
+  const d = new Date(/[TZ]/.test(iso) ? iso : `${iso.replace(" ", "T")}Z`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(undefined, {
     weekday: "short",
@@ -130,7 +137,13 @@ export function NotificationList({ initial }: { initial: NotificationRow[] }) {
             // empties as you read it cannot be re-read.
             style={row.read_at != null ? { opacity: 0.66 } : undefined}
           >
-            <div className="flex flex-wrap items-start justify-between gap-[var(--sp-2)]">
+            {/* Stacked below `sm`, one row above it, and never `flex-wrap`.
+                Wrapping put the timestamp and Dismiss inline on a card with a
+                short second line and on its own line under a long one, so two
+                rows of the same list disagreed about where their controls were.
+                A breakpoint is a rule; wrapping is whatever the sentence
+                happened to be. */}
+            <div className="flex flex-col gap-[var(--sp-2)] sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <Link
                   href={subjectHref(row.subject_kind, row.subject_id)}
