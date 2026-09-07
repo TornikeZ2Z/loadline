@@ -17,6 +17,7 @@
     "check:demo": "tsx scripts/check-demo.ts",
     "check:sums": "tsx scripts/check-sums.ts",
     "check:equiv": "tsx scripts/check-equivalence.ts",
+    "check:cron": "tsx scripts/check-cron.ts",
     "survey:capacity": "tsx scripts/capacity-survey.ts",
     "admin:grant": "tsx scripts/grant-admin.ts",
     "rules:export": "tsx scripts/rules-export.ts",
