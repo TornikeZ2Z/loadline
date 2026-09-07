@@ -5,6 +5,7 @@ import { LogoutButton } from "./LogoutButton";
 import { CurrentLocation } from "./CurrentLocation";
 import { MenuAutoClose } from "./MenuAutoClose";
 import { LogoMark, Wordmark } from "./Logo";
+import { NotificationBell } from "./NotificationBell";
 import { Footer, FooterBar, SITE_SECTIONS } from "./Footer";
 
 export interface AppShellProps {
@@ -20,7 +21,7 @@ export interface AppShellProps {
    * "Sign in · contacts" button is dropped, because a button that links to
    * the page it is drawn on is furniture, not a way in.
    */
-  active: "board" | "post" | "admin" | "test" | "site" | "auth";
+  active: "board" | "post" | "admin" | "test" | "site" | "auth" | "account";
   /**
    * Path + query of the page rendering the shell, for `loginHref(next)`.
    * Every page passes it ("/" + query, "/jobs/:id" + query, "/post", "/admin",
@@ -285,6 +286,13 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
             {/* Propless by design: the location lives in localStorage, not on
                 the user row, so it is the same control signed in or out. */}
             <CurrentLocation />
+
+            {/* Only for a signed-in account, and inside the component only for
+                one that owns a listing (SPEC 2). An anonymous visitor -- most of
+                this board's traffic -- has nothing that could ever be notified
+                about, so they are not shown a control that will never light up,
+                and no query is made on their behalf. */}
+            {user ? <NotificationBell userId={user.id} /> : null}
 
             {user ? (
               <>

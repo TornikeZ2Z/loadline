@@ -447,6 +447,9 @@ async function main() {
     demoPosterId: demoPoster.id,
   });
 
+  // --- 2c. the notification sweep --------------------------------------------
+  await notifyDemoChecks({ demoJob, realPosterId: realPoster.id, demoPosterId: demoPoster.id });
+
   // --- 3. the real handlers, invoked -----------------------------------------
   await liveRouteChecks(demoJob, realJob);
   await liveTruckRouteChecks(demoTruck, realTruck);
@@ -749,6 +752,120 @@ async function matchDemoChecks(m: MatchMatrix): Promise<void> {
 
   console.log(
     `${DIM}drove matchesForTruck, matchesForJob and previewMatches over the same ${m.audiences.length} audiences${RESET}`,
+  );
+}
+
+// --- 2c. the notification sweep, which reads BOTH tables on somebody's behalf --
+
+/**
+ * A notification is a message about listings, sent to one account, read days
+ * later. It is therefore a THIRD way a demo row could reach a stranger, and the
+ * one nobody would look at: the payload is written once by a cron job and
+ * rendered by a page that does no query of its own, so a demo job named inside
+ * it would sit there for as long as the row lives.
+ *
+ * `runMatchSweep` evaluates every subject under ITS OWN OWNER'S audience, which
+ * is the whole of the defence. This asserts it four ways:
+ *
+ *   1. a real account's digest names real jobs and NOT the demo one;
+ *   2. non-vacuously -- the same truck, asked with `includeDemo`, DOES match the
+ *      demo job, so assertion 1 is about the audience and not about a lane that
+ *      happens not to pair;
+ *   3. a demo account still gets its own notifications, so "keep the demo out"
+ *      was not implemented as "switch the demo off";
+ *   4. the two accounts' lists are disjoint, at the reader.
+ */
+async function notifyDemoChecks(m: {
+  demoJob: number;
+  realPosterId: number;
+  demoPosterId: number;
+}): Promise<void> {
+  const { queryOne } = await import("../src/lib/db");
+  const { insertTruck } = await import("./fixtures/trucks");
+  const { runMatchSweep } = await import("../src/lib/notify/sweep");
+  const { listNotifications } = await import("../src/lib/notify/query");
+  const { matchesForTruck } = await import("../src/lib/match/run");
+
+  // Two trucks on the same lane, one real and one demo, neither owned by the
+  // account that posted the demo job -- so gate 3 (same_party) cannot be what
+  // hides it, and the audience has to be.
+  const realWatcher = await insertTruck({
+    ...TRUCK,
+    posted_by: m.realPosterId,
+    is_demo: false,
+    truck_key: "notify-real-watcher",
+    avail_now: true,
+    avail_source: "form",
+    last_seen_at: new Date().toISOString(),
+    seen_count: 1,
+  });
+  const demoWatcher = await insertTruck({
+    ...TRUCK,
+    posted_by: m.demoPosterId,
+    is_demo: true,
+    truck_key: "notify-demo-watcher",
+    avail_now: true,
+    avail_source: "form",
+    last_seen_at: new Date().toISOString(),
+    seen_count: 1,
+  });
+
+  await runMatchSweep(new Date());
+
+  const realRows = await listNotifications(m.realPosterId);
+  const demoRows = await listNotifications(m.demoPosterId);
+
+  const aboutRealWatcher = realRows.find(
+    (r) => r.subject_kind === "truck" && r.subject_id === realWatcher,
+  );
+  assert(
+    aboutRealWatcher != null,
+    "the sweep told a real account nothing about its own truck, so the payload assertions below are vacuous",
+  );
+  const named = (aboutRealWatcher?.payload.top ?? []).map((t) => t.id);
+  assert(
+    (aboutRealWatcher?.payload.count ?? 0) > 0 && named.length > 0,
+    "a real account's digest named no listing at all, so 'it does not name the demo one' proves nothing",
+  );
+  assert(
+    !named.includes(m.demoJob),
+    `a real account's notification payload names the demo job (${named.join(", ")})`,
+  );
+  assert(
+    !JSON.stringify(realRows).includes(`"id":${m.demoJob},`),
+    "the demo job's id appears somewhere in a real account's notification list",
+  );
+
+  // Non-vacuity for the audience itself: with `includeDemo` the same truck DOES
+  // reach the demo job, so what removed it above was the predicate.
+  const wide = await matchesForTruck(realWatcher, "public", {
+    userId: m.realPosterId,
+    includeDemo: true,
+  });
+  assert(
+    (wide?.matches ?? []).some((x) => x.item.id === m.demoJob),
+    "the demo job is not a candidate for this truck even with includeDemo, so the payload check above is about the lane rather than the audience",
+  );
+
+  assert(
+    demoRows.some((r) => r.subject_kind === "truck" && r.subject_id === demoWatcher),
+    "a demo account got no notification about its own truck -- keeping the demo out of other people's alerts must not switch the demo's own off",
+  );
+  const demoIds = new Set(demoRows.map((r) => r.id));
+  assert(
+    !realRows.some((r) => demoIds.has(r.id)),
+    "one account's notification list contains a row from the other's",
+  );
+
+  const leaked = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n FROM notifications
+      WHERE user_id <> $1 AND subject_kind = 'truck' AND subject_id = $2`,
+    [m.demoPosterId, demoWatcher],
+  );
+  assert(leaked?.n === 0, `${leaked?.n} accounts were notified about somebody else's demo truck`);
+
+  console.log(
+    `${DIM}ran the match sweep over a real and a demo truck on one lane: ${realRows.length} notifications for the real account, ${demoRows.length} for the demo one, no crossover${RESET}`,
   );
 }
 

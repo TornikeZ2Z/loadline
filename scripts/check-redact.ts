@@ -987,6 +987,114 @@ async function truckContactChecks() {
   );
 }
 
+/**
+ * The notification payload: a listing, quoted, days after the listing is gone.
+ *
+ * It is the newest way a phone number could leave this server and the least
+ * looked at. The payload is DENORMALISED on purpose (SPEC 3.3: "enough to
+ * render the row without a join, because the subject may be gone by the time it
+ * is read"), which means it is a copy of listing data with no `toPublicLoad`
+ * anywhere between it and a browser -- the `/notifications` page renders the
+ * jsonb straight out of the column. If a free-text field is ever added to it,
+ * the redaction the board applies does not follow.
+ *
+ * So this asserts two things, and the second is the one with teeth:
+ *
+ *   * no phone shape survives into any payload the sweep writes, over a corpus
+ *     seeded with a 555 number in every free-text truck column in four formats
+ *     and the whole WhatsApp job corpus behind it;
+ *   * the payload's SHAPE is closed. Every key, at both levels, is checked
+ *     against a list -- so the next field somebody adds fails here rather than
+ *     shipping a copy of `notes` into an alert.
+ *
+ * The reason lines inside it are `reasons.ts`'s own clauses, which are numbers
+ * and explicit statements of absence; the lane is two-letter states. Neither
+ * can carry a number by construction, and this is what proves it stays that way.
+ */
+async function notificationPayloadChecks() {
+  const { query, queryOne } = await import("../src/lib/db");
+  const { hashPassword } = await import("../src/lib/password");
+  const { runMatchSweep } = await import("../src/lib/notify/sweep");
+
+  await query(
+    `INSERT INTO users (email, password_hash, name, role, phone, is_demo, can_post)
+     VALUES ($1,$2,'Dee Driver','poster','+12015550111',false,true)
+     ON CONFLICT (email) DO NOTHING`,
+    ["dee@redact.test", hashPassword("not-a-real-password")],
+  );
+  const owner = (await queryOne<{ id: number }>(`SELECT id FROM users WHERE email = $1`, [
+    "dee@redact.test",
+  ]))!.id;
+
+  // Every PUBLIC seeded truck is adopted, so the sweep has subjects and every
+  // one of the fixture's phone formats is inside a truck it evaluates. The
+  // pending row is left ownerless: it must not become a subject.
+  await query(`UPDATE trucks SET posted_by = $1 WHERE visibility = 'public'`, [owner]);
+  const summary = await runMatchSweep(new Date());
+
+  const rows = await query<{ id: number; payload: Record<string, unknown> }>(
+    `SELECT id, payload FROM notifications ORDER BY id`,
+  );
+  assert(
+    rows.length > 0,
+    `the sweep wrote no notification (scanned ${summary.trucksScanned} trucks), so the phone scan over payloads proves nothing`,
+  );
+
+  const serialized = JSON.stringify(rows);
+  for (const [re, what] of PAYLOAD_PATTERNS) {
+    const hit = serialized.match(re);
+    assert(
+      !hit,
+      `a notification payload contains a ${what}: ...${serialized.slice(Math.max(0, (hit?.index ?? 0) - 60), (hit?.index ?? 0) + 40)}...`,
+    );
+  }
+
+  const TOP_KEYS = ["id", "tier", "lane", "reasons"];
+  const PAYLOAD_KEYS = ["count", "tiers", "top", "subjectLane"];
+  let spelledOut = 0;
+  for (const row of rows) {
+    const keys = Object.keys(row.payload).sort();
+    assert(
+      JSON.stringify(keys) === JSON.stringify([...PAYLOAD_KEYS].sort()),
+      `notification ${row.id} carries payload keys ${keys.join(", ")} — a new field in a notification is a copy of listing data with no redaction between it and a browser`,
+    );
+    for (const item of (row.payload.top ?? []) as Array<Record<string, unknown>>) {
+      spelledOut += 1;
+      const itemKeys = Object.keys(item).sort();
+      assert(
+        JSON.stringify(itemKeys) === JSON.stringify([...TOP_KEYS].sort()),
+        `a spelled-out match inside notification ${row.id} carries keys ${itemKeys.join(", ")}`,
+      );
+      assert(
+        typeof item.lane === "string" && /^[A-Z?]{1,2} → [A-Z?]{1,2}$/.test(item.lane as string),
+        `a match's lane is ${JSON.stringify(item.lane)}, which is not a two-letter lane`,
+      );
+    }
+  }
+  assert(spelledOut > 0, "no notification spelled out a single match, so the item scan is vacuous");
+
+  // The route itself: no session, no rows, and nothing that looks like a phone
+  // in the refusal either.
+  const mod = (await import("../src/app/api/notifications/route")) as {
+    GET: (req: Request) => Promise<Response>;
+  };
+  const res = await mod.GET(new Request(`http://localhost/api/notifications?user_id=${owner}`));
+  assert(res.status === 401, `GET /api/notifications answered ${res.status} to an anonymous caller`);
+  const text = await res.text();
+  for (const [re, what] of PAYLOAD_PATTERNS) {
+    assert(!re.test(text), `GET /api/notifications' refusal contains a ${what}`);
+  }
+
+  const emails = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n FROM notification_deliveries WHERE channel = 'email'`,
+  );
+  assert(emails?.n === 0, `${emails?.n} e-mail deliveries exist on a product with no mail sender`);
+
+  console.log(
+    `${DIM}swept ${summary.trucksScanned} owned trucks into ${rows.length} notifications and read every payload key and ${spelledOut} spelled-out matches${RESET}`,
+  );
+}
+
 async function main() {
   fixtureChecks();
   unitChecks();
@@ -1000,6 +1108,7 @@ async function main() {
   await liveTruckRouteChecks();
   await liveMatchRouteChecks();
   await truckContactChecks();
+  await notificationPayloadChecks();
 
   if (failures.length) {
     console.log(`\n${RED}${failures.length} of ${checks} redaction checks failed${RESET}`);
