@@ -19,6 +19,7 @@ import type { PublicLoadRow } from "@/lib/loads/publicView";
 import {
   boardDay,
   deliverByLabel,
+  distanceCaveat,
   formatPrice,
   freshnessLabel,
   laneLabel,
@@ -26,6 +27,7 @@ import {
   readyLabel,
   requirementChip,
   senderLine,
+  twinLabel,
   TAG_LABELS,
 } from "@/lib/loads/present";
 import { Chip, StatusChip } from "./ui";
@@ -148,10 +150,28 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
   const deliverBy = deliverByLabel(job, today);
   const fresh = freshnessLabel(job, now);
   const inactive = job.status !== "available";
+  // The card's distance is viewer → pickup, so only the PICKUP end can make it
+  // approximate. 97 of 98 live jobs have a vague delivery and an exact pickup;
+  // qualifying those would be wrong in the opposite direction.
+  const nearCaveat = distanceCaveat(job, "toPickup");
 
-  // Requirements first: they decide whether a driver can take the job at all.
+  // Twins first, ahead of even the requirements, and this is the one place the
+  // chip order is not "what stops you taking the job". A driver who misreads two
+  // postings as two jobs has mis-costed the trip and may ring two brokers about
+  // one truckload; requirements they will read again on the detail before they
+  // call. It is also the chip most likely to be pushed into "+N" otherwise,
+  // because it arrives on rows that already carry tags.
+  const twin = twinLabel(job.dup_count);
   const requirement = requirementChip(job.requirements);
   const chips: React.ReactNode[] = [];
+  if (twin) {
+    chips.push(
+      <Chip key="twin" tone="approx" title={twin.title}>
+        {twin.label}
+      </Chip>,
+    );
+  }
+  // Requirements next: they decide whether a driver can take the job at all.
   if (requirement) {
     chips.push(
       <Chip key="req" title={requirement.title}>
@@ -241,7 +261,11 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
         {from.text} → {to.text}
       </div>
 
-      {/* Band 2 — the terms. */}
+      {/* Band 2 — the terms, in the order a backhaul is decided: can I load it
+          (ready), must it be there by a date (deliver by), what does it pay.
+          The two dates are adjacent because they are one question -- the window
+          -- and the price lands last, where it is the only coloured thing on
+          the row instead of splitting the window in half. */}
       <div className="mt-[var(--sp-2)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
         {inactive ? (
           <StatusChip status={job.status} />
@@ -249,6 +273,14 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
           <Chip tone={ready.tone} title={ready.title ?? undefined}>
             {ready.text}
           </Chip>
+        )}
+        {deliverBy && (
+          <span
+            className="text-(length:--fs-sm)"
+            style={{ color: deliverBy.tone === "warn" ? "var(--warn)" : "var(--muted)" }}
+          >
+            {deliverBy.text}
+          </span>
         )}
         {price.tone === "muted" ? (
           <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
@@ -263,14 +295,6 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
                 {price.sub}
               </span>
             )}
-          </span>
-        )}
-        {deliverBy && (
-          <span
-            className="text-(length:--fs-sm)"
-            style={{ color: deliverBy.tone === "warn" ? "var(--warn)" : "var(--muted)" }}
-          >
-            {deliverBy.text}
           </span>
         )}
       </div>
@@ -288,13 +312,19 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
         className="mt-[var(--sp-2)] flex items-center gap-x-[var(--sp-2)] border-t border-border pt-[var(--sp-2)] text-(length:--fs-sm)"
         style={{ color: "var(--muted)" }}
       >
+        {/* Source before freshness: "who posted this" is the fact, "when they
+            last said it" is the qualifier on that fact, and reading them the
+            other way round put a date in front of the name it belonged to. */}
         <span className="flex min-w-0 flex-wrap items-center gap-x-[var(--sp-1)]">
+          <span className="truncate">{senderLine(job)}</span>
+          <span aria-hidden>·</span>
           {/* Emphasis by ink, not by colour. Freshness used to be accent blue
               and bold, which put a second blue on the same line as the only
               button and, since most of the board is listed today, painted the
               whole column. Colour on a card now means one thing: you can act
               on it. */}
           <span
+            className="whitespace-nowrap"
             title={fresh.detail ?? undefined}
             style={
               fresh.tone === "fresh" ? { color: "var(--text-2)", fontWeight: 500 } : undefined
@@ -302,12 +332,19 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
           >
             {fresh.text}
           </span>
-          <span aria-hidden>·</span>
-          <span className="truncate">{senderLine(job)}</span>
           {job.distance_miles != null && (
             <>
               <span aria-hidden>·</span>
-              <span className="nums whitespace-nowrap" title="Straight line from where you are">
+              {/* "≈" when the pickup is a state centroid: the number is real
+                  arithmetic on a fabricated point, and 12 px grey "184 mi away"
+                  is exactly the kind of false precision this board exists not to
+                  print. The chip above says the location is approximate; this
+                  says the distance inherited it. */}
+              <span
+                className="nums whitespace-nowrap"
+                title={nearCaveat?.title ?? "Straight line from where you are"}
+              >
+                {nearCaveat ? "≈ " : ""}
                 {Math.round(job.distance_miles)} mi away
               </span>
             </>

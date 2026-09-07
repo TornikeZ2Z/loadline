@@ -22,7 +22,7 @@ import type { BoundsInput, LoadSummary } from "@/lib/loads/types";
 import type { PublicLoadRow, PublicSearchResult } from "@/lib/loads/publicView";
 import { OPEN_LOCATION_EVENT, useViewerLocation } from "@/lib/location";
 import { api } from "@/lib/basePath";
-import { boardDay, formatCf, truckLine } from "@/lib/loads/present";
+import { boardDay, formatCf, formatRate, truckLine } from "@/lib/loads/present";
 import {
   clearedFilters,
   emptyStateSuggestions,
@@ -389,10 +389,44 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
             {formatCf(shown.totalCf)}
           </>
         )}
+        {/* The caveat on the number it follows, not a statistic on the line
+            below: this total is the sum over SIZED jobs only, and the map panel
+            has always said so while the list header did not -- two counts of the
+            same set, one of them qualified. 0 on all 98 jobs today; it appears
+            the first time an unsized job is posted. Small and amber so it reads
+            as a footnote to 42,506 cf rather than a second headline. */}
+        {shown.count - shown.withCf > 0 && (
+          <span className="text-(length:--fs-sm) font-medium" style={{ color: "var(--approx)" }}>
+            {" · "}
+            {shown.count - shown.withCf} without size
+          </span>
+        )}
       </div>
+      {/* One line on a phone, because on a phone this IS the bottom sheet's
+          56 px grab handle: a second wrapped line pushes the text up under the
+          drag pill and down over the first card. So the two statistics that are
+          merely interesting -- how much of the board arrived today, and the
+          median rate -- are desktop-only, and everything that is a CAVEAT (the
+          truckload basis, the without-size count above) is on both. `md:` is
+          768 px, the same breakpoint that decides `mobile`, so the sheet and the
+          hidden spans switch together.
+
+          `summarize()` is the client fallback for a partial or failed response
+          and cannot compute freshToday or the median, so it returns 0 and null;
+          both are treated here as "say nothing". Omitting a number we do not
+          have is honest, printing "0 listed today" is not. And the median never
+          appears without the count it was taken over, which is why it hangs off
+          the "N priced" clause instead of standing on its own. */}
       <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
         {shown.totalCf > 0 && `${truckLine(shown.totalCf, current?.truckCf ?? null)} · `}
-        {shown.readyNow} ready now · {shown.priced} priced
+        {shown.readyNow} ready now
+        {shown.freshToday > 0 && (
+          <span className="hidden md:inline">{` · ${shown.freshToday} listed today`}</span>
+        )}
+        {` · ${shown.priced} priced`}
+        {shown.medianPricePerCf != null && (
+          <span className="hidden md:inline">{` · median ${formatRate(shown.medianPricePerCf)}`}</span>
+        )}
         {truncated && " · showing first 500"}
       </div>
     </div>
