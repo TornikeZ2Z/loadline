@@ -523,3 +523,180 @@ ALTER TABLE loads ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT fals
 -- the two reads that ARE selective -- this demo account's own listings, for its
 -- own board and for the sweep in insertWebJob -- both start from `posted_by`.
 CREATE INDEX IF NOT EXISTS loads_demo_owner_idx ON loads (posted_by) WHERE is_demo;
+
+-- ---------------------------------------------------------------------------
+-- Available Truck Space v1.
+--
+-- A capacity listing is NOT a shipment. It has its own table because:
+--   * loads' id-addressed reads (getLoad, revealContact, setManualStatus,
+--     roadDistance, /api/reports) carry NO status or kind predicate, so a
+--     discriminator would make an unreviewed row reachable by incrementing a
+--     bigserial;
+--   * rebuildSender() is `UPDATE loads ... WHERE sender_key = $1` and delists
+--     whatever a sender's newest full post omits. A truck is not inventory.
+--     It must be UNREACHABLE by that statement, not merely unmatched by it;
+--   * free_cf is a hole in the air and loads.cubic_feet is freight on a floor.
+--     They must never meet in one sum().
+--
+-- Every numeric column here is deliberately named differently from its job
+-- counterpart so that `summary.totalCf + summary.totalFreeCf` is something you
+-- have to type on purpose.
+--
+-- Additive only and safe to replay. Nothing above is renamed, edited or dropped.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS trucks (
+  id                 bigserial PRIMARY KEY,
+
+  -- provenance
+  source_message_id  bigint REFERENCES raw_messages(id) ON DELETE SET NULL,
+  group_id           bigint REFERENCES whatsapp_groups(id) ON DELETE SET NULL,
+  posted_by          bigint REFERENCES users(id) ON DELETE SET NULL,
+  sender_key         text REFERENCES senders(key) ON DELETE SET NULL,
+  truck_key          text,
+
+  -- IS IT STILL ON OFFER?  Vocabulary deliberately disjoint from loads.status:
+  -- a truck is never 'delisted', a job is never 'departed', so a status word
+  -- can never be read against the wrong kind of row.
+  status             text NOT NULL DEFAULT 'available'
+                     CHECK (status IN ('available','booked','departed','expired','cancelled')),
+  status_source      text NOT NULL DEFAULT 'derived'
+                     CHECK (status_source IN ('derived','manual')),
+
+  -- DO WE BELIEVE IT ENOUGH TO SHOW IT?  A SEPARATE AXIS FROM status, ON
+  -- PURPOSE.  `status` is a public filter dimension on the job board
+  -- (api/loads/route.ts does not strip it), so a review state expressed as a
+  -- status would be an anonymously enumerable queue of machine-invented rows.
+  -- `visibility` is never a query key: parseTruckSearchParams has no such key
+  -- and 400s on it, and searchTrucks pins it in SQL rather than defaulting it.
+  visibility         text NOT NULL DEFAULT 'public'
+                     CHECK (visibility IN ('public','pending','rejected','hidden')),
+  review_note        text,
+  reviewed_by        bigint REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at        timestamptz,
+
+  -- WHERE IT WILL BE EMPTY.  Required, and required to be placeable: a truck
+  -- the map cannot draw and the matcher cannot place is not a listing.
+  origin_label       text NOT NULL,
+  origin_city        text,
+  origin_state       text,
+  origin_zip         text,
+  origin_lat         double precision NOT NULL,
+  origin_lng         double precision NOT NULL,
+  origin_precision   text CHECK (origin_precision IN ('address','zip','city','region','state')),
+
+  -- WHERE IT IS HEADED.  All-NULL means the post did not say. That is a fact we
+  -- print ("No destination stated"), never a fact we fill in. There is no
+  -- centroid fallback and no "Anywhere" label.
+  dest_label         text,
+  dest_city          text,
+  dest_state         text,
+  dest_zip           text,
+  dest_lat           double precision,
+  dest_lng           double precision,
+  dest_precision     text CHECK (dest_precision IN ('address','zip','city','region','state')),
+
+  leg_miles          double precision,   -- straight line, NULL when no destination
+  road_miles         double precision,
+  road_minutes       integer,
+  road_path          jsonb,
+
+  -- SPACE.  free_cf is what is on offer. truck_cf is the whole vehicle when a
+  -- number was stated. truck_text is the words ("26 ft box truck") and is NEVER
+  -- converted into cubic feet by anything, ever.
+  free_cf            integer CHECK (free_cf  IS NULL OR free_cf  BETWEEN 1 AND 20000),
+  truck_cf           integer CHECK (truck_cf IS NULL OR truck_cf BETWEEN 1 AND 20000),
+  free_source        text CHECK (free_source IN ('stated','empty_phrase','form')),
+  truck_text         text,
+
+  -- WHEN.  avail_now is true ONLY when a phrase resolving to today was stated.
+  -- It is never inferred from tense, from a present-tense verb, or from silence.
+  avail_now          boolean NOT NULL DEFAULT false,
+  avail_from         date,
+  avail_to           date,
+  avail_source       text CHECK (avail_source IN ('line','header','form')),
+
+  -- The only matcher knob a human sets. One select box.
+  corridor_miles     integer NOT NULL DEFAULT 60 CHECK (corridor_miles BETWEEN 10 AND 300),
+
+  -- Self-reported and UNVERIFIED. Never consulted by evaluateMatch().
+  has_dot_mc         boolean,
+  has_hhg_authority  boolean,
+  has_coi            boolean,
+  equipment          text[] NOT NULL DEFAULT '{}',
+  cannot             text[] NOT NULL DEFAULT '{}',
+  equipment_notes    text,
+  requirements       text,
+  notes              text,
+
+  -- CONTACT.  Same gate, same log, same masking module as a job's.
+  contact_name       text,
+  contact_phone      text,
+  contact_phone_raw  text,
+  contact_mode       text NOT NULL DEFAULT 'public' CHECK (contact_mode IN ('public','dm')),
+  contact_phone_source text CHECK (contact_phone_source IS NULL
+                                   OR contact_phone_source IN ('post','sender')),
+
+  -- PARSE PROVENANCE
+  line_text          text,
+  supply_phrase      text,        -- which phrase fired; shown in the admin queue
+  shape              text,        -- C1..C5, or 'form'
+  confidence         real NOT NULL DEFAULT 1,
+  needs_review       boolean NOT NULL DEFAULT false,
+  flags              text[] NOT NULL DEFAULT '{}',
+
+  first_seen_at      timestamptz,
+  last_seen_at       timestamptz,
+  seen_count         integer NOT NULL DEFAULT 0,
+  expires_at         timestamptz,
+  closed_at          timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+-- A truck never carries a price in v1. There is no price column, so a "cheapest
+-- truck" sort cannot be built on nothing, and no truck can pollute the board's
+-- median $/cf or "N priced".
+
+-- Posted from a demo account, and therefore visible only to the account that
+-- posted it -- the same rule, the same fail-closed reasoning and the same
+-- DEFAULT false as `loads.is_demo` above.
+--
+-- This column is NOT in the specification's DDL, because the demo-visibility
+-- work landed after that DDL was written and its open question about demo
+-- posting was answered by the tree rather than by the document. Leaving it out
+-- would put a stranger two clicks from a truck on the public board the moment
+-- stage 2 ships the form. src/lib/loads/truckQuery.ts admits such a row only to
+-- `posted_by` and to a real admin who explicitly asks for it, and
+-- npm run check:demo asserts trucks and loads answer every audience alike.
+ALTER TABLE trucks ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false;
+
+-- Non-partial for the same ON CONFLICT inference reason as loads_sender_job_idx.
+-- sender_key IS NULL (website posts) never collides, because NULLs are distinct.
+CREATE UNIQUE INDEX IF NOT EXISTS trucks_sender_key_idx  ON trucks (sender_key, truck_key);
+CREATE INDEX IF NOT EXISTS trucks_board_idx   ON trucks (visibility, status, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS trucks_origin_idx  ON trucks (origin_lat, origin_lng);
+CREATE INDEX IF NOT EXISTS trucks_dest_idx    ON trucks (dest_lat, dest_lng);
+CREATE INDEX IF NOT EXISTS trucks_state_idx   ON trucks (origin_state, avail_from);
+CREATE INDEX IF NOT EXISTS trucks_owner_idx   ON trucks (posted_by, status);
+CREATE INDEX IF NOT EXISTS trucks_expires_idx ON trucks (expires_at) WHERE status = 'available';
+CREATE INDEX IF NOT EXISTS trucks_pending_idx ON trucks (created_at DESC) WHERE visibility = 'pending';
+-- Partial and keyed on the owner, exactly as loads_demo_owner_idx: the board's
+-- `is_demo = false` matches almost every row, while "this demo account's own
+-- trucks" is the selective read.
+CREATE INDEX IF NOT EXISTS trucks_demo_owner_idx ON trucks (posted_by) WHERE is_demo;
+
+-- Why a truck's history is its own table rather than rows in load_events:
+-- load_events.load_id is `REFERENCES loads(id)`, so a truck's reveal could not
+-- be written there without either dropping that foreign key or pointing it at a
+-- row that is not the listing. The admin data-quality view reads the two
+-- separately and never sums them.
+CREATE TABLE IF NOT EXISTS truck_events (
+  id         bigserial PRIMARY KEY,
+  truck_id   bigint NOT NULL REFERENCES trucks(id) ON DELETE CASCADE,
+  actor_id   bigint REFERENCES users(id) ON DELETE SET NULL,
+  -- created | status_changed | edited | viewed_contact | sighted | published | rejected
+  kind       text NOT NULL,
+  detail     jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS truck_events_truck_idx ON truck_events (truck_id, created_at DESC);
