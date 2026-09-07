@@ -119,6 +119,81 @@ export async function loadRoadRoute(loadId: number): Promise<LoadRoadRoute | nul
   };
 }
 
+/**
+ * The lane a selected TRUCK draws, and the reason it is a second function
+ * rather than a `kind` parameter on the one above.
+ *
+ * The columns are not the same columns. A job's lane runs pickup -> delivery
+ * and both ends are required to exist for the row to be worth plotting; a
+ * truck's runs origin -> destination and THE DESTINATION IS OPTIONAL, because
+ * a post that says "empty in Newark, looking for loads to the midwest" has not
+ * named one. That row gets `unavailable` and no path -- never a guessed
+ * endpoint, and never a billable call to route towards one.
+ *
+ * Same billing discipline as a job: the geometry and the summary arrive on one
+ * HERE request and are cached together on the row, so a truck costs one routing
+ * call in its lifetime however many times it is opened.
+ */
+export async function truckRoadRoute(truckId: number): Promise<LoadRoadRoute | null> {
+  const row = await queryOne<TruckPoints>(
+    `SELECT ${TRUCK_POINT_COLUMNS} FROM trucks WHERE id = $1`,
+    [truckId],
+  );
+  if (!row) return null;
+
+  const cached = parsePath(row.road_path);
+  if (cached) {
+    return { path: cached, miles: row.road_miles, minutes: row.road_minutes, unavailable: false };
+  }
+  // No destination was ever stated. There is no lane to buy.
+  if (row.dest_lat == null || row.dest_lng == null) {
+    return { path: null, miles: null, minutes: null, unavailable: true };
+  }
+  if (!hereConfigured()) {
+    return {
+      path: null,
+      miles: row.road_miles,
+      minutes: row.road_minutes,
+      unavailable: true,
+    };
+  }
+
+  const result = await hereRoute(
+    { lat: row.origin_lat, lng: row.origin_lng },
+    { lat: row.dest_lat, lng: row.dest_lng },
+    { withPath: true },
+  );
+  if (!result?.path) {
+    return {
+      path: null,
+      miles: result?.miles ?? row.road_miles,
+      minutes: result?.minutes ?? row.road_minutes,
+      unavailable: true,
+    };
+  }
+
+  await query(`UPDATE trucks SET road_miles = $1, road_minutes = $2, road_path = $3 WHERE id = $4`, [
+    result.miles,
+    result.minutes,
+    JSON.stringify(result.path),
+    truckId,
+  ]);
+  return { path: result.path, miles: result.miles, minutes: result.minutes, unavailable: false };
+}
+
+interface TruckPoints {
+  origin_lat: number;
+  origin_lng: number;
+  dest_lat: number | null;
+  dest_lng: number | null;
+  road_miles: number | null;
+  road_minutes: number | null;
+  road_path: unknown;
+}
+
+const TRUCK_POINT_COLUMNS = `origin_lat, origin_lng, dest_lat, dest_lng,
+                             road_miles, road_minutes, road_path`;
+
 interface CachedTrip extends RoadDistance {
   path: [number, number][] | null;
 }

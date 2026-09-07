@@ -73,12 +73,27 @@ import maplibregl, { type GeoJSONSource, type MapLayerMouseEvent } from "maplibr
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { FeatureCollection, Point as GeoPoint } from "geojson";
 import type { BoundsInput, LoadSummary, MapEnd } from "@/lib/loads/types";
-import type { PublicLoadRow } from "@/lib/loads/publicView";
+import type { PublicLoadRow, PublicTruckRow } from "@/lib/loads/publicView";
 import { LOCATION_KEYS, type StoredLocation } from "@/lib/location";
 import { STATE_BY_ABBR } from "@/lib/geo/states";
 import { api } from "@/lib/basePath";
 import { formatCf, jobSummary, truckLine } from "@/lib/loads/present";
-import { corridorRing, intermediatePoint, type Point as LatLng } from "@/lib/geo/math";
+import {
+  NO_DESTINATION_STATED,
+  SPACE_NOT_STATED,
+  departureLabel,
+  freeSpaceLabel,
+  truckPlaceLabel,
+} from "@/lib/loads/truckPresent";
+import { boardDay } from "@/lib/loads/present";
+import {
+  alongTrackFraction,
+  corridorRing,
+  crossTrackMiles,
+  haversineMiles,
+  intermediatePoint,
+  type Point as LatLng,
+} from "@/lib/geo/math";
 import {
   buildGroups,
   endLabelText,
@@ -93,10 +108,33 @@ import {
   type PointGroup,
   type PointSpot,
 } from "@/lib/geo/points";
-import { jobMarks } from "@/lib/geo/marks";
+import {
+  jobMarks,
+  truckGroupSummary,
+  truckMarks,
+  truckPoints,
+  type TruckGroupFacts,
+} from "@/lib/geo/marks";
 
 export interface LoadMapProps {
   jobs: PublicLoadRow[];
+  /**
+   * The SECOND population. Never merged with `jobs`, never counted with them,
+   * never plotted on the freight size scale -- see the truck block below and
+   * SPEC 14. Empty on day one, which is the state this map ships in.
+   */
+  trucks: PublicTruckRow[];
+  selectedTruckId: number | null;
+  hoveredTruckId: number | null;
+  onSelectTruck(id: number | null): void;
+  onHoverTruck(id: number | null): void;
+  /**
+   * The truck search hit its page limit, so what is drawn is a prefix of what
+   * matched. Said out loud in the panel, in the same words the job list uses:
+   * a map that is quietly showing some of the answer is worse than one that
+   * says which part it is showing.
+   */
+  truckTruncated?: boolean;
   /** Which end of every lane is plotted. Also drives the state pills. */
   end: MapEnd;
   selectedId: number | null;
@@ -221,7 +259,7 @@ const COUNT_SLOTS: Array<[number, number]> = [
 /** Breathing room around a placed label, in px. */
 const LABEL_PAD = 3;
 
-type LabelKind = "route" | "count" | "state" | "focus";
+type LabelKind = "route" | "count" | "state" | "focus" | "truck";
 
 interface MapLabel {
   kind: LabelKind;
@@ -229,8 +267,14 @@ interface MapLabel {
   el: HTMLElement;
   lng: number;
   lat: number;
-  /** How the element hangs off its point, matching the Marker's own anchor. */
-  anchor: "center" | "bottom" | "left";
+  /**
+   * How the element hangs off its point, matching the Marker's own anchor.
+   *
+   * `top` arrived with the truck labels: the arrow sits ABOVE its coordinate to
+   * clear a co-located job's dot, so the free space goes below, which is the
+   * one direction nothing else on this marker is using.
+   */
+  anchor: "center" | "bottom" | "top" | "left";
   /** The offset the marker was built with; slots are added to it. */
   base: [number, number];
   /**
@@ -239,6 +283,15 @@ interface MapLabel {
    * which changes with the zoom, so it is read per frame rather than baked in.
    */
   clearOf?: number;
+  /**
+   * `clearOf` measures DOWNWARD from the coordinate rather than upward.
+   *
+   * A truck label's neighbour is the job disc it may be standing on, and the
+   * space above that disc is already spoken for twice over -- by the arrow,
+   * which sits 14 px up to clear the disc, and by the disc's own count badge.
+   * Below it is the one direction free at a place holding both.
+   */
+  below?: boolean;
   /** Bare type with no box: it may only be placed touching its own mark. */
   tight?: boolean;
   /** Higher wins a contested spot. */
@@ -331,6 +384,21 @@ function samePlace(a: LatLng, b: LatLng | null | undefined): boolean {
 }
 
 /**
+ * Inside the CAPSULE, not inside the infinite band around the great circle.
+ *
+ * `crossTrackMiles` measures against a line with no ends, so a point six
+ * hundred miles past the destination but dead on the bearing measures zero off
+ * the route. The rounded ends are what `corridorRing` draws, and the shape a
+ * driver is looking at has to be the shape being tested.
+ */
+function inCapsule(p: LatLng, origin: LatLng, destination: LatLng, miles: number): boolean {
+  const f = alongTrackFraction(p, origin, destination);
+  if (f <= 0) return haversineMiles(p, origin) <= miles;
+  if (f >= 1) return haversineMiles(p, destination) <= miles;
+  return crossTrackMiles(p, origin, destination) <= miles;
+}
+
+/**
  * Free space, in cubic feet: how much of the truck is EMPTY, which is a
  * different number from how big the truck is and the only one a fit is
  * measured against.
@@ -382,6 +450,8 @@ interface Palette {
   pickup: string;
   delivery: string;
   approx: string;
+  /** The second population's one colour; see --truck in globals.css. */
+  truck: string;
   you: string;
   home: string;
   /** The wash the basemap tiles are blended into. */
@@ -399,6 +469,7 @@ const FALLBACK: Palette = {
   pickup: "#2563eb",
   delivery: "#0f172a",
   approx: "#b45309",
+  truck: "#be2d74",
   you: "#059669",
   home: "#0f172a",
   paper: "#e6ebf2",
@@ -417,6 +488,7 @@ function readPalette(): Palette {
     pickup: pick("--pickup", FALLBACK.pickup),
     delivery: pick("--delivery", FALLBACK.delivery),
     approx: pick("--approx", FALLBACK.approx),
+    truck: pick("--truck", FALLBACK.truck),
     you: pick("--you", FALLBACK.you),
     home: pick("--home", FALLBACK.home),
     paper: pick("--map-paper", FALLBACK.paper),
@@ -470,7 +542,11 @@ function zoomRadius(extra = 0): maplibregl.ExpressionSpecification {
  * piles first and the small ones as the texture around them, which is the
  * order a driver wants them in.
  */
-function presence(weight: number): maplibregl.ExpressionSpecification {
+function presence(base: number, scale = 1): maplibregl.ExpressionSpecification {
+  // The emphasis control multiplies the whole population down rather than
+  // hiding it: a de-emphasised job is still on the map, still counted in the
+  // panel, and still where a driver can see it beside the truck they came for.
+  const weight = base * scale;
   return [
     "case",
     // Dimmed, not deleted. At 0.18 -- what the arcs-everywhere map used, where
@@ -502,6 +578,50 @@ const APPROX_BLUR: maplibregl.ExpressionSpecification = [
   0,
 ];
 
+/** The soft ground under a job marker, graded by freight. */
+function liftOpacity(scale = 1): maplibregl.ExpressionSpecification {
+  return [
+    "case",
+    ["boolean", ["feature-state", "dim"], false],
+    0.03 * scale,
+    [
+      "interpolate",
+      ["linear"],
+      ["sqrt", ["max", 0, ["coalesce", ["get", "cf"], 0]]],
+      0,
+      0.05 * scale,
+      40,
+      0.13 * scale,
+      110,
+      0.22 * scale,
+    ],
+  ];
+}
+
+/** The job dots' three opacities, at one emphasis. */
+function pointsOpacity(scale = 1): maplibregl.ExpressionSpecification {
+  return ["case", ["get", "approx"], presence(0.72, scale), presence(0.94, scale)];
+}
+
+/**
+ * How present a truck arrow is.
+ *
+ * Flat, not graded: `presence` grades a job by freight because area is the
+ * job's own scale and a small dot needs the help. A truck has no scale to be
+ * graded on -- that is the point of drawing it at one size -- so the only
+ * things that move this number are the hover dim and the emphasis control.
+ * An approximate origin is drawn fainter, which is this map's existing word
+ * for "we had to guess where this is".
+ */
+function truckOpacity(scale = 1): maplibregl.ExpressionSpecification {
+  return [
+    "case",
+    ["boolean", ["feature-state", "dim"], false],
+    0.34 * scale,
+    ["case", ["get", "approx"], 0.66 * scale, 0.96 * scale],
+  ];
+}
+
 /** A 12 px right-pointing triangle, registered as an SDF so icon-color works. */
 function chevronImage(): ImageData | null {
   if (typeof document === "undefined") return null;
@@ -519,6 +639,161 @@ function chevronImage(): ImageData | null {
   ctx.closePath();
   ctx.fill();
   return ctx.getImageData(0, 0, size, size);
+}
+
+/* ------------------------------ the truck mark ----------------------------
+ *
+ * A JOB IS A DISC WHOSE AREA IS ITS FREIGHT. A TRUCK IS AN ARROW AT ONE FIXED
+ * SIZE, AND THAT IS A RULE RATHER THAN AN OVERSIGHT. On this map area encodes
+ * volume, so a 700 cf truck drawn the size of a 700 cf job would invite the eye
+ * to compare supply against demand as though they were the same quantity --
+ * precisely the confusion this whole feature exists to avoid. Shape and hue
+ * carry "truck"; size carries "how much freight". Free space is in words, on
+ * the label and on the hover card.
+ *
+ * Four glyphs, because two facts can each be missing:
+ *
+ *              space stated              space never stated
+ *   heading    solid arrow               dashed-outline arrow
+ *   no heading solid ring                dashed-outline ring
+ *
+ * The ring is the honest mark for a truck whose post never said where it is
+ * going: there is nothing to point at, and an arrow aimed at a compass
+ * direction nobody stated would be the map inventing the one fact a driver
+ * would act on. The dashes are the same idea for the size.
+ *
+ * They are BAKED BITMAPS, not SDFs. MapLibre's `icon-color` needs an SDF, and
+ * an SDF drawn from a binary mask has no gradient outside the shape for
+ * `icon-halo-width` to threshold -- so the white outline that lifts every mark
+ * on this map off the basemap simply would not render. The colour is read once
+ * from `--truck` at init, which is exactly when `colors.pickup` is read, and
+ * nothing on this map recolours at runtime.
+ */
+
+/** The glyph box in CSS px. The arrow is 18 tall inside it. */
+const TRUCK_GLYPH = 24;
+/** Drawn at 2x so a 14 px arrowhead has real edges. */
+const TRUCK_GLYPH_SCALE = 2;
+
+/**
+ * How far the arrow sits above the coordinate, in screen pixels.
+ *
+ * A place holding both a job and a truck draws TWO MARKS AND NEVER MERGES
+ * THEM: a merged marker would need one number and there are two of them, and
+ * they are not the same kind of number. This is the lift that keeps the arrow
+ * off the disc.
+ *
+ * Applied as `icon-translate`, a PAINT property in screen space, and not as
+ * `icon-offset`. `icon-offset` lives inside the symbol quad, so it is rotated
+ * by `icon-rotate` along with everything else -- a truck bound for Miami would
+ * have had its "clearance" pushed south-west, straight back onto the dot.
+ */
+const TRUCK_LIFT_PX = 14;
+
+/**
+ * Above this many truck markers in view, the truck LABELS go and the arrows
+ * stay.
+ *
+ * Dropping labels rather than marks is what makes this work above
+ * PILL_MAX_ZOOM, where the state pills are suppressed entirely and a
+ * pill-based fallback would render nothing at all.
+ *
+ * SIXTY IS A GUESS WITH NO MEASUREMENT BEHIND IT (SPEC 14.6). It is one named
+ * constant on purpose, and the first real volume of supply should replace it.
+ */
+const TRUCK_LABEL_MAX_GROUPS = 60;
+
+/**
+ * Which population the map is leaning on. EMPHASIS, NOT FILTERING: the other
+ * one stays drawn and stays counted, at a quarter opacity and out of reach of
+ * the pointer. A dispatcher still sees a truck heading their way NEXT TO the
+ * job that needs it, which is the entire point of putting both on one map.
+ *
+ * A client-side preference, in localStorage and NOT in the URL: it is not a
+ * search, nothing about the result set changes, and `map=delivery` set the
+ * precedent that a view choice is search-neutral.
+ */
+type Emphasis = "both" | "loads" | "trucks";
+const EMPHASIS_KEY = "loadline.mapmarks.v1";
+/** What a de-emphasised population is multiplied down to. */
+const EMPHASIS_DIM = 0.25;
+
+function readEmphasis(): Emphasis {
+  if (typeof window === "undefined") return "both";
+  try {
+    const raw = window.localStorage.getItem(EMPHASIS_KEY);
+    return raw === "loads" || raw === "trucks" ? raw : "both";
+  } catch {
+    // Private mode or blocked storage: the default is the honest one anyway.
+    return "both";
+  }
+}
+
+/** The arrow, pointing north, in a 24 px box. `icon-rotate` does the rest. */
+function arrowPath(ctx: CanvasRenderingContext2D): void {
+  const c = TRUCK_GLYPH / 2;
+  ctx.beginPath();
+  ctx.moveTo(c, 3);
+  ctx.lineTo(c + 7.5, 20);
+  ctx.lineTo(c, 15.5);
+  ctx.lineTo(c - 7.5, 20);
+  ctx.closePath();
+}
+
+function ringPath(ctx: CanvasRenderingContext2D): void {
+  const c = TRUCK_GLYPH / 2;
+  ctx.beginPath();
+  ctx.arc(c, c, 6.5, 0, Math.PI * 2);
+  ctx.closePath();
+}
+
+/**
+ * One truck glyph as pixels.
+ *
+ * The white is drawn FIRST and wider, so every variant carries the same ring of
+ * paper the job dots carry -- the ground under these marks is woodland, or
+ * water, or a town, and a mark with no paper behind it is only as legible as
+ * whatever it happens to be parked on.
+ */
+function truckGlyph(
+  shape: "arrow" | "ring",
+  variant: "solid" | "open",
+  color: string,
+): ImageData | null {
+  if (typeof document === "undefined") return null;
+  const px = TRUCK_GLYPH * TRUCK_GLYPH_SCALE;
+  const canvas = document.createElement("canvas");
+  canvas.width = px;
+  canvas.height = px;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.scale(TRUCK_GLYPH_SCALE, TRUCK_GLYPH_SCALE);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  const draw = shape === "arrow" ? arrowPath : ringPath;
+
+  // The paper.
+  draw(ctx);
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = variant === "solid" ? 3.4 : 3.8;
+  ctx.stroke();
+
+  draw(ctx);
+  if (variant === "solid" && shape === "arrow") {
+    ctx.fillStyle = color;
+    ctx.fill();
+  } else {
+    // A ring is hollow by definition; an "open" mark is hollow because the post
+    // never said how much room is on the truck. Both are strokes, and the
+    // second one is dashed.
+    if (variant === "open") ctx.setLineDash([3, 2.2]);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = variant === "open" ? 1.9 : 2.4;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  return ctx.getImageData(0, 0, px, px);
 }
 
 /** Bounding box of a coordinate list, as MapLibre wants it. */
@@ -678,11 +953,17 @@ function asError(err: unknown): Error {
 
 export function LoadMap({
   jobs,
+  trucks,
   end,
   selectedId,
   hoveredId,
+  selectedTruckId,
+  hoveredTruckId,
   onSelect,
   onHover,
+  onSelectTruck,
+  onHoverTruck,
+  truckTruncated = false,
   onStateClick,
   onGroupClick,
   searchAsMove,
@@ -705,9 +986,33 @@ export function LoadMap({
   const shell = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
-  const [inView, setInView] = useState<{ count: number; cf: number; unsized: number } | null>(null);
+  /* TWO STATE OBJECTS AND TWO REFS, AND THAT IS THE WHOLE POINT (SPEC 14.5).
+   *
+   * There used to be one `inView` accumulating `{count, cf, unsized}` over one
+   * `groups` ref, and the panel divided its `cf` by a truck size to print
+   * "= 28.3 truckloads". Pushing trucks into that ref would have added free
+   * space to freight and then divided the result by a truck -- the exact lie
+   * this feature exists not to tell, on the surface a dispatcher looks at most.
+   * The two shapes deliberately share no field name that carries a volume, so
+   * there is no line anywhere that could add them by accident. */
+  const [inViewJobs, setInViewJobs] = useState<{
+    count: number;
+    cf: number;
+    unsized: number;
+  } | null>(null);
+  const [inViewTrucks, setInViewTrucks] = useState<{
+    count: number;
+    /** Free space. Never "cf". Never added to anything. */
+    freeCf: number;
+    unstated: number;
+    /** Markers, not trucks: what the label-collapse rule counts. */
+    marks: number;
+  } | null>(null);
   const [zoom, setZoom] = useState(4);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
+  /** A truck marker under the pointer. Its own key: the two sources' keys collide. */
+  const [hoverTruckKey, setHoverTruckKey] = useState<string | null>(null);
+  const [emphasis, setEmphasis] = useState<Emphasis>("both");
   /** A marker the viewer opened: see `Focus` and the file header. */
   const [focus, setFocus] = useState<Focus | null>(null);
   /**
@@ -718,7 +1023,7 @@ export function LoadMap({
   const [hoverLeaf, setHoverLeaf] = useState<{ spot: PointSpot; at: [number, number] } | null>(
     null,
   );
-  const [route, setRoute] = useState<{ id: number; road: RoadRouteResponse } | null>(null);
+  const [route, setRoute] = useState<{ key: string; road: RoadRouteResponse } | null>(null);
   const palette = useRef<Palette>(FALLBACK);
   /**
    * The map cannot draw at all: WebGL refused, or the style could not be built.
@@ -738,8 +1043,31 @@ export function LoadMap({
 
   // Callbacks are held in refs so the map is built once and never torn down by
   // a parent re-render; a remount would drop the viewport the user set.
-  const cb = useRef({ onSelect, onHover, onStateClick, onGroupClick, onBoundsChange, searchAsMove });
-  cb.current = { onSelect, onHover, onStateClick, onGroupClick, onBoundsChange, searchAsMove };
+  const cb = useRef({
+    onSelect,
+    onHover,
+    onSelectTruck,
+    onHoverTruck,
+    onStateClick,
+    onGroupClick,
+    onBoundsChange,
+    searchAsMove,
+    // The emphasis control's other half: paint says which population is quiet,
+    // and this says which one the pointer may reach. A mark at 25 % opacity
+    // that still swallowed clicks would be worse than one that was hidden.
+    emphasis,
+  });
+  cb.current = {
+    onSelect,
+    onHover,
+    onSelectTruck,
+    onHoverTruck,
+    onStateClick,
+    onGroupClick,
+    onBoundsChange,
+    searchAsMove,
+    emphasis,
+  };
   /** How much of the canvas the phone's bottom sheet is covering, for the same reason. */
   const pad = useRef(bottomPadding);
   pad.current = bottomPadding;
@@ -749,6 +1077,8 @@ export function LoadMap({
   const stateMarkers = useRef<maplibregl.Marker[]>([]);
   const placeMarkers = useRef<maplibregl.Marker[]>([]);
   const countMarkers = useRef<maplibregl.Marker[]>([]);
+  /** One label per truck marker: the place, the count, and the free space. */
+  const truckMarkers = useRef<maplibregl.Marker[]>([]);
   /** The name of the place a marker was opened from, pinned to its anchor. */
   const focusMarkers = useRef<maplibregl.Marker[]>([]);
   const labelMarkers = useRef<maplibregl.Marker[]>([]);
@@ -759,6 +1089,15 @@ export function LoadMap({
   const popup = useRef<maplibregl.Popup | null>(null);
   /** Every feature-state we have set, and where, so it can be cleared exactly. */
   const stated = useRef<Array<{ source: string; key: string }>>([]);
+  /**
+   * The truck marker the pointer is on, held in a ref as well as in state.
+   *
+   * The hit test runs on every `mousemove` over the whole canvas rather than on
+   * a layer's own enter/leave, so it needs to know whether anything actually
+   * changed -- setting React state on every pixel of a pan is the one thing
+   * that makes this map feel slow.
+   */
+  const truckHover = useRef<string | null>(null);
   const priorBounds = useRef<maplibregl.LngLatBounds | null>(null);
   /** The `fitKey` the current viewport was fitted for; null until the first fit. */
   const lastFit = useRef<string | null>(null);
@@ -771,7 +1110,7 @@ export function LoadMap({
    * the row as well, so even a reload costs no second HERE call -- this only
    * saves the round trip.
    */
-  const roadCache = useRef(new Map<number, RoadRouteResponse>());
+  const roadCache = useRef(new Map<string, RoadRouteResponse>());
 
   /**
    * The corridor to draw, or null. See the note above `parseCorridorQuery`.
@@ -809,6 +1148,24 @@ export function LoadMap({
   }, [fitKey, towardHome, viewer, home]);
 
   const built = useMemo(() => buildGroups(jobMarks(jobs, end)), [jobs, end]);
+
+  /**
+   * The trucks, grouped by the same code and NEVER in the same call.
+   *
+   * `buildGroups` runs once per population. A mixed array would put a job's
+   * freight and a truck's free space into one marker's `cf`, and the marker
+   * would then carry one number where there are two of them.
+   */
+  const truckBuilt = useMemo(() => truckPoints(truckMarks(trucks, end)), [trucks, end]);
+
+  /**
+   * Trucks that ARE in the result but are not on this view, because they never
+   * said where they are going and this is the map of arrivals.
+   *
+   * Printed, never swallowed. The alternative -- plotting them at their origin
+   * anyway -- would put a standing vehicle on a map of deliveries.
+   */
+  const truckNoDest = end === "delivery" ? trucks.length - truckBuilt.points.plotted : 0;
 
   /**
    * What a click on a marker opened, resolved against the CURRENT result set.
@@ -859,10 +1216,15 @@ export function LoadMap({
 
   // Read by the map's own event handlers, which are registered once and must
   // not close over a stale result set.
-  const groups = useRef(drawn.groups);
-  groups.current = drawn.groups;
+  const jobGroups = useRef(drawn.groups);
+  jobGroups.current = drawn.groups;
   const byKey = useRef(built.byKey);
   byKey.current = built.byKey;
+  /** The truck markers, in their own ref for the same reason as their own state. */
+  const truckGroups = useRef(truckBuilt.points.groups);
+  truckGroups.current = truckBuilt.points.groups;
+  const truckByKey = useRef(truckBuilt.points.byKey);
+  truckByKey.current = truckBuilt.points.byKey;
   const focusRef = useRef<FocusView | null>(focused);
   focusRef.current = focused;
 
@@ -873,6 +1235,62 @@ export function LoadMap({
   /** Same reasoning as `detailed`: a boolean, so a wheel gesture rebuilds the
       pills at most twice instead of once a frame. */
   const shortPills = zoom < PILL_SHORT_ZOOM;
+  /**
+   * Too many trucks on screen to name them all.
+   *
+   * 98 jobs collapse to roughly 40 markers because real posts are batch
+   * inventories out of a handful of warehouses. Trucks do not collapse that
+   * way -- one truck is one company at one place -- so N trucks is close to N
+   * markers, and past a point the labels are a smudge over the arrows they are
+   * labelling. The arrows stay; the words go; the panel says so.
+   */
+  const truckLabelsHidden = (inViewTrucks?.marks ?? 0) > TRUCK_LABEL_MAX_GROUPS;
+
+  /* --------------------------- the open listing -----------------------------
+   *
+   * ONE listing is open at a time -- the list column holds one drawer, and the
+   * Board closes a job when a truck opens -- so one `road` source and one set
+   * of route layers serve both kinds. What changes is which endpoint is asked:
+   * `/api/loads/:id/route` or `/api/trucks/:id/route`, the same HERE truck
+   * router behind both, the same one-billable-call-per-listing-ever cache on
+   * the row.
+   *
+   * The key is `kind:id` rather than a bare number, because job 12 and truck 12
+   * are two different lanes and one cache keyed on 12 would draw one of them
+   * for the other.
+   */
+  const open = useMemo<{ kind: "job" | "truck"; id: number } | null>(
+    () =>
+      selectedTruckId != null
+        ? { kind: "truck", id: selectedTruckId }
+        : selectedId != null
+          ? { kind: "job", id: selectedId }
+          : null,
+    [selectedId, selectedTruckId],
+  );
+  const openKey = open ? `${open.kind}:${open.id}` : null;
+
+  const openTruck = useMemo(
+    () => (open?.kind === "truck" ? (trucks.find((t) => t.id === open.id) ?? null) : null),
+    [open, trucks],
+  );
+
+  /**
+   * The open truck's own swing, at its own `corridor_miles`.
+   *
+   * A truck with no stated destination gets NO BAND. A corridor is a distance
+   * from a LINE and there is no line: a circle of the same radius around the
+   * origin would be a different claim in the same colour, and it is not the one
+   * the matcher makes -- such a truck is "near you, not on a route".
+   */
+  const truckCorridor = useMemo(() => {
+    if (!openTruck || openTruck.dest_lat == null || openTruck.dest_lng == null) return null;
+    return {
+      origin: { lat: openTruck.origin_lat, lng: openTruck.origin_lng },
+      destination: { lat: openTruck.dest_lat, lng: openTruck.dest_lng },
+      miles: openTruck.corridor_miles,
+    };
+  }, [openTruck]);
 
   /**
    * The in-view totals, from the viewport box against the groups themselves.
@@ -892,13 +1310,29 @@ export function LoadMap({
     let count = 0;
     let cf = 0;
     let unsized = 0;
-    for (const group of groups.current) {
+    for (const group of jobGroups.current) {
       if (!box.contains([group.lng, group.lat])) continue;
       count += group.ids.length;
       cf += group.cf;
       unsized += group.unsized;
     }
-    setInView({ count, cf, unsized });
+    setInViewJobs({ count, cf, unsized });
+
+    // A SECOND WALK OVER A SECOND SET, into a second shape. Not a second branch
+    // of the loop above with a different accumulator: one loop with two totals
+    // is one edit away from being one loop with one total.
+    let trucksInView = 0;
+    let freeCf = 0;
+    let unstated = 0;
+    let marks = 0;
+    for (const group of truckGroups.current) {
+      if (!box.contains([group.lng, group.lat])) continue;
+      marks += 1;
+      trucksInView += group.ids.length;
+      freeCf += group.cf;
+      unstated += group.unsized;
+    }
+    setInViewTrucks({ count: trucksInView, freeCf, unstated, marks });
   }, []);
 
   // --- label placement -----------------------------------------------------
@@ -949,11 +1383,24 @@ export function LoadMap({
     // of air; a count badge already clears its own dot, so what this really
     // stops is a label covering somebody ELSE's.
     const z = m.getZoom();
-    for (const group of groups.current) {
+    for (const group of jobGroups.current) {
       const at = m.project([group.lng, group.lat]);
       if (at.x < -60 || at.y < -60 || at.x > vw + 60 || at.y > vh + 60) continue;
       const r = pointRadius(group.cf, z) + 2;
       taken.push([at.x - r, at.y - r, at.x + r, at.y + r]);
+    }
+
+    // AND SO ARE THE ARROWS. This is what keeps the co-location offset honest:
+    // a place holding a job and a truck draws the disc, the arrow 14 px above
+    // it, and then the HTML place pill has to find somewhere that is neither.
+    // Without this reservation the pill lands on the arrow at exactly the zooms
+    // where a marker carries a name (SPEC 18 MAP4).
+    const half = TRUCK_GLYPH / 2 + 2;
+    for (const group of truckGroups.current) {
+      const at = m.project([group.lng, group.lat]);
+      if (at.x < -60 || at.y < -60 || at.x > vw + 60 || at.y > vh + 60) continue;
+      const cy = at.y - TRUCK_LIFT_PX;
+      taken.push([at.x - half, cy - half, at.x + half, cy + half]);
     }
 
     const ordered = [...labels.current].sort((a, b) => b.weight - a.weight);
@@ -981,7 +1428,9 @@ export function LoadMap({
           // One pixel more than the air reserved around the disc above, so a
           // badge does not read as colliding with its own dot and get bumped
           // twenty pixels up the map for nothing.
-          : [l.base[0], -(pointRadius(l.clearOf, m.getZoom()) + 7)];
+          : l.below
+            ? [l.base[0], pointRadius(l.clearOf, m.getZoom()) + 7]
+            : [l.base[0], -(pointRadius(l.clearOf, m.getZoom()) + 7)];
 
       const slots = l.fixed
         ? [[0, 0] as [number, number]]
@@ -995,7 +1444,7 @@ export function LoadMap({
         const cx = at.x + base[0] + dx;
         const cy = at.y + oy;
         const natural = l.anchor === "left" ? cx : cx - w / 2;
-        const top = l.anchor === "bottom" ? cy - h : cy - h / 2;
+        const top = l.anchor === "bottom" ? cy - h : l.anchor === "top" ? cy : cy - h / 2;
         // Slide a label that would run past a side back inside, rather than
         // hiding it or letting it clip. "FL · 4,900 cf" is 90 px on a 390 px
         // map, so on a phone the whole eastern seaboard is within half a label
@@ -1177,7 +1626,25 @@ export function LoadMap({
         instance.addImage("chevron", image, { sdf: true });
       }
 
+      for (const shape of ["arrow", "ring"] as const) {
+        for (const variant of ["solid", "open"] as const) {
+          const id = `truck-${shape}${variant === "open" ? "-open" : ""}`;
+          const glyph = truckGlyph(shape, variant, colors.truck);
+          if (glyph && !instance.hasImage(id)) {
+            instance.addImage(id, glyph, { pixelRatio: TRUCK_GLYPH_SCALE });
+          }
+        }
+      }
+
       instance.addSource("points", { type: "geojson", data: EMPTY, promoteId: "key" });
+      // THE SECOND POPULATION, IN ITS OWN SOURCE. Not a second layer over the
+      // first: `cf` is freight on a job feature and free space on a truck one,
+      // and one source holding both would be one number where there are two.
+      instance.addSource("trucks", { type: "geojson", data: EMPTY, promoteId: "key" });
+      // Where a hovered truck is headed, and the lane of the one that is open.
+      instance.addSource("truck-leg", { type: "geojson", data: EMPTY });
+      // The swing an open truck said it would take, at its own width.
+      instance.addSource("truck-corridor", { type: "geojson", data: EMPTY });
       // `lineMetrics` is what makes `line-gradient` legal on the road: it
       // darkens from the pickup toward the delivery, and a gradient needs to
       // know how far along the line each pixel is.
@@ -1235,6 +1702,32 @@ export function LoadMap({
         },
       });
 
+      /* ------------------ the open truck's own swing ---------------------
+       *
+       * The same capsule the board's corridor filter draws, at the TRUCK's own
+       * `corridor_miles` rather than the viewer's. A driver sees, geometrically,
+       * exactly which freight is inside their swing -- and the jobs outside it
+       * dim, which is the part that turns a shape into an answer.
+       *
+       * Its own colour, not --you: --you is where the person looking at the
+       * screen is standing, and this band belongs to a truck somebody else
+       * posted.
+       */
+      instance.addLayer({
+        id: "truck-corridor-fill",
+        type: "fill",
+        source: "truck-corridor",
+        filter: ["==", ["geometry-type"], "Polygon"],
+        paint: { "fill-color": colors.truck, "fill-opacity": 0.06 },
+      });
+      instance.addLayer({
+        id: "truck-corridor-edge",
+        type: "line",
+        source: "truck-corridor",
+        filter: ["==", ["geometry-type"], "Polygon"],
+        paint: { "line-color": colors.truck, "line-width": 1, "line-opacity": 0.35 },
+      });
+
       // The soft ground a marker sits on. Two jobs at once: it lifts the dot
       // off the basemap the way a drop shadow lifts a card, and -- because its
       // opacity is graded by freight -- it is the difference between a 200 cf
@@ -1248,22 +1741,7 @@ export function LoadMap({
           "circle-radius": zoomRadius(4),
           "circle-color": colors.pickup,
           "circle-blur": 0.9,
-          "circle-opacity": [
-            "case",
-            ["boolean", ["feature-state", "dim"], false],
-            0.03,
-            [
-              "interpolate",
-              ["linear"],
-              ["sqrt", ["max", 0, ["coalesce", ["get", "cf"], 0]]],
-              0,
-              0.05,
-              40,
-              0.13,
-              110,
-              0.22,
-            ],
-          ],
+          "circle-opacity": liftOpacity(),
         },
       });
 
@@ -1299,7 +1777,7 @@ export function LoadMap({
           // is a smudge, not a mark. Blur is what says "we guessed" -- opacity
           // was only ever saying "there are a lot of us", and the map is no
           // longer pale enough to afford that. The blur is untouched.
-          "circle-opacity": ["case", ["get", "approx"], presence(0.72), presence(0.94)],
+          "circle-opacity": pointsOpacity(),
           // The zoom step has to be the OUTERMOST expression -- MapLibre will
           // not take a ["zoom"] input nested inside a ["case"] -- so the
           // approximate/exact choice is made once per stop instead.
@@ -1312,6 +1790,90 @@ export function LoadMap({
           ],
           "circle-stroke-color": "#ffffff",
           "circle-stroke-opacity": presence(1),
+        },
+      });
+
+      /* ----------------------- the trucks ---------------------------------
+       *
+       * Layer order, and it is the order SPEC 14.2 asks for:
+       *   points-lift -> points -> [the truck block] -> points-active-* ->
+       *   focus-* -> route-*
+       *
+       * The leg first, because it is context for the arrow rather than a claim
+       * of its own: a DASHED STRAIGHT LINE, never a routed one. A hover must
+       * never cost money, and a hover that quietly bought a road route would
+       * bill the product once per card a pointer crossed.
+       */
+      instance.addLayer({
+        id: "truck-leg",
+        type: "line",
+        source: "truck-leg",
+        layout: { "line-cap": "round" },
+        paint: {
+          "line-color": colors.truck,
+          "line-width": 1.6,
+          "line-dasharray": [2, 2.5],
+          "line-opacity": 0.6,
+        },
+      });
+      // The selected truck's two rings, the same white-gap-then-accent pair a
+      // selected job wears -- but at a FIXED radius, because the arrow they are
+      // ringing is at a fixed size and a ring that grew with free space would
+      // put the truck back on the freight scale by the back door.
+      instance.addLayer({
+        id: "trucks-active-gap",
+        type: "circle",
+        source: "trucks",
+        paint: {
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-radius": 12,
+          "circle-translate": [0, -TRUCK_LIFT_PX],
+          "circle-stroke-width": 2.5,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": ["case", ["boolean", ["feature-state", "active"], false], 0.95, 0],
+        },
+      });
+      instance.addLayer({
+        id: "trucks-active",
+        type: "circle",
+        source: "trucks",
+        paint: {
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-radius": 14.5,
+          "circle-translate": [0, -TRUCK_LIFT_PX],
+          "circle-stroke-width": 2,
+          "circle-stroke-color": colors.truck,
+          "circle-stroke-opacity": ["case", ["boolean", ["feature-state", "active"], false], 0.9, 0],
+        },
+      });
+      instance.addLayer({
+        id: "trucks",
+        type: "symbol",
+        source: "trucks",
+        layout: {
+          "icon-image": [
+            "case",
+            ["get", "directed"],
+            ["case", ["get", "unstated"], "truck-arrow-open", "truck-arrow"],
+            ["case", ["get", "unstated"], "truck-ring-open", "truck-ring"],
+          ],
+          // PINNED TO 1, and it stays pinned. Every truck is the same size on
+          // this map; the moment this becomes a function of anything, area is
+          // encoding two different quantities.
+          "icon-size": 1,
+          "icon-rotate": ["get", "bearing"],
+          "icon-rotation-alignment": "map",
+          // Never dropped for collision: an arrow that vanishes because a state
+          // pill wanted its pixels is a truck the board did not mention. The
+          // TEXT is what gets decluttered, by the HTML pass below.
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+        paint: {
+          "icon-opacity": truckOpacity(),
+          // See TRUCK_LIFT_PX: a paint translate in screen space, because
+          // `icon-offset` would have been rotated by `icon-rotate`.
+          "icon-translate": [0, -TRUCK_LIFT_PX],
         },
       });
 
@@ -1506,7 +2068,82 @@ export function LoadMap({
         paint: { "icon-color": "#ffffff", "icon-opacity": 0.95 },
       });
 
+      /* ------------------ WHICH MARK IS UNDER THE POINTER -------------------
+       *
+       * The arrow is lifted 14 px off its coordinate by `icon-translate`, which
+       * is a PAINT property: MapLibre's symbol hit-testing does not know about
+       * it, so `map.on("click", "trucks")` answered for a box still sitting on
+       * the coordinate -- which at a place holding both is exactly where the
+       * job's disc is. Clicking Rochester's eleven-job pile opened the job
+       * group AND the truck standing on it in one gesture, and the camera flew
+       * to the truck's lane. (Found by the wave-2 map integration walk, which
+       * is why that script is a permanent ratchet and not a formality.)
+       *
+       * So the truck's hit box is computed HERE, from the same projected centre
+       * and the same lift the mark is drawn with and the declutter pass
+       * reserves as occupied ground. One source of truth for where the arrow
+       * is, and nothing has to agree with MapLibre's idea of it.
+       *
+       * The truck wins a contested pixel, because it is the thing drawn on top.
+       */
+      const truckUnder = (point: { x: number; y: number }): PointGroup | null => {
+        if (cb.current.emphasis === "loads") return null;
+        const half = TRUCK_GLYPH / 2;
+        let best: PointGroup | null = null;
+        let bestDistance = Infinity;
+        for (const group of truckGroups.current) {
+          const at = instance.project([group.lng, group.lat]);
+          const cy = at.y - TRUCK_LIFT_PX;
+          if (Math.abs(point.x - at.x) > half || Math.abs(point.y - cy) > half) continue;
+          const d = Math.hypot(point.x - at.x, point.y - cy);
+          if (d < bestDistance) {
+            bestDistance = d;
+            best = group;
+          }
+        }
+        return best;
+      };
+
+      instance.on("mousemove", (e: MapLayerMouseEvent) => {
+        const hit = truckUnder(e.point);
+        if (!hit) {
+          if (truckHover.current !== null) {
+            truckHover.current = null;
+            // Registered BEFORE the `points` listener, so a pointer moving from
+            // an arrow straight onto a disc has its cursor cleared here and set
+            // again there, in that order.
+            instance.getCanvas().style.cursor = "";
+            setHoverTruckKey(null);
+            cb.current.onHoverTruck(null);
+          }
+          return;
+        }
+        instance.getCanvas().style.cursor = "pointer";
+        if (truckHover.current === hit.key) return;
+        truckHover.current = hit.key;
+        setHoverTruckKey(hit.key);
+        cb.current.onHoverTruck(hit.ids.length === 1 ? hit.ids[0]! : null);
+      });
+      instance.on("mouseout", () => {
+        truckHover.current = null;
+        setHoverTruckKey(null);
+        cb.current.onHoverTruck(null);
+      });
+      instance.on("click", (e: MapLayerMouseEvent) => {
+        const hit = truckUnder(e.point);
+        if (!hit) return;
+        // A marker holding several trucks opens the FIRST of them rather than
+        // looking inside itself. The fan and the outward view answer "what is
+        // at this warehouse and where does it go", which are questions about a
+        // pile of FREIGHT; a pile of trucks at one yard is a list, and the list
+        // is two hundred pixels away with all of them in it.
+        cb.current.onSelectTruck(hit.ids[0]!);
+      });
+
       instance.on("mousemove", "points", (e: MapLayerMouseEvent) => {
+        if (cb.current.emphasis === "trucks") return;
+        // The arrow is drawn over the disc, so it answers first.
+        if (truckUnder(e.point)) return;
         const props = e.features?.[0]?.properties;
         instance.getCanvas().style.cursor = "pointer";
         const key = props?.key as string | undefined;
@@ -1523,6 +2160,8 @@ export function LoadMap({
       });
 
       instance.on("click", "points", (e: MapLayerMouseEvent) => {
+        if (cb.current.emphasis === "trucks") return;
+        if (truckUnder(e.point)) return;
         const feature = e.features?.[0];
         const ids = idsOf(feature?.properties?.ids);
         if (!ids.length) return;
@@ -1567,6 +2206,7 @@ export function LoadMap({
 
       /* ---------------- the fan's leaves, and the far ends ----------------- */
       instance.on("mousemove", "focus-points", (e: MapLayerMouseEvent) => {
+        if (truckUnder(e.point)) return;
         instance.getCanvas().style.cursor = "pointer";
         const props = e.features?.[0]?.properties;
         const key = props?.key as string | undefined;
@@ -1594,6 +2234,7 @@ export function LoadMap({
         cb.current.onHover(null);
       });
       instance.on("click", "focus-points", (e: MapLayerMouseEvent) => {
+        if (truckUnder(e.point)) return;
         const props = e.features?.[0]?.properties;
         const ids = idsOf(props?.ids);
         if (!ids.length) return;
@@ -1652,7 +2293,14 @@ export function LoadMap({
     });
 
     return () => {
-      for (const list of [stateMarkers, placeMarkers, labelMarkers, countMarkers, focusMarkers]) {
+      for (const list of [
+        stateMarkers,
+        placeMarkers,
+        labelMarkers,
+        countMarkers,
+        focusMarkers,
+        truckMarkers,
+      ]) {
         for (const m of list.current) m.remove();
         list.current = [];
       }
@@ -1671,11 +2319,81 @@ export function LoadMap({
     const m = map.current;
     if (!ready || !m) return;
     (m.getSource("points") as GeoJSONSource | undefined)?.setData(built.features);
+    (m.getSource("trucks") as GeoJSONSource | undefined)?.setData(truckBuilt.features);
     // A new result set changes the totals even when the viewport does not --
     // and so does opening a place, which swaps the whole set of marks the
     // panel is counting without the camera moving at all.
     measureInView();
-  }, [built, drawn, ready, measureInView]);
+  }, [built, drawn, truckBuilt, ready, measureInView]);
+
+  /* --------------------------- emphasis ------------------------------------
+   *
+   * Opacity and hit-testing, and nothing else. No request is made, no filter
+   * changes, the URL is untouched, and both counts in the panel stay exactly
+   * where they were: the de-emphasised population is quieter, not gone.
+   * (SPEC 18 MAP5.)
+   *
+   * The preference is read once on mount rather than in `useState`'s
+   * initialiser, so the server render and the first client render agree.
+   */
+  useEffect(() => setEmphasis(readEmphasis()), []);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m || !m.getLayer("points")) return;
+    const jobs = emphasis === "trucks" ? EMPHASIS_DIM : 1;
+    const trucksScale = emphasis === "loads" ? EMPHASIS_DIM : 1;
+    m.setPaintProperty("points", "circle-opacity", pointsOpacity(jobs));
+    m.setPaintProperty("points", "circle-stroke-opacity", presence(1, jobs));
+    m.setPaintProperty("points-lift", "circle-opacity", liftOpacity(jobs));
+    if (m.getLayer("trucks")) {
+      m.setPaintProperty("trucks", "icon-opacity", truckOpacity(trucksScale));
+    }
+    // The HTML labels are markers, not paint, so they fade in CSS. The count
+    // badges and the state pills belong to the jobs; the truck pills to the
+    // trucks.
+    const fade = (kind: LabelKind, scale: number) => {
+      for (const l of labels.current) {
+        if (l.kind === kind) l.el.style.opacity = scale === 1 ? "" : String(scale);
+      }
+    };
+    fade("count", jobs);
+    fade("state", jobs);
+    fade("truck", trucksScale);
+    // A state pill is a JOB aggregate carrying a truck row, so it fades with
+    // the jobs -- except that row, which is the trucks' and goes quiet with
+    // them. Half a label at each strength, because it is two facts.
+    for (const l of labels.current) {
+      if (l.kind !== "state") continue;
+      const row = l.el.querySelector<HTMLElement>(".t");
+      if (row) row.style.opacity = trucksScale === 1 ? "" : String(trucksScale);
+    }
+  }, [emphasis, ready]);
+
+  /**
+   * The same fade, applied to a label the moment it is built.
+   *
+   * The effect above walks the labels that exist; the label effects rebuild
+   * theirs whenever the data or the zoom tier changes, and a marker created
+   * after an emphasis change would otherwise come back at full strength.
+   */
+  const fadeLabel = useCallback((el: HTMLElement, kind: "job" | "truck") => {
+    const e = cb.current.emphasis;
+    const quiet = kind === "job" ? e === "trucks" : e === "loads";
+    el.style.opacity = quiet ? String(EMPHASIS_DIM) : "";
+    // A state pill's truck row belongs to the other population; see above.
+    const row = kind === "job" ? el.querySelector<HTMLElement>(".t") : null;
+    if (row) row.style.opacity = e === "loads" ? String(EMPHASIS_DIM) : "";
+  }, []);
+
+  const chooseEmphasis = useCallback((next: Emphasis) => {
+    setEmphasis(next);
+    try {
+      window.localStorage.setItem(EMPHASIS_KEY, next);
+    } catch {
+      // Private mode: the choice still holds for this page.
+    }
+  }, []);
 
   // Pickups and deliveries are different colours because they are different
   // questions; the layer is built once, so the colour is repainted here.
@@ -1941,6 +2659,44 @@ export function LoadMap({
       return;
     }
 
+    /* THE OPEN TRUCK'S SWING, AS AN ANSWER RATHER THAN A SHAPE.
+     *
+     * The capsule is drawn under the marks; this is what makes it mean
+     * something. A job outside the band goes quiet, so a driver sees which
+     * freight is inside their own stated corridor without reading a number.
+     * Only for a SELECTED truck: a hover is a glance, and dimming ninety-eight
+     * dots because a pointer crossed a card is the failure the arcs had. */
+    if (truckCorridor && selectedTruckId != null) {
+      for (const group of drawn.groups) {
+        const inside = inCapsule(
+          { lat: group.lat, lng: group.lng },
+          truckCorridor.origin,
+          truckCorridor.destination,
+          truckCorridor.miles,
+        );
+        if (inside) continue;
+        m.setFeatureState({ source: drawnSource, id: group.key }, { dim: true, active: false });
+        stated.current.push({ source: drawnSource, key: group.key });
+      }
+    }
+
+    // The truck under the pointer, or the one that is open. Its own key space:
+    // job 12 and truck 12 are two listings, and one lookup holding both would
+    // light the wrong mark.
+    const truckFocusId = hoveredTruckId ?? selectedTruckId;
+    const truckFocusKey =
+      hoverTruckKey ??
+      (truckFocusId != null ? truckBuilt.points.keyById.get(truckFocusId) : undefined);
+    if (truckFocusKey) {
+      for (const group of truckBuilt.points.groups) {
+        m.setFeatureState(
+          { source: "trucks", id: group.key },
+          { dim: group.key !== truckFocusKey, active: group.key === truckFocusKey },
+        );
+        stated.current.push({ source: "trucks", key: group.key });
+      }
+    }
+
     if (!focusKey) return;
     for (const group of drawn.groups) {
       m.setFeatureState(
@@ -1949,7 +2705,21 @@ export function LoadMap({
       );
       stated.current.push({ source: drawnSource, key: group.key });
     }
-  }, [hoveredId, hoverKey, hoverLeaf, selectedId, drawn, drawnSource, focused, ready]);
+  }, [
+    hoveredId,
+    hoverKey,
+    hoverLeaf,
+    selectedId,
+    hoveredTruckId,
+    hoverTruckKey,
+    selectedTruckId,
+    truckBuilt,
+    truckCorridor,
+    drawn,
+    drawnSource,
+    focused,
+    ready,
+  ]);
 
   /* ------------------------------ what is hovered --------------------------
    *
@@ -1983,107 +2753,155 @@ export function LoadMap({
     return { key: group.key, group, single, at: [group.lng, group.lat] as [number, number] };
   }, [hoverKey, hoverLeaf, hoveredId, jobs, drawn]);
 
+  /**
+   * The truck under the pointer -- from the map, or from a card in the list.
+   *
+   * Its own memo over its own `keyById`, because ids are unique only WITHIN a
+   * population: job 12 and truck 12 are two different listings, and one lookup
+   * table holding both would answer the wrong one.
+   */
+  const hoveredTruck = useMemo(() => {
+    const key =
+      hoverTruckKey ??
+      (hoveredTruckId != null ? truckBuilt.points.keyById.get(hoveredTruckId) : undefined);
+    const group = key ? truckBuilt.points.byKey.get(key) : undefined;
+    if (!group) return null;
+    const single =
+      group.ids.length === 1 ? (trucks.find((t) => t.id === group.ids[0]) ?? null) : null;
+    return { key: group.key, group, single, facts: truckBuilt.facts.get(group.key) };
+  }, [hoverTruckKey, hoveredTruckId, trucks, truckBuilt]);
+
   // --- hover card ----------------------------------------------------------
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
     popup.current?.remove();
     popup.current = null;
-    if (!hovered) return;
-    const { group, single } = hovered;
+    if (!hovered && !hoveredTruck) return;
 
-    // Two lines for one job -- the lane on top, the rest of the row beneath --
-    // because a single 90-character sentence is not a card, it is a ticker.
     const box = document.createElement("div");
     box.className = "map-hover";
-    const title = document.createElement("div");
-    title.className = "t";
-    const caption = document.createElement("div");
-    caption.className = "s";
 
-    if (single) {
-      // `jobSummary` leads with "Kearny, NJ → FL 34957" and joins the rest
-      // with the same separator; a place label never contains one, so the
-      // first piece is the lane and everything after it is the detail.
-      const line = jobSummary(single);
-      const cut = line.indexOf(" · ");
-      title.textContent = cut < 0 ? line : line.slice(0, cut);
-      caption.textContent = cut < 0 ? "" : line.slice(cut + 3);
-    } else {
-      // "Rochester, MN · 11 jobs · 6,006 cf" is already the whole answer for a
-      // place, and it is the tally the marker's size is drawn from.
-      title.textContent = groupSummary(group);
-      caption.textContent = "";
+    /* A PLACE HOLDING BOTH GETS TWO LINES AND NEVER ONE.
+     *
+     * The two marks are separate hit targets -- the arrow sits 14 px above the
+     * disc -- but whichever one the pointer is on, the card names both, because
+     * "4 jobs here" and "1 truck here" are the two things a dispatcher standing
+     * on this coordinate wants and there is no number that is both of them.
+     * Nothing on this card is added to anything else on it. (SPEC 18 MAP4.) */
+    const truckAt = hoveredTruck ?? (hovered ? truckSidecar(hovered.key) : null);
+    const jobAt = hovered ?? (hoveredTruck ? jobSidecar(hoveredTruck.key) : null);
+
+    if (!jobAt && !truckAt) return;
+
+    if (jobAt) appendJobLines(box, jobAt);
+    // A card naming one coordinate says its name once. The second line is the
+    // other population standing at the SAME place, so it drops the label and
+    // keeps everything that differs.
+    if (truckAt) {
+      appendTruckLines(box, truckAt, boardDay(new Date()), jobAt != null && !jobAt.single);
     }
 
-    box.append(title);
-    if (caption.textContent) box.append(caption);
-
-    // Why this job is in a corridor search at all, in the two numbers the API
-    // already computed and nothing rendered: how far off the route its pickup
-    // stands, and what taking it adds to the drive. Only for a single job --
-    // a place holding eleven of them has eleven different answers, and one of
-    // them printed as if it were the place's is exactly the kind of tidy
-    // half-truth this map keeps refusing to tell.
-    if (single) {
-      const off = single.off_route_miles;
-      const detour = single.detour_miles;
-      const parts: string[] = [];
-      // Both numbers arrive already rounded, so a zero is "under half a mile"
-      // and not "exactly none" -- said in words, because "0 mi off your route"
-      // reads as a measurement precise to the foot.
-      if (off != null) parts.push(off === 0 ? "on your route" : `${off.toLocaleString("en-US")} mi off your route`);
-      if (detour != null) {
-        parts.push(detour === 0 ? "no extra driving" : `+${detour.toLocaleString("en-US")} mi of driving`);
-      }
-      if (parts.length) {
-        const why = document.createElement("div");
-        why.className = "s";
-        why.textContent = parts.join(" · ");
-        box.append(why);
-      }
-    }
-    // The soft dots do not wear their caveat; this is where it is worn.
-    if (group.approx) {
-      const q = document.createElement("div");
-      q.className = "q";
-      q.textContent =
-        group.ids.length === 1
-          ? "Approximate location — no street address posted"
-          : "Approximate locations — no street address posted";
-      box.append(q);
-    }
+    // Anchored on whichever mark the pointer is actually on: a card pinned to
+    // the disc while the pointer is on the arrow reads as belonging to the disc.
+    const anchorOn = hoveredTruck ?? hovered!;
+    const at: [number, number] =
+      hoveredTruck && !hoverLeaf
+        ? [hoveredTruck.group.lng, hoveredTruck.group.lat]
+        : (hovered?.at ?? [anchorOn.group.lng, anchorOn.group.lat]);
 
     popup.current = new maplibregl.Popup({
       closeButton: false,
       closeOnClick: false,
-      // Clear of the dot rather than 14 px clear of its centre: a 15,500 cf
-      // marker is twenty pixels of radius, and a card pinned inside it covers
-      // the mark the card is about.
-      offset: Math.round(pointRadius(group.cf, m.getZoom())) + 9,
+      // Clear of the mark rather than of its centre. For a truck that is the
+      // arrow's own lift plus half its box; for a job it is the drawn radius,
+      // which at 15,500 cf is twenty pixels.
+      offset: hoveredTruck
+        ? TRUCK_LIFT_PX + TRUCK_GLYPH / 2 + 4
+        : Math.round(pointRadius(hovered!.group.cf, m.getZoom())) + 9,
     })
-      .setLngLat(hovered.at)
+      .setLngLat(at)
       .setDOMContent(box)
       .addTo(m);
-  }, [hovered, ready]);
 
-  // --- the selected job's road --------------------------------------------
-  // One request per job, answered from `loads.road_path` after the first, so
-  // re-opening a job never reaches HERE again.
+    function truckSidecar(key: string) {
+      const group = truckBuilt.points.byKey.get(key);
+      if (!group) return null;
+      const single =
+        group.ids.length === 1 ? (trucks.find((t) => t.id === group.ids[0]) ?? null) : null;
+      return { key, group, single, facts: truckBuilt.facts.get(key) };
+    }
+
+    function jobSidecar(key: string) {
+      const group = drawn.byKey.get(key);
+      if (!group) return null;
+      const single =
+        group.ids.length === 1 ? (jobs.find((j) => j.id === group.ids[0]) ?? null) : null;
+      return { key, group, single, at: [group.lng, group.lat] as [number, number] };
+    }
+  }, [hovered, hoveredTruck, hoverLeaf, drawn, jobs, trucks, truckBuilt, ready]);
+
+  // --- the hovered truck's leg --------------------------------------------
+  /**
+   * Where a hovered truck is going, as a DASHED STRAIGHT LINE.
+   *
+   * Never a routed one, and that is a rule about money as much as about
+   * drawing: a hover fires once per card a pointer crosses, and a hover that
+   * bought a road route would bill the product forty times for a glance down a
+   * list. The real road is drawn for the truck somebody OPENS, once, and it
+   * stays.
+   */
   useEffect(() => {
-    if (selectedId == null) {
+    const m = map.current;
+    const source = m?.getSource("truck-leg") as GeoJSONSource | undefined;
+    if (!ready || !source) return;
+    if (!hoveredTruck) {
+      source.setData(EMPTY);
+      return;
+    }
+    const lines: FeatureCollection["features"] = [];
+    for (const id of hoveredTruck.group.ids) {
+      const mark = truckBuilt.markById.get(id);
+      if (!mark?.other) continue;
+      lines.push({
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [mark.lng, mark.lat],
+            [mark.other.lng, mark.other.lat],
+          ],
+        },
+      });
+    }
+    source.setData({ type: "FeatureCollection", features: lines });
+  }, [hoveredTruck, truckBuilt, ready]);
+
+  useEffect(() => {
+    if (!open || !openKey) {
       setRoute(null);
       return;
     }
-    const cached = roadCache.current.get(selectedId);
+    // A truck that never said where it is going has no lane to route. Asking
+    // for one would be a billable call about a fact nobody stated.
+    if (open.kind === "truck") {
+      const truck = trucks.find((t) => t.id === open.id);
+      if (truck && truck.dest_lat == null) {
+        setRoute(null);
+        return;
+      }
+    }
+    const cached = roadCache.current.get(openKey);
     if (cached) {
-      setRoute({ id: selectedId, road: cached });
+      setRoute({ key: openKey, road: cached });
       return;
     }
 
     let live = true;
     setRoute(null);
-    void fetch(api(`/api/loads/${selectedId}/route`))
+    const path = open.kind === "truck" ? `/api/trucks/${open.id}/route` : `/api/loads/${open.id}/route`;
+    void fetch(api(path))
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((body: RoadRouteResponse) => {
         const road: RoadRouteResponse = {
@@ -2093,13 +2911,13 @@ export function LoadMap({
           unavailable: Boolean(body?.unavailable),
         };
         // Only a real answer is remembered; a network blip should be retryable.
-        roadCache.current.set(selectedId, road);
-        if (live) setRoute({ id: selectedId, road });
+        roadCache.current.set(openKey, road);
+        if (live) setRoute({ key: openKey, road });
       })
       .catch(() => {
         if (live) {
           setRoute({
-            id: selectedId,
+            key: openKey,
             road: { path: null, miles: null, minutes: null, unavailable: true },
           });
         }
@@ -2107,7 +2925,10 @@ export function LoadMap({
     return () => {
       live = false;
     };
-  }, [selectedId]);
+    // `trucks` is read only to spot a destination-less truck; a new result set
+    // that leaves the open truck unchanged must not re-ask for its road.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, openKey]);
 
   // --- draw it, and ease back when the selection closes --------------------
   useEffect(() => {
@@ -2119,7 +2940,7 @@ export function LoadMap({
     labelMarkers.current = [];
     setLabels("route", []);
 
-    if (selectedId == null) {
+    if (open == null) {
       source.setData(EMPTY);
       if (priorBounds.current) {
         m.fitBounds(priorBounds.current, { duration: 600 });
@@ -2128,11 +2949,42 @@ export function LoadMap({
       return;
     }
 
-    const job = jobs.find((j) => j.id === selectedId);
-    const from = job ? endPoint(job, "pickup") : null;
-    const to = job ? endPoint(job, "delivery") : null;
+    /* The lane's two ends and the two words that go on them, for whichever kind
+     * is open. A truck's delivery label carries its FREE SPACE where a job's
+     * carries its freight -- the same slot on the map, deliberately different
+     * words, because "800 cf free" and "800 cf" are not the same fact. */
+    const job = open.kind === "job" ? (jobs.find((j) => j.id === open.id) ?? null) : null;
+    const truck = open.kind === "truck" ? (trucks.find((t) => t.id === open.id) ?? null) : null;
 
-    const road = route?.id === selectedId ? route.road.path : null;
+    let from: { lng: number; lat: number; precision: string | null } | null = null;
+    let to: { lng: number; lat: number; precision: string | null } | null = null;
+    let fromText = "";
+    let toText = "";
+
+    if (job) {
+      from = endPoint(job, "pickup");
+      to = endPoint(job, "delivery");
+      fromText = endLabelText(job, "pickup");
+      toText =
+        job.cubic_feet != null
+          ? `${endLabelText(job, "delivery")} · ${formatCf(job.cubic_feet)}`
+          : endLabelText(job, "delivery");
+    } else if (truck) {
+      from = {
+        lng: truck.origin_lng,
+        lat: truck.origin_lat,
+        precision: truck.origin_precision,
+      };
+      to =
+        truck.dest_lat != null && truck.dest_lng != null
+          ? { lng: truck.dest_lng, lat: truck.dest_lat, precision: truck.dest_precision }
+          : null;
+      fromText = truckPlaceLabel(truck, "origin").text;
+      const free = freeSpaceLabel(truck);
+      toText = to ? `${truckPlaceLabel(truck, "dest").text} · ${free.text}` : "";
+    }
+
+    const road = route?.key === openKey ? route.road.path : null;
     const coords: [number, number][] | null = road
       ? road
       : from && to
@@ -2142,7 +2994,7 @@ export function LoadMap({
           ]
         : null;
 
-    if (!job || !coords) {
+    if ((!job && !truck) || !coords) {
       source.setData(EMPTY);
       return;
     }
@@ -2173,14 +3025,8 @@ export function LoadMap({
 
     if (from && to) {
       const ends: Array<{ at: [number, number]; text: string }> = [
-        { at: [from.lng, from.lat], text: endLabelText(job, "pickup") },
-        {
-          at: [to.lng, to.lat],
-          text:
-            job.cubic_feet != null
-              ? `${endLabelText(job, "delivery")} · ${formatCf(job.cubic_feet)}`
-              : endLabelText(job, "delivery"),
-        },
+        { at: [from.lng, from.lat], text: fromText },
+        { at: [to.lng, to.lat], text: toText },
       ];
       const next: MapLabel[] = [];
       for (const e of ends) {
@@ -2203,7 +3049,32 @@ export function LoadMap({
       setLabels("route", next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, selectedId, jobs, ready]);
+  }, [route, open, openKey, jobs, trucks, ready]);
+
+  useEffect(() => {
+    const m = map.current;
+    const source = m?.getSource("truck-corridor") as GeoJSONSource | undefined;
+    if (!ready || !source) return;
+    if (!truckCorridor) {
+      source.setData(EMPTY);
+      return;
+    }
+    source.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Polygon",
+            coordinates: [
+              corridorRing(truckCorridor.origin, truckCorridor.destination, truckCorridor.miles),
+            ],
+          },
+        },
+      ],
+    });
+  }, [truckCorridor, ready]);
 
   // --- you-are-here and home ----------------------------------------------
   useEffect(() => {
@@ -2291,6 +3162,7 @@ export function LoadMap({
       el.dataset.end = drawnEnd;
       if (group.approx) el.dataset.approx = "";
       el.title = groupSummary(group);
+      fadeLabel(el, "job");
       const marker = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -12] })
         .setLngLat([group.lng, group.lat])
         .addTo(m);
@@ -2318,7 +3190,99 @@ export function LoadMap({
       });
     }
     setLabels("count", next);
-  }, [drawn, detailed, drawnEnd, focused, ready, setLabels]);
+  }, [drawn, detailed, drawnEnd, focused, ready, setLabels, fadeLabel]);
+
+  /* ------------------------- the truck labels ------------------------------
+   *
+   * Through the SAME HTML-marker declutter pass the state totals and the count
+   * badges go through, and deliberately not through a symbol layer's
+   * `text-field`. MapLibre's collision boxes cannot see an HTML marker, so a
+   * truck label placed by MapLibre would be placed against a map it can only
+   * see half of -- and every other label on this map is HTML. The arrow ICON is
+   * a symbol layer; only the text is not. (There is also no glyph source in
+   * this style, and adding one is a runtime dependency on a font server.)
+   *
+   * FREE SPACE IS ON THE LABEL, IN WORDS, because it is not on the mark: the
+   * arrow is one fixed size and always will be. The unit phrase is "cf free",
+   * never a bare "cf".
+   */
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+    for (const marker of truckMarkers.current) marker.remove();
+    truckMarkers.current = [];
+
+    // Not while a place is open outward: the map is then answering "where do
+    // this warehouse's jobs go", and a truck standing somewhere else is not
+    // part of that answer.
+    // And not above the collapse threshold: the arrows stay, the words go.
+    if (focused?.mode === "outward" || truckLabelsHidden) {
+      setLabels("truck", []);
+      return;
+    }
+
+    const next: MapLabel[] = [];
+    for (const group of truckBuilt.points.groups) {
+      const facts = truckBuilt.facts.get(group.key);
+      const n = group.ids.length;
+      const free = group.cf > 0 ? `${formatCf(group.cf)} free` : SPACE_NOT_STATED;
+
+      const el = document.createElement("div");
+      el.className = "map-pill map-truck nums";
+      if (group.cf === 0) el.dataset.unstated = "";
+      const k = document.createElement("span");
+      k.className = "k";
+      const v = document.createElement("span");
+      v.className = "v";
+      if (detailed) {
+        // Room for the place as well: at this zoom the state totals are gone
+        // and a label can afford to say which yard it is standing in.
+        k.textContent = n > 1 ? `${group.label} · ${n} trucks` : group.label;
+        v.textContent = free;
+      } else {
+        // Zoomed out the label is pinned to an arrow a driver can see, so the
+        // place is the one thing it can spend nothing on. What cannot go is the
+        // number and its unit: without them the arrow says a truck is here and
+        // nothing at all about whether it is any use.
+        k.textContent = n > 1 ? `${n} trucks` : "";
+        v.textContent = free;
+      }
+      if (k.textContent) el.append(k);
+      el.append(v);
+      el.title = truckGroupSummary(group, facts);
+      fadeLabel(el, "truck");
+
+      const marker = new maplibregl.Marker({ element: el, anchor: "top", offset: [0, 6] })
+        .setLngLat([group.lng, group.lat])
+        .addTo(m);
+      truckMarkers.current.push(marker);
+      next.push({
+        kind: "truck",
+        marker,
+        el,
+        lng: group.lng,
+        lat: group.lat,
+        anchor: "top",
+        // Under the arrow, not over it: the arrow already sits 14 px ABOVE the
+        // coordinate to clear a job's dot, so the space under the coordinate is
+        // the one place on this marker nothing else is using.
+        base: [0, 6],
+        // And under the DISC, when a job is standing on the same coordinate.
+        // At Kearny that disc holds eight jobs and is 29 px across at z9; a
+        // flat six-pixel drop put the truck's free space inside it, the placer
+        // bumped the label, and the biggest offer on the map lost its words.
+        clearOf: byKey.current.get(group.key)?.cf ?? 0,
+        below: true,
+        // Below a job's count badge, which orphans a mark when it is hidden,
+        // and above a state total, which is an aggregate the list also prints.
+        // The bigger offer keeps its words when two trucks collide.
+        weight: 400_000 + group.cf,
+      });
+    }
+    setLabels("truck", next);
+    // `built` is a dependency because `clearOf` above reads the job disc this
+    // label has to sit under, and that disc changes size with the result set.
+  }, [truckBuilt, built, detailed, focused, ready, setLabels, fadeLabel, truckLabelsHidden]);
 
   // --- state-total pills ---------------------------------------------------
   useEffect(() => {
@@ -2348,14 +3312,28 @@ export function LoadMap({
       totals.set(st, t);
     }
 
+    /* The state's TRUCKS, counted separately and printed on a row of their own.
+     *
+     * NEVER A MERGED COUNT. "FL · 14 jobs" and "2 trucks" are answers to two
+     * different questions and there is no number that is both -- and counted on
+     * the same end the pill's jobs are, from the marks that were actually
+     * plotted, so a truck with no stated destination is absent from the
+     * Deliveries pills exactly as it is absent from the map. */
+    const truckTotals = new Map<string, number>();
+    for (const group of truckBuilt.points.groups) {
+      if (!group.state) continue;
+      truckTotals.set(group.state, (truckTotals.get(group.state) ?? 0) + group.ids.length);
+    }
+
     const noun = end === "pickup" ? "pickups" : "deliveries";
     const next: MapLabel[] = [];
     for (const [st, t] of totals) {
       const info = STATE_BY_ABBR.get(st);
       if (!info) continue;
+      const trucksHere = truckTotals.get(st) ?? 0;
       const el = document.createElement("button");
       el.type = "button";
-      el.className = "map-pill nums";
+      el.className = trucksHere > 0 ? "map-pill map-state-2 nums" : "map-pill nums";
       const full = `${st} · ${t.jobs} job${t.jobs === 1 ? "" : "s"} · ${t.cf.toLocaleString("en-US")} cf`;
       // Two spans, not one string: the state is the thing and the totals are
       // its measurement, and setting them in one weight made every pill a wall
@@ -2371,8 +3349,24 @@ export function LoadMap({
       v.textContent = shortPills
         ? `${t.cf.toLocaleString("en-US")} cf`
         : `${t.jobs} job${t.jobs === 1 ? "" : "s"} · ${t.cf.toLocaleString("en-US")} cf`;
-      el.append(k, v);
-      el.title = `${full} — click to filter ${noun} to ${st}`;
+      if (trucksHere > 0) {
+        // Two rows in one pill, not two facts in one sentence.
+        const row = document.createElement("span");
+        row.className = "r";
+        row.append(k, v);
+        const trucksRow = document.createElement("span");
+        trucksRow.className = "t";
+        trucksRow.textContent = `${trucksHere} truck${trucksHere === 1 ? "" : "s"}`;
+        el.append(row, trucksRow);
+      } else {
+        el.append(k, v);
+      }
+      fadeLabel(el, "job");
+      el.title =
+        `${full} — click to filter ${noun} to ${st}` +
+        (trucksHere > 0
+          ? `. ${trucksHere} truck${trucksHere === 1 ? " is" : "s are"} standing here as well; that is a separate count and the two are never added.`
+          : "");
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         cb.current.onStateClick(st);
@@ -2392,7 +3386,7 @@ export function LoadMap({
       });
     }
     setLabels("state", next);
-  }, [jobs, end, detailed, focused, ready, shortPills, setLabels]);
+  }, [jobs, end, detailed, focused, ready, shortPills, setLabels, truckBuilt, fadeLabel]);
 
   // --- re-place the labels whenever the viewport moves ---------------------
   // On `move`, not `moveend`: markers follow the camera every frame, so waiting
@@ -2439,14 +3433,27 @@ export function LoadMap({
     if (source instanceof maplibregl.RasterTileSource) source.setTiles([BASEMAP_TILES]);
   }, []);
 
-  const totalCf = inView?.cf ?? 0;
+  /* TWO TOTALS, TWO NOUNS, TWO BLOCKS, AND NOTHING SUMS ACROSS (SPEC 14.5).
+   *
+   * `totalCf` is FREIGHT and feeds `truckLine()` -- the "= 28.3 truckloads"
+   * figure, which divides a volume of freight by the size of a truck.
+   * `totalFreeCf` is FREE SPACE and feeds nothing but its own sentence: divided
+   * by a truck size it would print how many trucks fit in your trucks. */
+  const totalCf = inViewJobs?.cf ?? 0;
+  const totalFreeCf = inViewTrucks?.freeCf ?? 0;
   // While a place is open outward the panel is counting ITS jobs, not the
-  // board's -- `inView` is measured over whatever `drawn` holds, so the
+  // board's -- `inViewJobs` is measured over whatever `drawn` holds, so the
   // denominators here have to move with it or the panel would report a
   // fraction of one set as a fraction of another.
   const plottable = focused?.mode === "outward" ? focused.ids.length : jobs.length;
-  const allShown = inView != null && inView.count >= plottable;
+  const allShown = inViewJobs != null && inViewJobs.count >= plottable;
   const notPlotted = plottable - drawn.plotted;
+  /** The map is showing trucks at all: day one has none, and says nothing. */
+  const anyTrucks = truckBuilt.points.groups.length > 0 || truckNoDest > 0;
+  /** At least one mark on screen is a ring rather than an arrow. */
+  const hasUndirectedTruck = truckBuilt.points.groups.some(
+    (g) => truckBuilt.facts.get(g.key)?.bearing == null,
+  );
 
   // Re-read on every write to the location record, which is what `setAt`
   // stamps -- and not on every render, which on this component means once per
@@ -2462,7 +3469,10 @@ export function LoadMap({
     const id = selectedId ?? hoveredId;
     return id == null ? null : (jobs.find((j) => j.id === id) ?? null);
   }, [selectedId, hoveredId, jobs]);
-  const noRoad = selectedId != null && route?.id === selectedId && route.road.path == null;
+  // A truck with no stated destination has no lane, so nothing was asked for
+  // and nothing is missing: `route` stays null and this notice must not fire.
+  const noRoad =
+    openKey != null && route?.key === openKey && route.road.path == null;
 
   // The map is not going to draw. Re-throwing here, rather than rendering a
   // message in place, hands the whole map subtree to `MapBoundary` in `Board`
@@ -2537,7 +3547,7 @@ export function LoadMap({
           <div className="text-(length:--fs-sm)" style={{ color: "var(--approx)" }}>
             {compact ? "No count" : "No count — the board did not load."}
           </div>
-        ) : inView == null || loading ? (
+        ) : inViewJobs == null || loading ? (
           <>
             <span className="skeleton h-[16px] w-[150px]" />
             {compact ? null : <span className="skeleton mt-[4px] h-[12px] w-[110px]" />}
@@ -2545,7 +3555,7 @@ export function LoadMap({
         ) : (
           <>
             <div className={compact ? "big nums text-(length:--fs-md)" : "big nums text-(length:--fs-lg)"}>
-              {`${allShown ? "All " : ""}${inView.count} job${inView.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
+              {`${allShown ? "All " : ""}${inViewJobs.count} job${inViewJobs.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
               {compact && (
                 <span className="font-normal" style={{ color: "var(--muted)" }}>
                   {" on screen"}
@@ -2554,6 +3564,11 @@ export function LoadMap({
             </div>
             {compact ? null : (
               <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                {/* `truckLine` is fed from the JOB total and from nothing else,
+                    for ever. It says "= 28.3 truckloads", which is a statement
+                    about how much freight is on screen; handed a count of free
+                    space it would divide free space by a truck size and print
+                    how many trucks fit in your trucks. */}
                 {totalCf > 0
                   ? truckLine(totalCf, viewer?.truckCf ?? null)
                   : "No stated sizes on screen"}
@@ -2563,10 +3578,60 @@ export function LoadMap({
                     how much you could ever carry, free space is how much of
                     this screenful you could actually take. */}
                 {freeCf != null && ` · ${freeCf.toLocaleString("en-US")} cf free`}
-                {inView.unsized > 0 && ` · ${inView.unsized} without size`}
+                {inViewJobs.unsized > 0 && ` · ${inViewJobs.unsized} without size`}
+              </div>
+            )}
+
+            {/* THE SECOND BLOCK. A blank line, a second noun, a second total,
+                and no arithmetic between them: "61 jobs · 24,110 cf" and
+                "4 trucks · 3,100 cf free" are two answers and there is no
+                number that is both. It renders only when there is a truck on
+                screen -- on day one this whole block is absent rather than
+                printing a nought (SPEC 2, 15.3). */}
+            {inViewTrucks != null && inViewTrucks.count > 0 && (
+              <div
+                className="mt-[var(--sp-1)]"
+                title="Free space on trucks standing on this view. A separate quantity from the freight above it; the two are never added."
+              >
+                <div
+                  className={compact ? "big nums text-(length:--fs-sm)" : "big nums text-(length:--fs-md)"}
+                  style={{ color: "var(--truck)" }}
+                >
+                  {`${inViewTrucks.count} truck${inViewTrucks.count === 1 ? "" : "s"}`}
+                  {totalFreeCf > 0 ? ` · ${totalFreeCf.toLocaleString("en-US")} cf free` : ""}
+                  {/* The same words the job list uses when its own search hits
+                      the page limit. A map drawing a prefix of the answer has
+                      to say which part it is drawing. */}
+                  {truckTruncated && (
+                    <span className="font-normal" style={{ color: "var(--muted)" }}>
+                      {" · showing first 500"}
+                    </span>
+                  )}
+                </div>
+                {!compact && inViewTrucks.unstated > 0 && (
+                  <div className="text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
+                    {inViewTrucks.unstated} space{inViewTrucks.unstated === 1 ? "" : "s"} not stated
+                  </div>
+                )}
               </div>
             )}
           </>
+        )}
+
+        {/* Trucks that are IN the result and not on this view, because they
+            never said where they are going and this is the map of arrivals.
+            Printed rather than swallowed: the alternative is a driver reading
+            a truck count that quietly excludes some of them. */}
+        {truckNoDest > 0 && (
+          <div className="mt-[2px] text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
+            {truckNoDest} truck{truckNoDest === 1 ? "" : "s"} with no stated destination{" "}
+            {truckNoDest === 1 ? "isn't" : "aren't"} on this view.
+          </div>
+        )}
+        {truckLabelsHidden && (
+          <div className="mt-[2px] text-(length:--fs-xs)" style={{ color: "var(--muted-2)" }}>
+            Truck labels hidden — zoom in.
+          </div>
         )}
 
         {/* What one job does to the space that is actually left -- the
@@ -2595,9 +3660,60 @@ export function LoadMap({
             then a count of that place's destinations, and "of 98 filtered"
             beneath it invites reading one set as a fraction of the other. The
             bar at the top of the map already says which set is on screen. */}
-        {focused?.mode !== "outward" && filteredSummary && inView && filteredSummary.count !== inView.count && (
-          <div className="text-(length:--fs-xs)" style={{ color: "var(--muted-2)" }}>
-            of {filteredSummary.count} filtered
+        {/* Job counts only, on both sides. `filteredSummary` is a LoadSummary
+            and `inViewJobs` counts job marks; a truck has never been in either
+            number and this comparison is not the place to start. */}
+        {focused?.mode !== "outward" &&
+          filteredSummary &&
+          inViewJobs &&
+          filteredSummary.count !== inViewJobs.count && (
+            <div className="text-(length:--fs-xs)" style={{ color: "var(--muted-2)" }}>
+              of {filteredSummary.count} filtered
+            </div>
+          )}
+
+        {/* BOTH · LOADS · TRUCKS.
+            Emphasis, not filtering: the quiet population stays drawn at a
+            quarter opacity, stays counted on the lines above, and only stops
+            taking the pointer. A dispatcher still sees a truck heading their
+            way NEXT TO the job that needs it, which is the whole reason both
+            are on one map. Nothing here is a search: no request is made and
+            the URL does not change. */}
+        {anyTrucks && (
+          <div
+            /* On a phone this control is 26 px inside a panel that is already
+               taking more than half a 267 px map band, so it takes the tighter
+               row and the smaller gap above it. */
+            className={`seg map-emphasis ${compact ? "map-emphasis-sm mt-[var(--sp-1)]" : "mt-[var(--sp-2)]"}`}
+            role="group"
+            aria-label="Which marks to emphasise"
+          >
+            {(
+              [
+                ["both", "Both"],
+                ["loads", "Loads"],
+                ["trucks", "Trucks"],
+              ] as Array<[Emphasis, string]>
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className="seg-option"
+                data-kind={value}
+                data-on={emphasis === value ? "" : undefined}
+                aria-pressed={emphasis === value}
+                onClick={() => chooseEmphasis(value)}
+                title={
+                  value === "both"
+                    ? "Draw both populations at full strength"
+                    : value === "loads"
+                      ? "Keep the trucks on the map, quiet and out of the way"
+                      : "Keep the jobs on the map, quiet and out of the way"
+                }
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
 
@@ -2711,7 +3827,7 @@ export function LoadMap({
           current sentence: the route's two end labels, or a fan of discs on
           leader lines. This is reference material, and reference material
           loses. */}
-      {compact && (selectedId != null || focused) ? null : (
+      {compact && (open != null || focused) ? null : (
       <div
         data-map-chrome
         className="glass point-legend px-[var(--sp-3)] py-[var(--sp-2)]"
@@ -2728,14 +3844,64 @@ export function LoadMap({
         <b>
           <i className="approx" /> approximate
         </b>
-        {/* The road route earns a row only while a job is open: a legend line
-            that appeared and vanished with the selection would resize this
+        {/* Only once there is a truck in the source. On day one the map is
+            unchanged and says nothing about a population that is not there --
+            a legend key for an empty set is a promise the board cannot keep
+            (SPEC 2). The arrow is NOT on the size scale beside it, which is
+            the one thing these rows have to make obvious.
+
+            ON A PHONE THE TWO TRUCK KEYS ARE ONE KEY. Four keys wrapped this
+            panel onto three lines and 51 px of a 267 px map band, and its
+            bottom edge landed 10 px inside the "on screen" panel above it
+            (measured, `truck-stage3-390.mjs`). Both swatches, one noun: the
+            ring's own sentence is on the hover card, where somebody asking
+            about that particular mark will read it. */}
+        {anyTrucks && (
+          <b title="Available truck space. Always this size — area on this map means freight, and a truck's free space is in words on its label, never in its area. A ring is a truck whose post never said where it is headed: nothing to point at.">
+            <i className="truck" />
+            {compact && hasUndirectedTruck ? <i className="truck-ring" /> : null}
+            {compact ? " trucks" : " truck space"}
+          </b>
+        )}
+        {/* Earned separately, and only when one is on screen: a truck that
+            never said where it is going has nothing to point at. */}
+        {!compact && anyTrucks && hasUndirectedTruck && (
+          <b title="A truck whose post never said where it is headed. Drawn as a ring because there is nothing to point at — not aimed at a guess.">
+            <i className="truck-ring" /> no destination
+          </b>
+        )}
+        {/* The road route earns a row only while a listing is open: a legend
+            line that appeared and vanished with the selection would resize this
             panel -- which the label placer treats as occupied ground -- and
             set every pill on the map jumping. It is stable because opening a
-            job is deliberate, unlike a hover. */}
-        {selectedId != null && (
+            job or a truck is deliberate, unlike a hover. */}
+        {open != null && (
           <b>
             <i className="road" /> road route
+          </b>
+        )}
+        {/* The open truck's own swing, in the number the driver set. Same
+            reason the viewer's corridor earns a row: a band with no width on it
+            is a shape rather than a claim. */}
+        {truckCorridor && (
+          <b
+            title={
+              `Jobs whose pickup stands within ${truckCorridor.miles} miles of this truck's line.` +
+              " The driver set that width themselves; jobs outside it are dimmed."
+            }
+          >
+            <i
+              style={{
+                width: 18,
+                height: 9,
+                borderRadius: 2,
+                border: "1px solid var(--truck)",
+                background: "var(--truck)",
+                opacity: 0.32,
+                boxShadow: "none",
+              }}
+            />{" "}
+            {compact ? `±${truckCorridor.miles} mi` : `±${truckCorridor.miles} mi swing`}
           </b>
         )}
         {/* The band has to say how wide it is, or it is a shape rather than a
@@ -2778,6 +3944,145 @@ export function LoadMap({
       )}
     </div>
   );
+}
+
+/* ------------------------------ the hover card ----------------------------
+ *
+ * Two builders, one card, and they never speak to each other. A place holding
+ * both populations gets the job's lines and then the truck's lines, in that
+ * order, with no arithmetic between them: a hover card is exactly where
+ * "4 jobs · 2,550 cf" and "1 truck · 800 cf free" would be tempting to merge
+ * into a single reassuring number, and there is no number that is both.
+ */
+
+/**
+ * The shape rather than the type, so a MARKER and one real position inside a
+ * fanned-out marker are described by the same sentence -- which is the same
+ * reason `groupSummary` takes a shape.
+ */
+interface MarkerTally {
+  label: string;
+  ids: number[];
+  cf: number;
+  unsized: number;
+  approx: boolean;
+}
+
+interface HoveredJob {
+  group: MarkerTally;
+  single: PublicLoadRow | null;
+}
+
+interface HoveredTruck {
+  group: MarkerTally;
+  single: PublicTruckRow | null;
+  facts: TruckGroupFacts | undefined;
+}
+
+function line(box: HTMLElement, className: string, text: string): void {
+  if (!text) return;
+  const el = document.createElement("div");
+  el.className = className;
+  el.textContent = text;
+  box.append(el);
+}
+
+function appendJobLines(box: HTMLElement, hit: HoveredJob): void {
+  const { group, single } = hit;
+  if (single) {
+    // `jobSummary` leads with "Kearny, NJ → FL 34957" and joins the rest with
+    // the same separator; a place label never contains one, so the first piece
+    // is the lane and everything after it is the detail. Two lines for one job,
+    // because a single 90-character sentence is not a card, it is a ticker.
+    const text = jobSummary(single);
+    const cut = text.indexOf(" · ");
+    line(box, "t", cut < 0 ? text : text.slice(0, cut));
+    if (cut >= 0) line(box, "s", text.slice(cut + 3));
+  } else {
+    // "Rochester, MN · 11 jobs · 6,006 cf" is already the whole answer for a
+    // place, and it is the tally the marker's size is drawn from.
+    line(box, "t", groupSummary(group));
+  }
+
+  // Why this job is in a corridor search at all, in the two numbers the API
+  // already computed and nothing rendered: how far off the route its pickup
+  // stands, and what taking it adds to the drive. Only for a single job -- a
+  // place holding eleven of them has eleven different answers, and one of them
+  // printed as if it were the place's is exactly the kind of tidy half-truth
+  // this map keeps refusing to tell.
+  if (single) {
+    const parts: string[] = [];
+    const off = single.off_route_miles;
+    const detour = single.detour_miles;
+    // Both numbers arrive already rounded, so a zero is "under half a mile" and
+    // not "exactly none" -- said in words, because "0 mi off your route" reads
+    // as a measurement precise to the foot.
+    if (off != null) {
+      parts.push(off === 0 ? "on your route" : `${off.toLocaleString("en-US")} mi off your route`);
+    }
+    if (detour != null) {
+      parts.push(detour === 0 ? "no extra driving" : `+${detour.toLocaleString("en-US")} mi of driving`);
+    }
+    if (parts.length) line(box, "s", parts.join(" · "));
+  }
+
+  // The soft dots do not wear their caveat; this is where it is worn.
+  if (group.approx) {
+    line(
+      box,
+      "q",
+      group.ids.length === 1
+        ? "Approximate location — no street address posted"
+        : "Approximate locations — no street address posted",
+    );
+  }
+}
+
+function appendTruckLines(
+  box: HTMLElement,
+  hit: HoveredTruck,
+  todayIso: string,
+  placeAlreadyNamed = false,
+): void {
+  const { group, single, facts } = hit;
+  const summary = truckGroupSummary(group, facts);
+  line(
+    box,
+    "tk",
+    placeAlreadyNamed && summary.startsWith(`${group.label} · `)
+      ? summary.slice(group.label.length + 3)
+      : summary,
+  );
+
+  if (single) {
+    const dest = truckPlaceLabel(single, "dest");
+    const depart = departureLabel(single, todayIso);
+    // Every unknown printed as the unknown it is. NOT "0 cf", not today, not a
+    // compass direction: a driver reading this line is reading a promise, and a
+    // post that did not make one has not made one.
+    line(
+      box,
+      "s",
+      [dest.stated ? `→ ${dest.text}` : NO_DESTINATION_STATED, depart.text].join(" · "),
+    );
+  } else if (facts) {
+    const parts: string[] = [];
+    if (facts.destinations > 0) {
+      parts.push(`${facts.destinations} destination${facts.destinations === 1 ? "" : "s"}`);
+    }
+    if (facts.noDestination > 0) {
+      parts.push(
+        facts.noDestination === 1
+          ? `1 with ${NO_DESTINATION_STATED.toLowerCase()}`
+          : `${facts.noDestination} with no stated destination`,
+      );
+    }
+    if (parts.length) line(box, "s", parts.join(" · "));
+  }
+
+  if (group.approx) {
+    line(box, "q", "Approximate location — the post named no more than a state");
+  }
 }
 
 /** A small white label pinned to one end of the selected route. */

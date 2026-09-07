@@ -85,6 +85,29 @@
      approximate cloud on the map for no visible gain, and map-colour.md's
      contrast numbers were measured against this value. */
   --pickup: var(--brand-blue); --delivery: #1e3a8a;
+  /* AVAILABLE TRUCK SPACE. The map's second population, and the one colour on
+     it that is not a step of the accent -- deliberately, because a truck is not
+     a smaller job.
+   *
+   * Chosen on two measurements, not on taste, and the first one is not the one
+   * SPEC 14.2 asks for. It asks for ">= 3:1 contrast against the job hue", and
+   * WCAG contrast is a ratio of LUMINANCES: at --pickup's luminance of 0.171 it
+   * is arithmetically satisfiable only by something at or below 0.024 (near
+   * black) or at or above 0.613 (near white), and both of those then fail the
+   * same test against the BASEMAP, which is a pale ground. Two saturated mid
+   * hues cannot be 3:1 apart in luminance, so read literally the requirement
+   * has no solution. What actually separates two marks at 14 px is hue and
+   * shape, and this map already leans on shape: a job is a disc, a truck is an
+   * arrow.
+   *
+   * So: 3:1 is held against the GROUND, which is what legibility means, and the
+   * separation from the job hue is stated as the angle it actually is.
+   * Measured on the painted canvas (.design/impl/truck-stage3.md):
+   *   over farmland  4.68:1   over woodland  3.60:1   over water  3.68:1
+   * and 113 degrees of hue from --pickup, 106 from --delivery, 180 from --you.
+   * It is kept off --danger's red (330 vs 0) so a truck never reads as an
+   * error, and off --approx's amber, which is this map's word for "guessed". */
+  --truck: #be2d74;
   --you: var(--brand-green); --home: var(--brand-navy); --approx: #b45309;
   /* The ground the basemap sits on, and what you see for the moment before a
      tile arrives. It used to be a cool #e6ebf2 that the tiles were washed into
@@ -160,6 +183,7 @@
   --color-brand-navy: var(--brand-navy); --color-brand-blue: var(--brand-blue); --color-brand-green: var(--brand-green);
   --color-route: var(--route); --color-pickup: var(--pickup); --color-delivery: var(--delivery);
   --color-you: var(--you); --color-home: var(--home); --color-approx: var(--approx);
+  --color-truck: var(--truck);
   --color-ok: var(--ok); --color-ok-soft: var(--ok-soft); --color-ready: var(--ready); --color-ready-soft: var(--ready-soft);
   --color-fresh: var(--fresh); --color-fresh-soft: var(--fresh-soft);
   --color-warn: var(--warn); --color-warn-soft: var(--warn-soft); --color-danger: var(--danger); --color-danger-soft: var(--danger-soft);
@@ -385,6 +409,20 @@ input[type="checkbox"], input[type="radio"] {
   filter: blur(1.6px); box-shadow: none;
 }
 .point-legend i.road { width: 18px; height: 0; border: 0; border-top: 3px solid var(--accent); border-radius: 0; box-shadow: none; }
+/* Available truck space: the mark the map draws for it, at the size the legend
+   can afford. A triangle rather than a disc because that is the whole point --
+   on this map area means freight, and a truck is never on that scale. */
+.point-legend i.truck {
+  width: 0; height: 0; border-radius: 0; background: none; box-shadow: none;
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-bottom: 11px solid var(--truck); border-top: 0;
+}
+/* And the one with nowhere to point. Hollow, because there is nothing in it to
+   state: the post never said where the truck is headed. */
+.point-legend i.truck-ring {
+  width: 11px; height: 11px; background: none; box-shadow: none;
+  border: 2px solid var(--truck); opacity: .85;
+}
 .line-gutter { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-sm); }
 .line-gutter > div { border-left: 3px solid var(--border-strong); padding-left: 8px; }
 .line-gutter > .l-header { border-color: var(--accent); } .line-gutter > .l-dest { border-color: var(--ok); }
@@ -447,6 +485,37 @@ input[type="checkbox"], input[type="radio"] {
    a badge and joins the pill family -- with the count in the dot's colour. */
 .map-place .n { color: var(--pickup); font-variant-numeric: tabular-nums; }
 .map-place[data-end="delivery"] .n { color: var(--delivery); }
+/* A truck marker's label. Same family, same collision pass, different colour
+   and a different noun -- and the unit phrase is "cf free", never a bare "cf",
+   because the job label two hundred pixels away says "6,006 cf" about freight
+   on a floor and the only thing keeping the two apart is the word. */
+.map-pill.map-truck .k { color: var(--truck); }
+.map-pill.map-truck .v { color: var(--text-2); }
+/* Nobody here said how much room they have. The label says so rather than
+   printing a zero, and it says it in the same amber the hover card uses for
+   everything this board does not know. */
+.map-pill.map-truck[data-unstated] .v { color: var(--approx); }
+
+/* A state total with a truck row under it.
+ *
+ * TWO ROWS, NEVER A MERGED COUNT: "FL · 14 jobs" and "2 trucks" are answers to
+ * two different questions and there is no number that is both. The row is
+ * omitted entirely when the state holds no trucks -- a permanent "0 trucks"
+ * under every pill is noise, and the map already draws no arrow there. */
+.map-pill.map-state-2 { flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 9px 4px; }
+.map-pill.map-state-2 .r { display: inline-flex; align-items: center; gap: 4px; }
+.map-pill .t { color: var(--truck); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Both · Loads · Trucks. Emphasis, not filtering: see LoadMap. */
+.map-emphasis { height: 26px; padding: 2px; gap: 1px; }
+.map-emphasis .seg-option { height: 20px; padding: 0 8px; font-size: var(--fs-xs); }
+/* The phone's map band is 267 px and this panel already has two headlines in
+   it. Four pixels of control and two of gap, taken back where they cost the
+   least: the hit target is still the whole 22 px row. */
+.map-emphasis-sm { height: 22px; padding: 1px; }
+.map-emphasis-sm .seg-option { height: 20px; padding: 0 7px; }
+.map-emphasis .seg-option[data-on][data-kind="trucks"] { color: var(--truck); }
+
 /* Only the state totals are buttons; the route's end labels are plain divs. */
 button.map-pill { cursor: pointer; transition: color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
 button.map-pill:hover { color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 1px 3px rgb(15 23 42 / .12); }
@@ -472,6 +541,10 @@ button.map-pill:focus-visible { outline: none; box-shadow: var(--focus); }
    one person asking about that one dot -- instead of drawn on sixty marks at
    once as a ring nobody can turn off. */
 .map-hover .q { color: var(--approx); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
+/* The truck's own line in a hover card. On a place holding both it is the
+   SECOND line and the job line is the first: two nouns, two totals, and
+   nothing on this card adds them. */
+.map-hover .tk { color: var(--truck); font-weight: 600; white-space: nowrap; }
 .you-halo { animation: halo 2s ease-out infinite; }
 @keyframes halo { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(3); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .you-halo { animation: none; } }
