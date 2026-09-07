@@ -65,6 +65,10 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
     guard: "public",
     why: "public truck detail, redacted through publicView; getTruck(id, \"public\") 404s a non-public row",
   },
+  "GET /api/trucks/[id]/route": {
+    guard: "public",
+    why: "road geometry for the open truck; carries no personal data, and isTruckVisible(id, \"public\", audience) 404s a pending or demo row before HERE is asked",
+  },
   "GET /api/places/suggest": { guard: "public", why: "place autocomplete, rate-limited" },
   "POST /api/places/resolve": { guard: "public", why: "place lookup, rate-limited" },
   "POST /api/reports": {
