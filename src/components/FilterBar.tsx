@@ -783,16 +783,6 @@ export function FilterBar({
     </PopoverButton>
   );
 
-  const clearButton = !isDefault(filters) && (
-    <button
-      type="button"
-      className="btn btn-ghost btn-sm"
-      onClick={() => onChange(clearedFilters(filters))}
-    >
-      Clear
-    </button>
-  );
-
   const routeTrigger = (
     <PopoverButton
       label={<>Route: {routeTriggerLabel(filters, { current, home })}</>}
@@ -976,7 +966,10 @@ export function FilterBar({
 
         {current && home && <TowardHomeToggle filters={filters} set={set} />}
 
-        {clearButton}
+        {/* No "Clear" pill here any more. It appeared under exactly the
+            condition the chip row does, and the row's own "Clear all" sits
+            beside the individual chips it undoes -- two buttons a row apart
+            doing the same thing was one too many. */}
 
         <div className="ml-auto">{sortTrigger}</div>
       </div>
@@ -2058,8 +2051,12 @@ export function RouteStrip({
       className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] border border-border px-[var(--sp-3)] py-[var(--sp-2)]"
       style={{ background: "var(--surface-2)" }}
     >
-      <div className="flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
-        <span className="text-(length:--fs-sm) font-semibold">
+      {/* One row that cannot wrap: the width control is the knob a driver
+          reaches for while reading these results, and it should not move down
+          the page as the route's name gets longer. The name truncates instead —
+          the chip in the filter bar above carries it in full. */}
+      <div className="flex items-center gap-[var(--sp-2)]">
+        <span className="min-w-0 flex-1 truncate text-(length:--fs-sm) font-semibold">
           {start && end ? (
             <>
               Along {start.label} → {end.label}
@@ -2068,14 +2065,12 @@ export function RouteStrip({
             "Along your route"
           )}
         </span>
-        <CorridorSelect value={filters.corridor} onChange={(v) => onChange({ ...filters, corridor: v })} />
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm ml-auto"
-          onClick={() => onChange({ ...filters, routeMode: "", origin: null, dest: null })}
-        >
-          Off
-        </button>
+        <span className="shrink-0">
+          <CorridorSelect
+            value={filters.corridor}
+            onChange={(v) => onChange({ ...filters, corridor: v })}
+          />
+        </span>
       </div>
 
       <p className="mt-[var(--sp-1)] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>

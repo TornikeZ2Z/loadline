@@ -630,7 +630,9 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
 
         {showNudge && (
           <div className="glass absolute bottom-[var(--sp-6)] left-1/2 w-[320px] -translate-x-1/2 p-[var(--sp-3)]">
-            <div className="font-semibold">Where are you now?</div>
+            {/* The same question the header pill now asks: not where the person
+                is, but where the truck comes free (§5.1). */}
+            <div className="font-semibold">Where will you be empty?</div>
             <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               Jobs sort by distance to the pickup, and cards show how far each one is.
             </p>
@@ -644,7 +646,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
                   )
                 }
               >
-                Set your location
+                Set truck location
               </button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={dismissNudge}>
                 Skip — just browse
