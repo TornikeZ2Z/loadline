@@ -18,14 +18,8 @@
  */
 import { params, query, queryOne } from "@/lib/db";
 import { DEFAULT_TZ } from "@/lib/extract/dates";
-import {
-  alongTrackFraction,
-  crossTrackMiles,
-  detourMiles,
-  haversineMiles,
-  radiusBoundingBox,
-  unionBoundingBox,
-} from "@/lib/geo/math";
+import { radiusBoundingBox, unionBoundingBox } from "@/lib/geo/math";
+import { corridorFit } from "@/lib/match/corridor";
 import {
   boundsClause,
   clamp,
@@ -329,7 +323,7 @@ async function corridorSearch(
   );
 
   const { origin, destination, miles } = corridor;
-  const routeLength = haversineMiles(origin, destination);
+  const route = { origin, destination, halfWidthMiles: miles };
   const scored: LoadRow[] = [];
 
   for (const row of candidates) {
@@ -343,31 +337,16 @@ async function corridorSearch(
     const pickup = { lat: row.pickup_lat, lng: row.pickup_lng };
     const delivery = { lat: row.delivery_lat, lng: row.delivery_lng };
 
-    const offRoute = crossTrackMiles(pickup, origin, destination);
-    if (offRoute > miles) continue;
+    // The geometry lives in lib/match/corridor.ts so the truck matcher runs the
+    // identical test. `strictForward: false` keeps this search's escape hatch
+    // for a delivery that ends up closer to the destination without advancing
+    // along the leg -- the board's behaviour, unchanged.
+    const fit = corridorFit(pickup, delivery, route, { strictForward: false });
+    if (!fit) continue;
 
-    const pickupProgress = alongTrackFraction(pickup, origin, destination);
-    const deliveryProgress = alongTrackFraction(delivery, origin, destination);
-
-    const closerToDest =
-      haversineMiles(delivery, destination) < haversineMiles(pickup, destination);
-    if (deliveryProgress <= pickupProgress && !closerToDest) continue;
-
-    // The delivery has to stay near the route too. Heading to New Jersey,
-    // Miami -> Seattle technically makes "forward progress" (north) while
-    // being nobody's idea of a job on the way.
-    const deliveryOffRoute = crossTrackMiles(delivery, origin, destination);
-    if (deliveryOffRoute > miles * 2) continue;
-
-    // Cap total extra driving, scaled against the trip as well as the corridor
-    // width: 150 extra miles is a rounding error coast to coast and a different
-    // trip entirely on a 400-mile run.
-    const detour = detourMiles(origin, destination, pickup, delivery);
-    if (detour > Math.min(miles * 2, routeLength * 0.3)) continue;
-
-    row.off_route_miles = Math.round(offRoute);
-    row.route_progress = Number(pickupProgress.toFixed(3));
-    row.detour_miles = Math.round(detour);
+    row.off_route_miles = Math.round(fit.offRoute);
+    row.route_progress = Number(fit.pickupProgress.toFixed(3));
+    row.detour_miles = Math.round(fit.detour);
     scored.push(row);
   }
 

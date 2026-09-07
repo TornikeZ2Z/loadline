@@ -12,7 +12,8 @@
  *         See scripts/lib/search-sql.ts.
  *   T-A2  the corridor search over a frozen board returns the same rows in the
  *         same order with the same off_route_miles / detour_miles /
- *         route_progress.
+ *         route_progress; and (T-A2b) the lifted `corridorFit` agrees with the
+ *         pre-lift geometry to the bit, unrounded, over every placed job.
  *   T-A3  `buildGroups` over the same frozen board produces a byte-identical
  *         GeoJSON FeatureCollection at both map ends.
  *
@@ -276,6 +277,195 @@ async function checkCorridor(): Promise<void> {
   snapshot("corridor.json", JSON.stringify(out, null, 1) + "\n");
 }
 
+/**
+ * The corridor test exactly as `corridorSearch` inlined it before the lift --
+ * a verbatim transcription of src/lib/loads/query.ts:342-363 at 8230df7, with
+ * `continue` written as `return null`.
+ *
+ * T-A2's snapshot compares what the search returns, and the search rounds:
+ * off_route and detour to whole miles, progress to three decimals. A drift of
+ * four hundred metres would pass it. This oracle compares the doubles, so
+ * `corridorFit` is pinned to the historical implementation bit for bit, over
+ * every placed job in the corpus and both settings of the one flag that is
+ * meant to differ.
+ *
+ * Yes, this is a second copy of the code the lift just de-duplicated. That is
+ * what a test oracle is for, and it belongs in scripts/ rather than in the
+ * product: when the matcher one day needs this geometry changed, changing it
+ * has to be a deliberate act with this file in the diff.
+ */
+function corridorFitBefore(
+  pickup: { lat: number; lng: number },
+  delivery: { lat: number; lng: number },
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+  miles: number,
+  strictForward: boolean,
+  math: typeof import("../src/lib/geo/math"),
+): Record<string, number> | null {
+  const routeLength = math.haversineMiles(origin, destination);
+
+  const offRoute = math.crossTrackMiles(pickup, origin, destination);
+  if (offRoute > miles) return null;
+
+  const pickupProgress = math.alongTrackFraction(pickup, origin, destination);
+  const deliveryProgress = math.alongTrackFraction(delivery, origin, destination);
+
+  const closerToDest =
+    math.haversineMiles(delivery, destination) < math.haversineMiles(pickup, destination);
+  // The board's own line was `if (deliveryProgress <= pickupProgress && !closerToDest)`.
+  // `strictForward` is the matcher declining the escape hatch, and nothing else.
+  if (deliveryProgress <= pickupProgress && (strictForward || !closerToDest)) return null;
+
+  const deliveryOffRoute = math.crossTrackMiles(delivery, origin, destination);
+  if (deliveryOffRoute > miles * 2) return null;
+
+  const detour = math.detourMiles(origin, destination, pickup, delivery);
+  if (detour > Math.min(miles * 2, routeLength * 0.3)) return null;
+
+  return { offRoute, deliveryOffRoute, pickupProgress, deliveryProgress, detour, legMiles: routeLength };
+}
+
+async function checkCorridorFit(corpus: Corpus): Promise<void> {
+  console.log(`${BOLD}T-A2b${RESET} corridorFit against the pre-lift geometry, unrounded`);
+  const math = await import("../src/lib/geo/math");
+  const { corridorFit } = await import("../src/lib/match/corridor");
+
+  const routes = [
+    { origin: MIAMI, destination: NORTH_JERSEY },
+    { origin: NORTH_JERSEY, destination: MIAMI },
+    { origin: LA, destination: CHICAGO },
+    { origin: CHICAGO, destination: NORTH_JERSEY },
+  ];
+  const widths = [25, 60, 75, 150, 300];
+
+  const placed = corpus.loads.filter(
+    (l) => l.pickup_lat != null && l.pickup_lng != null && l.delivery_lat != null && l.delivery_lng != null,
+  );
+
+  /**
+   * The corpus never exercises the escape hatch -- 98 available jobs on four
+   * routes at five widths and it fires zero times -- so these two are built to
+   * fire it, on a meridian where along-track is latitude and cross-track is
+   * longitude and the arithmetic can be checked by hand.
+   *
+   * Both put the DELIVERY very slightly behind the pickup along the leg while
+   * leaving it much nearer the destination, because the pickup is out at the
+   * edge of the corridor and the delivery is on the line. Without them the
+   * `strictForward` flag would be a branch no evidence in this repo covers,
+   * and the check would prove less than it looks like it does.
+   */
+  const HATCH_PROBES = [
+    {
+      name: "pickup 80 mi off the line at 0.600, delivery on the line at 0.599",
+      pickup: { lat: 34.6, lng: -78.6 },
+      delivery: { lat: 34.58, lng: -80 },
+      origin: { lat: 25, lng: -80, label: "meridian S" },
+      destination: { lat: 41, lng: -80, label: "meridian N" },
+      miles: 100,
+    },
+    {
+      name: "the same pair, corridor too narrow to reach the pickup",
+      pickup: { lat: 34.6, lng: -78.6 },
+      delivery: { lat: 34.58, lng: -80 },
+      origin: { lat: 25, lng: -80, label: "meridian S" },
+      destination: { lat: 41, lng: -80, label: "meridian N" },
+      miles: 60,
+    },
+  ];
+
+  let pairs = 0;
+  let inside = 0;
+  let hatchSaved = 0;
+  const mismatches: string[] = [];
+
+  /** One evaluation, both implementations, every field compared as a double. */
+  function compare(
+    where: string,
+    pickup: { lat: number; lng: number },
+    delivery: { lat: number; lng: number },
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+    miles: number,
+    strictForward: boolean,
+  ): void {
+    pairs++;
+    const want = corridorFitBefore(pickup, delivery, origin, destination, miles, strictForward, math);
+    const got = corridorFit(pickup, delivery, { origin, destination, halfWidthMiles: miles }, { strictForward });
+    if (want === null || got === null) {
+      if ((want === null) !== (got === null)) {
+        mismatches.push(`${where}: ${want === null ? "was outside, now inside" : "was inside, now outside"}`);
+      }
+      return;
+    }
+    inside++;
+    for (const k of Object.keys(want)) {
+      const a = want[k]!;
+      const b = (got as unknown as Record<string, number>)[k]!;
+      if (!Object.is(a, b)) mismatches.push(`${where}: ${k} ${a} -> ${b}`);
+    }
+  }
+
+  /** How often the board's escape hatch is the only reason a pair survives. */
+  function hatchFires(
+    pickup: { lat: number; lng: number },
+    delivery: { lat: number; lng: number },
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+    miles: number,
+  ): boolean {
+    const lax = corridorFitBefore(pickup, delivery, origin, destination, miles, false, math);
+    const strict = corridorFitBefore(pickup, delivery, origin, destination, miles, true, math);
+    return lax !== null && strict === null;
+  }
+
+  for (const row of placed) {
+    const pickup = { lat: row.pickup_lat as number, lng: row.pickup_lng as number };
+    const delivery = { lat: row.delivery_lat as number, lng: row.delivery_lng as number };
+    for (const { origin, destination } of routes) {
+      for (const miles of widths) {
+        const where = `load ${row.id} ${origin.label}->${destination.label} ${miles}mi`;
+        compare(`${where} strictForward=false`, pickup, delivery, origin, destination, miles, false);
+        compare(`${where} strictForward=true`, pickup, delivery, origin, destination, miles, true);
+        if (hatchFires(pickup, delivery, origin, destination, miles)) hatchSaved++;
+      }
+    }
+  }
+
+  let probesFired = 0;
+  for (const probe of HATCH_PROBES) {
+    const { name, pickup, delivery, origin, destination, miles } = probe;
+    compare(`probe "${name}" strictForward=false`, pickup, delivery, origin, destination, miles, false);
+    compare(`probe "${name}" strictForward=true`, pickup, delivery, origin, destination, miles, true);
+    if (hatchFires(pickup, delivery, origin, destination, miles)) probesFired++;
+  }
+
+  checks++;
+  if (mismatches.length) {
+    failures++;
+    console.log(`  ${RED}✗${RESET} ${mismatches.length} of ${pairs} evaluations differ`);
+    for (const m of mismatches.slice(0, 10)) console.log(`      ${m}`);
+    return;
+  }
+  checks++;
+  if (!probesFired) {
+    failures++;
+    console.log(
+      `  ${RED}✗${RESET} no probe reached the escape hatch, so strictForward is an uncovered branch`,
+    );
+    return;
+  }
+  console.log(
+    `  ${GREEN}✓${RESET} ${pairs} evaluations identical to the bit ` +
+      `${DIM}(${placed.length} placed jobs × ${routes.length} routes × ${widths.length} widths × 2 flags, ` +
+      `plus ${HATCH_PROBES.length} probes; ${inside} inside the corridor)${RESET}`,
+  );
+  console.log(
+    `  ${GREEN}✓${RESET} the escape hatch is covered ` +
+      `${DIM}(${probesFired}/${HATCH_PROBES.length} probes fire it; the corpus fires it ${hatchSaved} times)${RESET}`,
+  );
+}
+
 // --- T-A3 --------------------------------------------------------------------
 
 async function checkMapFeatures(): Promise<void> {
@@ -324,6 +514,7 @@ async function main() {
 
   checkSearchSql();
   await checkCorridor();
+  await checkCorridorFit(corpus);
   await checkMapFeatures();
 
   console.log("");
@@ -335,7 +526,7 @@ async function main() {
     );
     process.exit(1);
   }
-  console.log(`${GREEN}${BOLD}equivalence  ${checks}/${checks} byte-identical${RESET}`);
+  console.log(`${GREEN}${BOLD}equivalence  ${checks}/${checks} checks passed${RESET}`);
   process.exit(0);
 }
 
