@@ -700,3 +700,136 @@ CREATE TABLE IF NOT EXISTS truck_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS truck_events_truck_idx ON truck_events (truck_id, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Notifications v1 (stage 5). SPEC 3.2, 3.3, 12.
+--
+-- In-app now, e-mail as a switch and not a rebuild. Three tables and four user
+-- columns, appended and replayable like everything above.
+--
+-- The load-bearing idea is in `truck_matches`: match RESULTS are computed on
+-- request and never served from a cache -- a stale score is a lie with a
+-- timestamp -- so this table answers exactly one question, "have we already
+-- told somebody about this pairing, and at what tier?".
+-- ---------------------------------------------------------------------------
+
+-- Why the primary key is enough to defeat the daily repost: a reposted job maps
+-- back to the SAME loads.id (loads_sender_job_idx (sender_key, job_key) and
+-- pairCfRevisions guarantee it). A repost bumps last_seen_at and seen_count and
+-- changes nothing the pairing depends on. Reposting is structurally not news.
+CREATE TABLE IF NOT EXISTS truck_matches (
+  truck_id        bigint NOT NULL REFERENCES trucks(id) ON DELETE CASCADE,
+  load_id         bigint NOT NULL REFERENCES loads(id)  ON DELETE CASCADE,
+  tier            text NOT NULL CHECK (tier IN ('strong','possible')),
+  score           real NOT NULL,
+  detour_miles    integer,
+  off_route_miles integer,
+  first_matched_at timestamptz NOT NULL DEFAULT now(),
+  last_matched_at  timestamptz NOT NULL DEFAULT now(),
+  -- stamped when a re-evaluation stops finding the pairing; cleared when it returns
+  unmatched_at    timestamptz,
+  notified_at     timestamptz,
+  notified_tier   text CHECK (notified_tier IN ('strong','possible')),
+  dismissed_at    timestamptz,
+  dismissed_by    bigint REFERENCES users(id) ON DELETE SET NULL,
+  PRIMARY KEY (truck_id, load_id)
+);
+CREATE INDEX IF NOT EXISTS truck_matches_truck_idx ON truck_matches (truck_id, tier, score DESC);
+CREATE INDEX IF NOT EXISTS truck_matches_load_idx  ON truck_matches (load_id);
+
+-- ONE PAIRING, TWO AUDIENCES.  These two columns are NOT in the specification's
+-- DDL, and the feature does not work without them.  SPEC 3.2 gives a single
+-- `notified_at`, and SPEC 12.2's sweep stamps it in the TRUCK loop -- but SPEC
+-- 18 N2 requires "exactly one notification for EACH owner" of a matched
+-- truck/job pair, and one column cannot record two independent "have we told
+-- them" facts.  With only `notified_at`, notifying the truck's owner marks the
+-- row notified and the mirror loop then finds nothing new for the job's owner,
+-- silently.  `notified_at` / `notified_tier` keep the specification's names and
+-- the specification's meaning (the truck owner's memory); these two are the
+-- mirror's, written only by the job loop.
+ALTER TABLE truck_matches ADD COLUMN IF NOT EXISTS notified_job_at   timestamptz;
+ALTER TABLE truck_matches ADD COLUMN IF NOT EXISTS notified_job_tier text;
+ALTER TABLE truck_matches DROP CONSTRAINT IF EXISTS truck_matches_notified_job_tier_check;
+ALTER TABLE truck_matches ADD CONSTRAINT truck_matches_notified_job_tier_check
+  CHECK (notified_job_tier IS NULL OR notified_job_tier IN ('strong','possible'));
+
+-- An owner editing a departure date can flip dozens of pairings at once. The
+-- edit stamps this ten minutes out; the sweep skips the truck until it passes
+-- and then emits ONE digest instead of one alert per flipped pairing (12.1.3).
+ALTER TABLE trucks ADD COLUMN IF NOT EXISTS quiet_until timestamptz;
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id           bigserial PRIMARY KEY,
+  user_id      bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind         text NOT NULL CHECK (kind IN ('new_matches_for_truck','new_matches_for_job')),
+  subject_kind text NOT NULL CHECK (subject_kind IN ('truck','load')),
+  subject_id   bigint NOT NULL,
+  -- { count, tiers: {strong,possible}, top: [{id, tier, lane, reasons}] }
+  -- Enough to render the row without a join, because the subject may be gone by
+  -- the time it is read, and enough to be an e-mail body later. It carries no
+  -- phone and no sender key: npm run check:redact reads every row of it.
+  payload      jsonb NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  read_at      timestamptz
+);
+CREATE INDEX IF NOT EXISTS notifications_user_idx   ON notifications (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS notifications_unread_idx ON notifications (user_id) WHERE read_at IS NULL;
+
+-- What makes SPEC 12.2's `ON CONFLICT DO NOTHING` mean something.
+--
+-- Nothing in SPEC 3.3 is UNIQUE, so that clause would be decoration: with no
+-- constraint there is no conflict to do nothing about, and two cron runs that
+-- overlap -- a scheduler firing while the previous minute is still going -- both
+-- read "no notification in the last 12 h" and both insert. The hour bucket is
+-- the coarsest grain that cannot false-positive inside a real 12-hour cap and
+-- still catches every overlapping run. AT TIME ZONE 'UTC' is what makes the
+-- expression immutable enough to index.
+CREATE UNIQUE INDEX IF NOT EXISTS notifications_subject_hour_idx
+  ON notifications (user_id, subject_kind, subject_id, date_trunc('hour', created_at AT TIME ZONE 'UTC'));
+
+-- The e-mail switch, shipped now and used later. A NOTIFICATION always exists;
+-- a DELIVERY is an attempt against it. Turning e-mail on adds rows here and one
+-- writer. It needs no schema change and no backfill -- and, critically, no
+-- "WHERE sent_at IS NULL" query that would mail months of accumulated backlog on
+-- its first run.
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+  id              bigserial PRIMARY KEY,
+  notification_id bigint NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+  channel         text NOT NULL CHECK (channel IN ('inapp','email')),
+  status          text NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','failed','skipped')),
+  detail          text,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS notification_deliveries_notif_idx
+  ON notification_deliveries (notification_id);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_inapp boolean NOT NULL DEFAULT true;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_email boolean NOT NULL DEFAULT false;
+-- Shipped now: retrofitting an unsubscribe token onto live accounts the day SES
+-- is switched on is exactly the step that gets skipped under deadline. A column
+-- that is NULL on every row IS that step being skipped, so it carries a DEFAULT
+-- for accounts made from here on and is backfilled once for the ones already
+-- here. md5-of-random rather than an extension: an unsubscribe link is not a
+-- credential, and pgcrypto is not guaranteed present on both backends.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_token text;
+ALTER TABLE users ALTER COLUMN notify_token SET DEFAULT (md5(random()::text) || md5(random()::text));
+UPDATE users SET notify_token = md5(random()::text) || md5(random()::text)
+ WHERE notify_token IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS users_notify_token_idx ON users (notify_token);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_email_since timestamptz;
+
+-- Watermark for the match sweep, so the sweep is a function of listing rows and
+-- not of a WhatsApp processing run. POST /api/cron/process drains raw_messages
+-- only; hanging matching off it would mean a truck or a job created through the
+-- form never notified anybody -- the most likely shipping configuration, and one
+-- where the bell renders a permanent zero as if it worked.
+CREATE TABLE IF NOT EXISTS match_runs (
+  id         bigserial PRIMARY KEY,
+  ran_at     timestamptz NOT NULL DEFAULT now(),
+  watermark  timestamptz NOT NULL,
+  trucks_scanned integer NOT NULL DEFAULT 0,
+  pairs_written  integer NOT NULL DEFAULT 0,
+  notifications_written integer NOT NULL DEFAULT 0
+);
+-- The sweep opens with `SELECT max(watermark)`, which is the whole of its state.
+CREATE INDEX IF NOT EXISTS match_runs_watermark_idx ON match_runs (watermark DESC);
