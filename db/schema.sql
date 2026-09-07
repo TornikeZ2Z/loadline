@@ -483,3 +483,43 @@ CREATE TABLE IF NOT EXISTS site_settings (
   -- the company's registered address off the Terms page with it.
   updated_by bigint REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- Authorization v4: a demo account may post, but not onto the public board.
+-- Additive only; safe to replay.
+-- ---------------------------------------------------------------------------
+
+-- Was this row published from a demo account?
+--
+-- `requirePosting()` still lets a demo account post, and that is still right:
+-- filling the form, seeing the listing, opening it and marking it taken IS the
+-- poster walkthrough, and a demo that cannot do it demonstrates nothing. What
+-- was wrong was the sentence after it -- that refusing them "buys no protection,
+-- because anyone can post by registering". Registering is not the same act. A
+-- registered account has an address, a row of its own, and a `can_post` an admin
+-- can withdraw from it alone; the demo identities are ONE SHARED ROW that
+-- `POST /api/auth/demo` hands to any visitor with no credential at all. There is
+-- nothing to attribute a bad listing to, and nothing to revoke that would not
+-- also close the demo for everyone. With DEMO_MODE=on in production that left a
+-- stranger two clicks from a listing every visitor to the live board could see.
+--
+-- So the demo keeps the whole flow, and what it posts stays private to the
+-- account that posted it: src/lib/loads/query.ts admits such a row only to
+-- `posted_by`, and to a real admin who explicitly asks for it.
+--
+-- A COLUMN ON THE ROW rather than a join to `users.is_demo`, for two reasons.
+-- It records what was true when the row was written, so re-marking an account
+-- cannot retroactively publish or hide what it already posted. And it survives
+-- `posted_by` going NULL, which fails CLOSED: a row that is `is_demo` with no
+-- owner is visible to nobody, where a join would have made it visible to all.
+--
+-- DEFAULT false is the load-bearing half. Every row that exists today, and
+-- every row the WhatsApp pipeline will ever write, is public exactly as before;
+-- src/lib/pipeline/web.ts is the only writer that ever sets it true.
+ALTER TABLE loads ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false;
+
+-- Partial, and keyed on the owner: the predicate every board query carries
+-- (`is_demo = false`) matches almost every row and is not worth an index, while
+-- the two reads that ARE selective -- this demo account's own listings, for its
+-- own board and for the sweep in insertWebJob -- both start from `posted_by`.
+CREATE INDEX IF NOT EXISTS loads_demo_owner_idx ON loads (posted_by) WHERE is_demo;

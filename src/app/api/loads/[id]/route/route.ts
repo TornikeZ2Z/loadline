@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
+import { getCurrentUser, isAdminActor } from "@/lib/auth";
+import { isLoadVisible } from "@/lib/loads/query";
 import { loadRoadRoute } from "@/lib/loads/roadDistance";
 
 interface Ctx {
@@ -20,6 +22,13 @@ interface Ctx {
  * to give -- no HERE key, quota spent, an endpoint the router will not accept --
  * it answers `unavailable` with a null path rather than an error, and the map
  * falls back to its dashed straight line.
+ *
+ * It is still a path that returns part of a job, though -- the lane's geometry
+ * and its length -- so a listing the caller may not see must 404 before the
+ * router is asked. `loadRoadRoute` is another bare `WHERE id = $1`, and rather
+ * than teach it who is asking (it is about billing HERE, not about access), the
+ * question is asked here, as one primary-key lookup, and answered by the same
+ * predicate every other read uses.
  */
 export const GET = handler(async (req: Request, ctx: Ctx) => {
   rateLimit(req, "route", 120);
@@ -27,6 +36,13 @@ export const GET = handler(async (req: Request, ctx: Ctx) => {
 
   const jobId = jobIdFrom(id);
   if (jobId == null) notFound("Job not found");
+
+  const user = await getCurrentUser();
+  const visible = await isLoadVisible(jobId, {
+    userId: user?.id ?? null,
+    includeDemo: !!user && isAdminActor(user),
+  });
+  if (!visible) notFound("Job not found");
 
   const route = await loadRoadRoute(jobId);
   if (!route) notFound("Job not found");
