@@ -26,7 +26,16 @@ import {
   radiusBoundingBox,
   unionBoundingBox,
 } from "@/lib/geo/math";
-import { REGIONS } from "@/lib/geo/states";
+import {
+  boundsClause,
+  clamp,
+  distanceSql,
+  expandStates,
+  pageLimit,
+  pageOffset,
+  radiusClause,
+  zipPattern,
+} from "./sql";
 import type {
   BoundsInput,
   GeoPoint,
@@ -35,6 +44,10 @@ import type {
   LoadSearchResult,
   LoadSummary,
 } from "./types";
+
+// The paging helpers were part of this module's surface before they moved into
+// `sql.ts`; `lib/demo/chats.ts` imports `pageLimit` from here.
+export { pageLimit, pageOffset } from "./sql";
 
 /** Ceiling on rows pulled into memory for corridor post-processing. */
 const CORRIDOR_CANDIDATE_CAP = 3000;
@@ -87,15 +100,6 @@ const SELECT_COLUMNS = `
 
 /** Per-cubic-foot price, in SQL: what a mover compares two jobs on. */
 const PER_CF_SQL = `coalesce(l.price_per_cf, l.price_flat / nullif(l.cubic_feet, 0))`;
-
-/** Haversine in SQL. `latCol`/`lngCol` are column refs, never user input. */
-function distanceSql(latCol: string, lngCol: string, latP: string, lngP: string): string {
-  return `(3958.7613 * 2 * asin(least(1, sqrt(
-    power(sin(radians(${latP}::float8 - ${latCol}) / 2), 2) +
-    cos(radians(${latCol})) * cos(radians(${latP}::float8)) *
-    power(sin(radians(${lngP}::float8 - ${lngCol}) / 2), 2)
-  ))))`;
-}
 
 export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchResult> {
   const p = params();
@@ -443,33 +447,11 @@ function summarizeRows(rows: LoadRow[]): LoadSummary {
 }
 
 // --- fragment builders -------------------------------------------------------
-
-function radiusClause(
-  center: GeoPoint,
-  miles: number,
-  p: ReturnType<typeof params>,
-  latCol: string,
-  lngCol: string,
-): string {
-  const box = radiusBoundingBox(center, miles);
-  const latP = p.add(center.lat);
-  const lngP = p.add(center.lng);
-  return `(
-    ${latCol} BETWEEN ${p.add(box.minLat)} AND ${p.add(box.maxLat)}
-    AND ${lngCol} BETWEEN ${p.add(box.minLng)} AND ${p.add(box.maxLng)}
-    AND ${distanceSql(latCol, lngCol, latP, lngP)} <= ${p.add(miles)}
-  )`;
-}
-
-function boundsClause(
-  b: BoundsInput,
-  p: ReturnType<typeof params>,
-  latCol: string,
-  lngCol: string,
-): string {
-  return `(${latCol} BETWEEN ${p.add(b.minLat)} AND ${p.add(b.maxLat)}
-       AND ${lngCol} BETWEEN ${p.add(b.minLng)} AND ${p.add(b.maxLng)})`;
-}
+//
+// `distanceSql`, `radiusClause`, `boundsClause`, `zipPattern`, `expandStates`,
+// `clamp`, `pageLimit` and `pageOffset` live in `./sql` -- they are about
+// geography and paging rather than about jobs, and the truck board asks the
+// same questions of a different table. What stayed here names job columns.
 
 function eitherEndInBounds(b: BoundsInput, p: ReturnType<typeof params>): string {
   return `(${boundsClause(b, p, "l.pickup_lat", "l.pickup_lng")}
@@ -498,26 +480,6 @@ function orderBy(sort: LoadSearchParams["sort"], hasDistance: boolean): string {
   }
 }
 
-function zipPattern(zip: string): string {
-  const digits = zip.replace(/\D/g, "").slice(0, 5);
-  // Partial ZIPs are a legitimate filter: "070" means north Jersey.
-  return digits.length === 5 ? digits : `${digits}%`;
-}
-
-/** Region tokens ("southeast", "tristate") expand into their member states. */
-function expandStates(input: string[] | undefined): string[] {
-  if (!input?.length) return [];
-  const out = new Set<string>();
-  for (const raw of input) {
-    const token = raw.trim();
-    if (!token) continue;
-    const region = REGIONS[token.toLowerCase().replace(/[\s-]/g, "")];
-    if (region) region.states.forEach((s) => out.add(s));
-    else out.add(token.toUpperCase().slice(0, 2));
-  }
-  return [...out];
-}
-
 function localToday(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: DEFAULT_TZ,
@@ -525,27 +487,6 @@ function localToday(): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date()); // en-CA yields YYYY-MM-DD
-}
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.min(Math.max(n, lo), hi);
-}
-
-/**
- * LIMIT and OFFSET are bound as bigints, so they have to be whole numbers with
- * a ceiling: `?limit=1.5` and `?offset=1e21` are both finite, and both make the
- * driver reject the statement -- a 500 with a raw database message where the
- * caller should simply have got the nearest sensible page.
- *
- * Exported because every paged query has the same problem: the admin message
- * feed pages its own table and needs the same rounding with a smaller ceiling.
- */
-export function pageLimit(limit: number | undefined, max = 500): number {
-  return Number.isFinite(limit) ? clamp(Math.round(limit!), 1, max) : Math.min(50, max);
-}
-
-export function pageOffset(offset: number | undefined): number {
-  return Number.isFinite(offset) ? clamp(Math.round(offset!), 0, 100_000) : 0;
 }
 
 /** Single job with its duplicate siblings and source message. */
