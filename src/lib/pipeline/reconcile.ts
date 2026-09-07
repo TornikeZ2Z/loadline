@@ -250,14 +250,42 @@ export async function upsertSighting(
  * is one job that was corrected, not one job delisted and another created.
  *
  * New keys in this snapshot (rows whose only sighting is this one) are paired
- * greedily by |Δcf| with the sender's available rows on the same origin and
- * destination that this snapshot omits. The old row takes the new key and
- * size and keeps its history; the new row is folded into it.
+ * with the sender's available rows on the same origin and destination that
+ * this snapshot omits. The old row takes the new key and size and keeps its
+ * history; the new row is folded into it.
  *
  * Only rows this snapshot is not older than are eligible: a revision can only
  * come from newer information. Without that guard a reprocessed or
  * late-arriving OLD post would be treated as the revision and would write its
  * stale cubic feet and price back over a row a newer post already corrected.
+ *
+ * A LANE MUST CARRY EXACTLY ONE CANDIDATE ON EACH SIDE (§6.5).
+ *
+ * The pairing key used to be the lane alone, with cubic feet only sorting the
+ * candidates and a greedy walk taking the smallest |Δcf| first. A sender with
+ * two genuinely distinct Miami->Atlanta jobs, at 350 cf and 900 cf, who then
+ * posted one at 400 cf had the 350 row silently rewritten as the 400 job: it
+ * kept the older first_seen_at and seen_count, gained an `edited` event
+ * asserting 350 -> 400, and the 900 row was delisted. Two jobs became one,
+ * and the survivor carried an edit history that never happened -- on a board
+ * whose whole claim is that it does not invent.
+ *
+ * No stricter key fixes that, because the only fields separating two same-lane
+ * jobs are size and price, and those are precisely the fields a revision
+ * changes: any key that could tell the two rows apart would also stop
+ * recognising the correction the pairing exists for. So the ambiguity is
+ * detected instead of resolved. Where a lane offers more than one new row or
+ * more than one absent row, there is no evidence saying which pairs with
+ * which, |Δcf| is a guess dressed as a measurement, and the lane is skipped:
+ * the new row stays a new row, the absent rows are delisted by `rebuildSender`
+ * exactly as an unmatched job always is, and nothing claims an edit. The
+ * snapshot is flagged so a human can look.
+ *
+ * One new row against one absent row on a lane is left alone. It can still be
+ * a coincidence -- a job taken and a different one posted the same day -- but
+ * that is the trade this feature was built to make (S4), the evidence is as
+ * good as a WhatsApp list ever gets, and reversing it would retire the
+ * correction handling the brief lists as a strength.
  */
 export async function pairCfRevisions(key: string, snapshotId: number): Promise<number> {
   const snap = await queryOne<{ job_keys: string[]; sent_at: string }>(
@@ -289,14 +317,35 @@ export async function pairCfRevisions(key: string, snapshotId: number): Promise<
   );
   if (!absent.length) return 0;
 
+  const laneOf = (r: { origin_key: string; dest_key: string }) => `${r.origin_key}>${r.dest_key}`;
+  const tally = (rows: Array<{ origin_key: string; dest_key: string }>) => {
+    const m = new Map<string, number>();
+    for (const r of rows) m.set(laneOf(r), (m.get(laneOf(r)) ?? 0) + 1);
+    return m;
+  };
+  const freshPerLane = tally(fresh);
+  const absentPerLane = tally(absent);
+
+  // Lanes where the evidence does not name a single pair. Only lanes with a
+  // new row can produce one, so those are the only ones worth judging.
+  const ambiguous = new Set<string>();
+  for (const [lane, n] of freshPerLane) {
+    if (n > 1 || (absentPerLane.get(lane) ?? 0) > 1) ambiguous.add(lane);
+  }
+
   const pairs: Array<{ fresh: (typeof fresh)[number]; old: (typeof absent)[number]; delta: number }> = [];
   for (const f of fresh) {
+    if (ambiguous.has(laneOf(f))) continue;
     for (const o of absent) {
       if (o.origin_key !== f.origin_key || o.dest_key !== f.dest_key) continue;
       pairs.push({ fresh: f, old: o, delta: Math.abs((f.cubic_feet ?? 0) - (o.cubic_feet ?? 0)) });
     }
   }
   pairs.sort((a, b) => a.delta - b.delta);
+
+  if (ambiguous.size) {
+    await query(`UPDATE sender_snapshots SET needs_review = true WHERE id = $1`, [snapshotId]);
+  }
 
   const usedFresh = new Set<number>();
   const usedOld = new Set<number>();
