@@ -356,11 +356,26 @@ async function upsertJob(
     : null;
 
   const flags = [...new Set([...e.flags, ...og.flags])];
+  // The delivery half of §6.6. The pickup tests below ask "was the message
+  // vague about where this starts?", and until now nothing asked the same
+  // question about where it ends.
+  //
+  // The test is on what the MESSAGE gave, not on what the geocoder returned.
+  // Flagging every coarse delivery point would read "unverified" off the
+  // router's health rather than off the post: measured on the seeded corpus
+  // with HERE unconfigured — the shape every eval, every local seed and any
+  // outage or spent daily budget takes — it moves the review queue from 2 rows
+  // to 110 of 111, which is a queue nobody can clear and a chip that stops
+  // meaning anything. A destination with a ZIP is not ambiguous; it is
+  // unplaced, which `precision: "state"` and the approximate-location note
+  // already say. A destination that named neither a ZIP nor a city IS
+  // ambiguous, however well the router did.
+  const destAmbiguous = !dest || (!e.dest_zip && (dest.precision === "state" || dest.precision === "region"));
   const needsReview =
     flags.includes("needs_review") ||
     e.confidence < 0.5 ||
     !pickup ||
-    !dest ||
+    destAmbiguous ||
     pickup.precision === "state" ||
     pickup.precision === "region" ||
     og.flags.includes("origin_unresolved");
