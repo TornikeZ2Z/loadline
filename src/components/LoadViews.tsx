@@ -312,6 +312,24 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
               </span>
             </>
           )}
+          {/* Corridor searches only, and the one number a plain board cannot
+              produce: what taking this job adds to the run you were making
+              anyway. It is straight-line geometry, never a road route, and it
+              is prefixed with "≈" when an end of this job was placed no more
+              precisely than a state centre — a detour measured to a point the
+              post never gave is an estimate, and is labelled as one. */}
+          {job.detour_miles != null && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="nums whitespace-nowrap" title={detourTitle(job)}>
+                {detourApproximate(job)
+                  ? `≈ ${job.detour_miles.toLocaleString()} mi detour`
+                  : job.detour_miles === 0
+                    ? "no detour"
+                    : `+${job.detour_miles.toLocaleString()} mi detour`}
+              </span>
+            </>
+          )}
         </span>
         {job.has_phone && (
           <button
@@ -328,6 +346,30 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
         )}
       </div>
     </div>
+  );
+}
+
+/** Either end of this job was placed only to a state or region centroid. */
+function detourApproximate(job: PublicLoadRow): boolean {
+  return (
+    job.pickup_precision === "state" ||
+    job.pickup_precision === "region" ||
+    job.delivery_precision === "state" ||
+    job.delivery_precision === "region"
+  );
+}
+
+function detourTitle(job: PublicLoadRow): string {
+  const off =
+    job.off_route_miles != null
+      ? ` The pickup sits about ${job.off_route_miles.toLocaleString()} mi off the line.`
+      : "";
+  const approx = detourApproximate(job)
+    ? " One end of this job was only placed to a state centre, so treat this as a rough estimate."
+    : "";
+  return (
+    "Extra straight-line miles on top of your own route, going out to this pickup and delivery " +
+    `and back to your line. Not road miles.${off}${approx}`
   );
 }
 

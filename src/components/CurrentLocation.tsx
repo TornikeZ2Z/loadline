@@ -55,7 +55,7 @@ export function CurrentLocation() {
         type="button"
         className="pill max-w-[32vw] sm:max-w-none"
         onClick={() => setOpen((s) => (s === "current" ? null : "current"))}
-        title="Where you are — sorts the board by distance"
+        title="Where your truck will be empty — sorts the board by distance to the pickup"
         style={
           hydrated && !current
             ? { borderColor: "var(--accent)", color: "var(--accent)" }
@@ -64,10 +64,15 @@ export function CurrentLocation() {
       >
         {/* On a phone the pill says the city and nothing else -- there is no
             room for "Near Miami, FL" beside the nav, and the state is the part
-            a driver already knows. */}
-        <span className="truncate sm:hidden">◎ {current ? shortLabel(current.label) : "Where are you?"}</span>
+            a driver already knows.
+
+            "Where are you?" read as a question about the person; on a board
+            whose whole subject is an empty truck it has to be a statement about
+            the truck (§5.1). The popover under it already asks the longer
+            question, "Where will you be when you're empty?". */}
+        <span className="truncate sm:hidden">◎ {current ? shortLabel(current.label) : "Truck location"}</span>
         <span className="hidden truncate sm:inline">
-          ◎ {current ? `Near ${current.label}` : "Where are you?"}
+          ◎ {current ? `Near ${current.label}` : "Truck location"}
         </span>
         ▾
       </button>
@@ -85,7 +90,9 @@ export function CurrentLocation() {
           onClick={() => setOpen((s) => (s === "home" ? null : "home"))}
           title="Where you're heading back to"
         >
-          ⌂ {home ? `Home ${home.state ?? home.label}` : "Home"} ▾
+          {/* "Home" beside a job board reads as a link to the home page.
+              "Home base" is the yard you are trying to get back to (§5.1). */}
+          ⌂ {home ? `Home base ${home.state ?? home.label}` : "Home base"} ▾
         </button>
       </span>
 
@@ -285,7 +292,7 @@ function LocationPopover({
             className="btn btn-ghost btn-sm"
             onClick={() => onSwitchSlot("home")}
           >
-            ⌂ {home ? `Home ${home.state ?? home.label}` : "Set where you're heading back to"}
+            ⌂ {home ? `Home base ${home.state ?? home.label}` : "Set where you're heading back to"}
           </button>
         </span>
       )}

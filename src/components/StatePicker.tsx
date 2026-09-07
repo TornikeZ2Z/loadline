@@ -108,7 +108,7 @@ export function StatePicker({ label, value, onChange, ghost, fullScreen }: State
         panelTitle={`${label} state`}
         ariaLabel={`${label} state`}
       >
-        {() => <Panel selected={selected} onToggle={toggle} onClear={() => onChange([])} />}
+        {() => <StatePanel selected={selected} onToggle={toggle} onClear={() => onChange([])} />}
       </PopoverButton>
 
       {ghost && selected.length === 0 && (
@@ -126,7 +126,15 @@ export function StatePicker({ label, value, onChange, ghost, fullScreen }: State
   );
 }
 
-function Panel({
+/**
+ * The regions-and-states grid, on its own.
+ *
+ * Exported because the phone bar no longer has room for two separate picker
+ * pills: at 390 px the Delivery one was pushed off the end of a scroller (§5.2),
+ * so both panels are now stacked inside one Lane sheet, which is also the only
+ * arrangement in which a driver who set a pickup cannot miss the delivery.
+ */
+export function StatePanel({
   selected,
   onToggle,
   onClear,
