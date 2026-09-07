@@ -3,13 +3,14 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Note, Section, SitePage } from "@/components/SitePage";
+import { reportProblemHref } from "@/lib/support";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "A WhatsApp group post becomes a job on the map: deterministic rules, the latest post wins, nothing is invented, and an unreadable format is queued for a human.",
+    "Search, inspect, contact, confirm — and behind that, how a WhatsApp group post becomes a job on the map without anything being invented along the way.",
 };
 
 /**
@@ -21,6 +22,20 @@ export const metadata: Metadata = {
  * src/lib/loads/redact.ts for the masking, and npm run eval / score /
  * eval:lifecycle / check:redact for the proof. If any sentence here stops being
  * true, the sentence is the bug.
+ *
+ * WRITTEN FOR A CUSTOMER, and that took an edit rather than a rewrite. The page
+ * used to open on the pipeline, which answers a question nobody had asked yet:
+ * a dispatcher wants to know what THEY do here before they care how the sausage
+ * is made. "Using the board" now comes first and walks the four steps -- search,
+ * inspect, contact, confirm -- and the numbered sections after it are the
+ * provenance story, which is the reason to trust what step 1 shows you.
+ *
+ * What was taken out: the words "regression suite", "signature" and "line
+ * shapes", and the billing detail behind the routing decision. All three are
+ * true, but they describe the implementation, and they belong in README.md,
+ * which has them. What stayed: the six posts and the 94 jobs (a checkable
+ * fact, not a mechanism), and every sentence about what the rules cannot do.
+ * The honesty on this page is the selling point; it is not the part to trim.
  */
 export default async function HowItWorksPage() {
   const user = await getCurrentUser();
@@ -30,8 +45,42 @@ export default async function HowItWorksPage() {
       <SitePage
         eyebrow="Product"
         title="How it works"
-        lead="Every job on MoverMesh started as a message in a group chat. Here is exactly what happens in between — including the parts that fail, and what happens then."
+        lead="Four steps to find a load and reach the person offering it — and then, in detail, how a message in a group chat becomes a job on the map, including the parts that fail."
       >
+        <Section title="Using the board">
+          <p>
+            Nothing in the first two steps needs an account, and none of it needs anybody at
+            MoverMesh to be awake.
+          </p>
+          <ol>
+            <li>
+              <strong>Search.</strong> Say where you will be when your trailer goes empty. The board
+              orders every job by how far its pickup is from there, and you can narrow it by lane,
+              by cubic feet, by price per cubic foot, and by how recently the sender posted it.
+            </li>
+            <li>
+              <strong>Inspect the details.</strong> Open a job for the road route between its two
+              ends, the miles and the drive time, the size, and the price if the post carried one —
+              next to the original group message it was read out of, so you can check the reading
+              yourself.
+            </li>
+            <li>
+              <strong>Contact the poster.</strong> Press <strong>Show contact</strong> and sign in.
+              The number is the one the sender wrote in their own post. The deal is between the two
+              of you: MoverMesh is not in it and takes nothing from it.
+            </li>
+            <li>
+              <strong>Confirm it is still going.</strong> Ask them. The board shows you the job&rsquo;s
+              status and when the sender last posted it, but only the sender knows whether this
+              morning&rsquo;s load has already gone. Nothing here reserves or holds a job.
+            </li>
+          </ol>
+          <p>
+            The rest of this page is what happens before step 1 — how a job gets onto the board at
+            all, and why you can trust what it says.
+          </p>
+        </Section>
+
         <Section title="1. A message arrives">
           <p>
             There are two ways in and one door. A connected group delivers messages through the
@@ -48,21 +97,21 @@ export default async function HowItWorksPage() {
 
         <Section title="2. Rules read it, not a model">
           <p>
-            Extraction is deterministic: a lexicon of moving vocabulary, a set of line patterns, and
-            rules learned per sender. No language model, no API call, no per-message cost, and
-            nothing in the extraction path that needs a network. The same message always produces
-            the same jobs.
+            The jobs are read by rules that were written down, not by a language model. Nothing
+            about a post is guessed, nothing is sent away to be interpreted, and nothing is read a
+            second way on a second day. The same message always produces the same jobs.
           </p>
           <p>That is not a purity argument. It buys three concrete things:</p>
           <ul>
             <li>
-              <strong>It can be tested.</strong> The regression suite reads six real group posts and
-              checks all 94 jobs they contain, field by field. A change that drops a job, shifts a
-              ZIP, or produces a job that is not in the text fails before it ships.
+              <strong>It can be checked.</strong> Six real group posts, with all 94 jobs in them
+              written out by hand, are read again before any change goes live. A change that drops a
+              job, shifts a ZIP, or produces a job that is not in the text does not reach the board.
             </li>
             <li>
-              <strong>It can be explained.</strong> Every field on a job traces back to the line it
-              came from, and the console shows that line highlighted next to the original message.
+              <strong>It can be explained.</strong> Every field on a job traces back to the line of
+              the post it came from — and the job page shows you that post, so the reading is yours
+              to check rather than ours to assert.
             </li>
             <li>
               <strong>It does not drift.</strong> A message read correctly today is read the same
@@ -131,15 +180,14 @@ export default async function HowItWorksPage() {
 
         <Section title="5. A format the rules cannot read is queued, not guessed">
           <p>
-            Every message&rsquo;s line shapes are reduced to a signature. A layout that has never
-            been seen puts that message in the admin queue as a new format — once, not once per
-            line. A person then reads the original beside what the rules made of it and either
-            confirms the reading or teaches the rule.
+            A post laid out in a way the rules have not met before is set aside for a person instead
+            of being forced into a guess — once for the whole message, not once per line. Somebody
+            reads the original next to what the rules made of it, and either confirms the reading or
+            corrects it.
           </p>
           <p>
-            The rule is stored against that sender, so their next post is read correctly without
-            anybody editing code. Lines that keep coming back unread are counted, so the common
-            failures get fixed before the rare ones.
+            The correction is remembered against that sender, so their next post in the same shape
+            is read properly. The layouts that fail most often are the ones that get fixed first.
           </p>
         </Section>
 
@@ -153,9 +201,9 @@ export default async function HowItWorksPage() {
           <p>
             The board draws every job as its two ends, pickup and delivery. Select one and the map
             draws the actual road route between them, and the job shows that route&rsquo;s miles and
-            drive time. The list itself is ranked on straight-line distance, because routing fifty
-            jobs to answer a question nobody has asked yet is fifty billable calls — the road number
-            is worked out for the job you opened.
+            drive time. The list itself is ranked on straight-line distance, because working out
+            road routes for fifty jobs to answer a question nobody has asked yet would make the
+            board slow for everyone — the road number is worked out for the job you opened.
           </p>
         </Section>
 
@@ -166,9 +214,9 @@ export default async function HowItWorksPage() {
             <code>[phone hidden]</code>. Browsing needs no account and never will.
           </p>
           <p>
-            The number itself comes from exactly one endpoint, it needs an account, and each reveal
-            is recorded — which account, which job, when. A check in the build reads every public
-            response back and fails if anything phone-shaped survives in it, in any format.
+            The number itself is handed out in one place only, it needs an account, and each reveal
+            is recorded — which account, which job, when. Nothing goes live until every public
+            response has been read back and checked that no number survived in it, in any format.
           </p>
           <p>
             <Link href="/privacy">Privacy</Link> sets out everything that is stored, and{" "}
@@ -178,10 +226,11 @@ export default async function HowItWorksPage() {
 
         <Note title="It still gets things wrong">
           Rules read a format they have seen. A sender who changes how they write will be misread
-          until somebody notices. If a job does not match its post, send us the job and what the
-          post actually said — that becomes a rule and a test case, not a one-off correction.{" "}
-          <Link href="/contact" className="underline">
-            Contact
+          until somebody notices, and the somebody is usually a driver. If a job does not match its
+          post, send us the job&rsquo;s link and what the post actually said — that becomes a rule
+          and a test case, not a one-off correction.{" "}
+          <Link href={reportProblemHref()} className="underline">
+            Report a problem
           </Link>
           .
         </Note>

@@ -123,7 +123,8 @@ export default async function TermsPage() {
           <p>
             These terms can change; the date at the top changes with them. They are governed by{" "}
             <strong>[[GOVERNING LAW]]</strong>, and disputes go to the courts of{" "}
-            <strong>[[GOVERNING LAW]]</strong>. Write to <strong>[[SUPPORT EMAIL]]</strong>.
+            <strong>[[GOVERNING LAW]]</strong>. Write to <strong>[[SUPPORT EMAIL]]</strong>;{" "}
+            <Link href="/contact">Contact</Link> says what to include.
           </p>
         </Section>
 

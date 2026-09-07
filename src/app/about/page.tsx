@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Note, Section, SitePage } from "@/components/SitePage";
+import { reportProblemHref } from "@/lib/support";
 
 export const dynamic = "force-dynamic";
 
@@ -139,9 +140,10 @@ export default async function AboutPage() {
 
         <Note title="A job on the board looks wrong?">
           That is worth telling us, and it is the most useful message we get. A misreading is a bug
-          in a rule, so it gets fixed once and stays fixed for every post in that format.{" "}
-          <Link href="/contact" className="underline">
-            How to reach us
+          in a rule, so it gets fixed once and stays fixed for every post in that format. Send the
+          job&rsquo;s link and what the post actually said.{" "}
+          <Link href={reportProblemHref()} className="underline">
+            Report a problem
           </Link>
           .
         </Note>
