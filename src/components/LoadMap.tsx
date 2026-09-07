@@ -374,6 +374,42 @@ function bboxOf(coords: [number, number][]): [[number, number], [number, number]
   ];
 }
 
+/**
+ * Normalise whatever was thrown into an `Error` the boundary can print.
+ *
+ * The WebGL case needs one specific piece of care. MapLibre does not throw
+ * `new Error("Failed to initialize WebGL")` -- it JSON-stringifies the whole
+ * `webglcontextcreationerror` event into the message, so `.message` arrives as
+ * a 300-character blob of requested context attributes with the two useful
+ * fields buried in it. Printed raw under "Map unavailable" that is noise; the
+ * two fields, though, are exactly what a visitor and a support reply both need:
+ * "Failed to initialize WebGL — disabled by enterprise policy or commandline
+ * switch" says whose problem this is and roughly why.
+ */
+function asError(err: unknown): Error {
+  const raw =
+    err instanceof Error
+      ? err.message
+      : typeof err === "object" && err != null && "message" in err
+        ? String((err as { message: unknown }).message)
+        : String(err);
+
+  if (raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw) as { message?: unknown; statusMessage?: unknown };
+      const head = typeof parsed.message === "string" ? parsed.message : "";
+      const why = typeof parsed.statusMessage === "string" ? parsed.statusMessage : "";
+      const joined = [head, why].filter(Boolean).join(" — ");
+      if (joined) return new Error(joined);
+    } catch {
+      // Not JSON after all; fall through and use it as it came.
+    }
+  }
+  return err instanceof Error && raw === err.message
+    ? err
+    : new Error(raw || "The map could not start");
+}
+
 export function LoadMap({
   jobs,
   end,
@@ -405,6 +441,21 @@ export function LoadMap({
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [route, setRoute] = useState<{ id: number; road: RoadRouteResponse } | null>(null);
   const palette = useRef<Palette>(FALLBACK);
+  /**
+   * The map cannot draw at all: WebGL refused, or the style could not be built.
+   * Held here and re-thrown during render so `MapBoundary` in `Board` handles
+   * it -- see the note above that throw.
+   */
+  const [failure, setFailure] = useState<Error | null>(null);
+  /**
+   * A DIFFERENT and much smaller failure: the basemap's tiles are not arriving,
+   * but the map itself is alive and the job markers are drawn over the paper
+   * background exactly as they always were. Geography goes missing; the board
+   * does not. It gets a quiet line, not the unavailable panel.
+   */
+  const [tilesDown, setTilesDown] = useState(false);
+  /** One flaky tile is weather; a dozen is an outage or a blocked host. */
+  const tileErrors = useRef(0);
 
   // Callbacks are held in refs so the map is built once and never torn down by
   // a parent re-render; a remount would drop the viewport the user set.
@@ -617,7 +668,7 @@ export function LoadMap({
     palette.current = readPalette();
     const colors = palette.current;
 
-    const instance = new maplibregl.Map({
+    const options: maplibregl.MapOptions = {
       container: container.current,
       style: {
         version: 8,
@@ -685,7 +736,28 @@ export function LoadMap({
       },
       bounds: CONUS,
       fitBoundsOptions: { padding: 40 },
-    });
+    };
+
+    // THE THROW THIS FILE'S ERROR HANDLING EXISTS FOR.
+    //
+    // `new maplibregl.Map()` calls `_setupPainter`, which asks the canvas for a
+    // WebGL context and throws "Failed to initialize WebGL" SYNCHRONOUSLY when
+    // it does not get one: a machine with no GPU acceleration, an enterprise
+    // policy, a hardened browser, a VM, `--disable-3d-apis`. This is a React
+    // effect, so before this try/catch that throw walked straight past every
+    // component to Next's built-in global handler, which replaced the whole
+    // document with "This page couldn't load" -- no list, no filters, no jobs,
+    // on every route that mounts the board, `/jobs/[id]` deep links included.
+    // The map is the only thing here that needs a GPU, so the map is the only
+    // thing that may go missing when there is not one.
+    let instance: maplibregl.Map;
+    try {
+      instance = new maplibregl.Map(options);
+    } catch (err) {
+      console.error("[LoadMap] could not start", err);
+      setFailure(asError(err));
+      return;
+    }
     map.current = instance;
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     // MapLibre builds its own chrome, so it cannot carry the attribute in JSX.
@@ -699,17 +771,33 @@ export function LoadMap({
 
     // A tile host that is blocked or down otherwise fails silently as a blank
     // canvas, so say so once rather than leaving an empty rectangle.
+    //
+    // MapLibre reports these ASYNCHRONOUSLY, on its own event channel -- an
+    // error boundary will never see one, which is why this is handled here at
+    // the point of failure rather than left to `MapBoundary`. And it is a
+    // strictly smaller failure than a map that will not start: every job marker
+    // is still drawn, over the paper background instead of over streets. So it
+    // gets a line, not the unavailable panel.
     let reported = false;
     instance.on("error", (e) => {
       const message = e.error?.message ?? String(e);
       if (/tile/i.test(message)) {
+        // A single 404 at an odd zoom is normal; a wall of them is a blocked
+        // host or an outage. Waiting for a few keeps the notice honest.
+        tileErrors.current += 1;
+        if (tileErrors.current >= 4) setTilesDown(true);
         if (reported) return;
         reported = true;
       }
       console.error("[LoadMap]", message);
     });
 
-    instance.on("load", () => {
+    // Everything the style needs, built once the base style is in. It is
+    // wrapped below because a throw in here would be inside MapLibre's own
+    // event dispatch -- outside React's call stack, where no boundary and no
+    // effect can catch it -- and would leave a half-built map that draws a
+    // basemap and no jobs, with nothing on screen saying so.
+    const build = () => {
       const image = chevronImage();
       if (image && !instance.hasImage("chevron")) {
         instance.addImage("chevron", image, { sdf: true });
@@ -1005,6 +1093,15 @@ export function LoadMap({
 
       setZoom(instance.getZoom());
       setReady(true);
+    };
+
+    instance.on("load", () => {
+      try {
+        build();
+      } catch (err) {
+        console.error("[LoadMap] could not build the style", err);
+        setFailure(asError(err));
+      }
     });
 
     return () => {
@@ -1550,10 +1647,36 @@ export function LoadMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchAsMove]);
 
+  // --- retrying just the tiles ---------------------------------------------
+  // Pointing the raster source at its URL again is what makes MapLibre drop the
+  // tiles it has already given up on and ask for them afresh. Nothing else is
+  // touched: the map keeps its viewport, the markers stay where they are, and
+  // the board is not re-fetched -- the jobs were never the thing that failed.
+  const retryTiles = useCallback(() => {
+    const m = map.current;
+    if (!m) return;
+    tileErrors.current = 0;
+    setTilesDown(false);
+    const source = m.getSource("basemap");
+    if (source instanceof maplibregl.RasterTileSource) source.setTiles([BASEMAP_TILES]);
+  }, []);
+
   const totalCf = inView?.cf ?? 0;
   const allShown = inView != null && inView.count >= jobs.length;
   const notPlotted = jobs.length - built.plotted;
   const noRoad = selectedId != null && route?.id === selectedId && route.road.path == null;
+
+  // The map is not going to draw. Re-throwing here, rather than rendering a
+  // message in place, hands the whole map subtree to `MapBoundary` in `Board`
+  // in one piece -- so the "on screen" panel, the legend and the location nudge
+  // go with it instead of floating over a dead rectangle, and the boundary's
+  // `reset()` brings this component back mounted from scratch. Everything
+  // outside the boundary -- the rows, the filters, the open job -- is untouched.
+  //
+  // A render throw is also the only reliable way to reach a boundary from here:
+  // the failures above happen in an effect and in a MapLibre event callback,
+  // and React catches neither of those the way it catches a render.
+  if (failure) throw failure;
 
   return (
     <div
@@ -1642,13 +1765,34 @@ export function LoadMap({
         </label>
       </div>
 
-      {noRoad && (
-        <div
-          data-map-chrome
-          className="glass absolute left-1/2 top-[var(--sp-3)] -translate-x-1/2 px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
-          style={{ color: "var(--approx)" }}
-        >
-          Road route unavailable — showing a straight line.
+      {/* The two ways this map degrades without dying, stacked so they cannot
+          land on top of each other. Both are ASYNC failures on somebody else's
+          network -- a blocked tile host, a routing provider that timed out --
+          and neither one is a reason to take the map away, let alone the board:
+          the jobs are plotted either way. Each retries only itself. */}
+      {(tilesDown || noRoad) && (
+        <div className="absolute left-1/2 top-[var(--sp-3)] flex -translate-x-1/2 flex-col items-center gap-[var(--sp-2)]">
+          {tilesDown && (
+            <div
+              data-map-chrome
+              className="glass flex items-center gap-[var(--sp-3)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+              style={{ color: "var(--approx)" }}
+            >
+              <span>Basemap unavailable — jobs are still plotted.</span>
+              <button type="button" className="btn btn-sm" onClick={retryTiles}>
+                Try again
+              </button>
+            </div>
+          )}
+          {noRoad && (
+            <div
+              data-map-chrome
+              className="glass px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+              style={{ color: "var(--approx)" }}
+            >
+              Road route unavailable — showing a straight line.
+            </div>
+          )}
         </div>
       )}
 
