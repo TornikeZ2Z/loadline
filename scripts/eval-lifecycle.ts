@@ -39,6 +39,20 @@
  *   S11 who may name a city: an unresolved ZIP carries none, the geo/zips.ts
  *       sweep supplies one once a real geocoder places the ZIP, and a city the
  *       poster wrote is never overwritten.
+ *
+ * And then the OTHER lifecycle, which shares none of that machinery:
+ *
+ *   T4  a truck with a stated departure day is available 12 h into it and
+ *       departed the day after, with an event reading `departure_passed` --
+ *       never `sender_silent`, because a driver who said Tuesday and drove away
+ *       on Tuesday was not silent.
+ *   T5  a dateless truck lives 48 h, not the jobs' four days, and a repost
+ *       renews the clock from the NEW sighting.
+ *   T6  `booked` is sticky at every horizon, and `status_source = 'manual'` is
+ *       NOT a shield: a truck set back to available is still swept once its
+ *       stated window has passed. (The API's refusal to set it back to
+ *       available with a past window arrives with PATCH in stage 2.)
+ *   T8  the two sweeps cannot see each other's table.
  */
 process.env.PGLITE_DIR = "memory://";
 
@@ -703,6 +717,9 @@ async function main() {
     `the poster's own city is never overwritten by the sweep (got ${JSON.stringify(postStated)})`,
   );
 
+  // ------------------------------------------------------------- T4-T6, T8
+  await truckLifecycle();
+
   console.log("");
   if (failures.length) {
     console.log(`${RED}${failures.length} of ${checks} lifecycle checks failed${RESET}\n`);
@@ -710,6 +727,212 @@ async function main() {
   }
   console.log(`${GREEN}✓${RESET} ${checks} lifecycle checks passed\n`);
   process.exit(0);
+}
+
+/**
+ * The truck's own clock: T4, T5, T6 and T8.
+ *
+ * A truck expires on its DEPARTURE, not on its sender's silence, so none of the
+ * machinery above applies to it -- no snapshot, no rebuildSender, no
+ * supersession. That is the point of the section: every assertion here would be
+ * wrong if a truck were swept the way a job is.
+ *
+ * The clock is anchored at a fixed hour rather than at `new Date()`, and the
+ * anchor is asserted: "+12 h is still the same day and +25 h is the next one"
+ * has to be TRUE of the instants this test uses, or T4 would pass or fail by
+ * what time of day the suite happened to run.
+ */
+async function truckLifecycle() {
+  console.log(`\n${DIM}T4-T6, T8: a truck expires on its departure, not on its sender's silence${RESET}`);
+
+  const { query, queryOne } = await import("../src/lib/db");
+  const { expireTrucks, truckExpiresAt, CAPACITY_TTL_HOURS } = await import(
+    "../src/lib/pipeline/trucks"
+  );
+  const { expireStaleLoads } = await import("../src/lib/pipeline/expire");
+  const { DEFAULT_TZ, isoOf, toLocalDate } = await import("../src/lib/extract/dates");
+  const { insertTruck } = await import("./fixtures/trucks");
+
+  // Midday UTC on today's date: early enough in the board's day that +12 h does
+  // not cross midnight, and late enough that +25 h certainly does.
+  const today = new Date();
+  const T0 = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 12));
+  const day = (h: number) => new Date(T0.getTime() + h * HOUR);
+  const localDay = (d: Date) => isoOf(toLocalDate(d, DEFAULT_TZ));
+  expect(
+    localDay(T0) === localDay(day(12)) && localDay(day(25)) !== localDay(T0),
+    `the test clock is anchored inside one board day (${localDay(T0)} / ${localDay(day(12))} / ${localDay(day(25))})`,
+  );
+
+  const YARD = {
+    origin_label: "Kearny, NJ 07032",
+    origin_city: "Kearny",
+    origin_state: "NJ",
+    origin_zip: "07032",
+    origin_lat: 40.7684,
+    origin_lng: -74.1454,
+    origin_precision: "zip",
+    free_cf: 700,
+    free_source: "form",
+    shape: "form",
+  };
+  const statusOf = async (id: number) =>
+    (await queryOne<{ status: string; status_source: string }>(
+      `SELECT status, status_source FROM trucks WHERE id = $1`,
+      [id],
+    ))!;
+  const reasonOf = async (id: number) =>
+    (await queryOne<{ detail: { to: string; by: string; reason: string } }>(
+      `SELECT detail FROM truck_events WHERE truck_id = $1 AND kind = 'status_changed'
+        ORDER BY id DESC LIMIT 1`,
+      [id],
+    ))?.detail ?? null;
+
+  // --- T4: a stated departure day, and the day after ------------------------
+  const dated = await insertTruck({
+    ...YARD,
+    truck_key: "t4-dated",
+    avail_from: localDay(T0),
+    avail_to: localDay(T0),
+    avail_source: "form",
+    first_seen_at: T0.toISOString(),
+    last_seen_at: T0.toISOString(),
+    seen_count: 1,
+    expires_at: truckExpiresAt({ availTo: localDay(T0), lastSeenAt: T0 }).toISOString(),
+  });
+
+  await expireTrucks(day(12));
+  expect((await statusOf(dated)).status === "available", "T4: a truck departing today is still available 12 h in");
+
+  const sweep = await expireTrucks(day(25));
+  expect(
+    (await statusOf(dated)).status === "departed",
+    `T4: the day after its stated departure it is departed (got ${(await statusOf(dated)).status})`,
+  );
+  expect(
+    sweep.trucksDeparted === 1 && sweep.trucksExpired === 0,
+    `T4: the sweep counts a departure and an expiry separately (got ${JSON.stringify(sweep)})`,
+  );
+  const why = await reasonOf(dated);
+  expect(
+    why?.to === "departed" && why?.reason === "departure_passed" && why?.by === "expiry_sweep",
+    `T4: the event says departure_passed, never sender_silent (got ${JSON.stringify(why)})`,
+  );
+
+  // --- T5: no date at all, and a repost that renews the clock ---------------
+  const dateless = await insertTruck({
+    ...YARD,
+    truck_key: "t5-dateless",
+    first_seen_at: T0.toISOString(),
+    last_seen_at: T0.toISOString(),
+    seen_count: 1,
+    expires_at: truckExpiresAt({ lastSeenAt: T0 }).toISOString(),
+  });
+  expect(CAPACITY_TTL_HOURS === 48, `T5: the dateless TTL is 48 h (it is ${CAPACITY_TTL_HOURS})`);
+
+  await expireTrucks(day(47));
+  expect((await statusOf(dateless)).status === "available", "T5: a dateless truck is still available at +47 h");
+
+  // Reposted at +40 h: exactly what the stage-6 upsert will write -- a new
+  // sighting and an expiry recomputed FROM IT, not from the first sighting.
+  const reposted = await insertTruck({
+    ...YARD,
+    truck_key: "t5-reposted",
+    first_seen_at: T0.toISOString(),
+    last_seen_at: day(40).toISOString(),
+    seen_count: 2,
+    expires_at: truckExpiresAt({ lastSeenAt: day(40) }).toISOString(),
+  });
+
+  const ttl = await expireTrucks(day(49));
+  expect(
+    (await statusOf(dateless)).status === "expired",
+    `T5: a dateless truck is expired at +49 h (got ${(await statusOf(dateless)).status})`,
+  );
+  expect(
+    ttl.trucksExpired === 1 && ttl.trucksDeparted === 0,
+    `T5: the TTL sweep is counted as an expiry, not a departure (got ${JSON.stringify(ttl)})`,
+  );
+  expect(
+    (await reasonOf(dateless))?.reason === "capacity_ttl",
+    "T5: a dateless truck expires for capacity_ttl",
+  );
+  await expireTrucks(day(80));
+  expect(
+    (await statusOf(reposted)).status === "available",
+    `T5: a truck reposted at +40 h is still available at +80 h (got ${(await statusOf(reposted)).status})`,
+  );
+
+  // --- T6: booked is sticky, manual is not a shield -------------------------
+  const booked = await insertTruck({
+    ...YARD,
+    truck_key: "t6-booked",
+    status: "booked",
+    status_source: "manual",
+    avail_from: localDay(T0),
+    avail_to: localDay(T0),
+    avail_source: "form",
+    first_seen_at: T0.toISOString(),
+    last_seen_at: T0.toISOString(),
+    seen_count: 1,
+    expires_at: truckExpiresAt({ availTo: localDay(T0), lastSeenAt: T0 }).toISOString(),
+  });
+  // Set back to available by its owner, and left with a window that has passed.
+  const reopened = await insertTruck({
+    ...YARD,
+    truck_key: "t6-reopened",
+    status: "available",
+    status_source: "manual",
+    avail_from: localDay(T0),
+    avail_to: localDay(T0),
+    avail_source: "form",
+    first_seen_at: T0.toISOString(),
+    last_seen_at: T0.toISOString(),
+    seen_count: 1,
+    expires_at: truckExpiresAt({ availTo: localDay(T0), lastSeenAt: T0 }).toISOString(),
+  });
+
+  for (const horizon of [25, 80, 30 * 24]) {
+    await expireTrucks(day(horizon));
+    expect(
+      (await statusOf(booked)).status === "booked",
+      `T6: a booked truck is untouched by the sweep at +${horizon} h`,
+    );
+  }
+  const swept = await statusOf(reopened);
+  expect(
+    swept.status === "departed" && swept.status_source === "manual",
+    `T6: a truck set back to available IS swept once its window has passed -- status_source is not consulted (got ${JSON.stringify(swept)})`,
+  );
+
+  // --- T8: the two sweeps cannot see each other's table ---------------------
+  const loadsBefore = await queryOne<{ sig: string }>(
+    `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM loads`,
+  );
+  const trucksBefore = await queryOne<{ sig: string }>(
+    `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM trucks`,
+  );
+
+  await expireTrucks(new Date(T0.getTime() + 5 * DAY));
+  const loadsAfter = await queryOne<{ sig: string }>(
+    `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM loads`,
+  );
+  expect(loadsBefore!.sig === loadsAfter!.sig, "T8: expireTrucks touched no loads row");
+
+  await expireStaleLoads(new Date(T0.getTime() + 5 * DAY));
+  const trucksAfter = await queryOne<{ sig: string }>(
+    `SELECT string_agg(id || ':' || status, ',' ORDER BY id) AS sig FROM trucks`,
+  );
+  expect(trucksBefore!.sig === trucksAfter!.sig, "T8: expireStaleLoads touched no trucks row");
+
+  // The supersession guard's other half, cheap to state here: a truck carries
+  // no sender snapshot, so `rebuildSender` has nothing to match it against even
+  // if somebody wired it up. T3 is the full version, in stage 6.
+  const snapshots = await query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM sender_snapshots s
+      WHERE EXISTS (SELECT 1 FROM trucks t WHERE t.source_message_id = s.message_id)`,
+  );
+  expect(snapshots[0].n === 0, "T3 (partial): no truck's source message has a sender snapshot");
 }
 
 main().catch((e) => {
