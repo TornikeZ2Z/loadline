@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
 import { HttpError, getCurrentUser, isAdminActor, requireUser } from "@/lib/auth";
-import { query, queryOne } from "@/lib/db";
-import { getTruck, isTruckVisible } from "@/lib/loads/truckQuery";
+import { query } from "@/lib/db";
+import { getTruck, truckOwner } from "@/lib/loads/truckQuery";
 import { toPublicSource, toPublicTruck, type PublicSource } from "@/lib/loads/publicView";
 import { updateWebTruck, WebTruckValidationError, type WebTruckPatch } from "@/lib/pipeline/web";
 
@@ -99,17 +99,15 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
   const truckId = jobIdFrom(id);
   if (truckId == null) notFound("Truck not found");
 
-  const audience = { userId: user.id, includeDemo: isAdminActor(user) };
   // "public" and not "admin": the edit form is the public board's, and a truck
   // in the review queue is not editable by the person it was parsed from --
-  // it is not theirs until an admin publishes it.
-  const visible = await isTruckVisible(truckId, "public", audience);
-  if (!visible) notFound("Truck not found");
-
-  const owner = await queryOne<{ posted_by: number | null }>(
-    `SELECT posted_by FROM trucks WHERE id = $1`,
-    [truckId],
-  );
+  // it is not theirs until an admin publishes it. `truckOwner` applies both
+  // predicates and returns null rather than a row, so the 404 lands before
+  // there is anything to answer 403 about.
+  const owner = await truckOwner(truckId, "public", {
+    userId: user.id,
+    includeDemo: isAdminActor(user),
+  });
   if (!owner) notFound("Truck not found");
   if (!isAdminActor(user) && owner.posted_by !== user.id) {
     throw new HttpError(403, "You can only edit trucks you posted");

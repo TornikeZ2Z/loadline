@@ -617,6 +617,11 @@ const SCOPED: Record<string, { scopeAt: number; args: number }> = {
   searchTrucks: { scopeAt: 0, args: 3 },
   getTruck: { scopeAt: 1, args: 3 },
   isTruckVisible: { scopeAt: 1, args: 3 },
+  // The owner-guarded writes read through this rather than writing their own
+  // `FROM trucks`, so the ownership lookup carries the same two predicates as
+  // every other truck read and a row the caller may not see 404s before it can
+  // 403. Added in the same commit that created it, exactly as RAW_SOURCES is.
+  truckOwner: { scopeAt: 1, args: 3 },
 };
 
 /**

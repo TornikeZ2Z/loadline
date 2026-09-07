@@ -180,6 +180,37 @@ export async function isTruckVisible(
 }
 
 /**
+ * Who posted this truck, and what state it is in -- for the owner-guarded
+ * writes.
+ *
+ * It exists so that PATCH /api/trucks/:id and its /status sibling never write
+ * `FROM trucks` themselves. `npm run check:demo` refuses a hand-written truck
+ * query in any handler a non-admin can reach, with no exemption table, and that
+ * absolute rule is worth more than the six lines it costs here: a hand-written
+ * ownership read is exactly the shape that forgets the scope, and then a 403
+ * rather than a 404 tells a stranger that a pending truck exists.
+ *
+ * Returns null for a row this caller may not see, so the caller answers 404
+ * before it has anything to answer 403 about.
+ */
+export async function truckOwner(
+  id: number,
+  scope: TruckScope,
+  audience?: TruckAudience | null,
+): Promise<{ id: number; posted_by: number | null; status: string } | null> {
+  const p = params();
+  const where = [`t.id = ${p.add(id)}`];
+  const vis = visibilityClause(scope);
+  if (vis) where.push(vis);
+  const demo = demoVisibilitySql(audience, p);
+  if (demo) where.push(demo);
+  return queryOne<{ id: number; posted_by: number | null; status: string }>(
+    `SELECT t.id, t.posted_by, t.status FROM trucks t WHERE ${where.join(" AND ")}`,
+    p.values,
+  );
+}
+
+/**
  * The truck board.
  *
  * Predicates that exist for jobs and are ABSENT here, deliberately:
@@ -213,15 +244,23 @@ export async function searchTrucks(
   if (input.needsReviewOnly) where.push(`t.needs_review = true`);
 
   // --- where it is, where it is going --------------------------------------
+  // The DESTINATION-side predicates are collected separately, and that is not
+  // tidiness. Every one of them is `dest_<x> = <y>`, which is NULL -- and so
+  // not true -- for a truck whose post never said where it is headed. "Trucks
+  // heading to FL" therefore removes rows a driver can see on the map, and the
+  // only honest board is one that says how many. `where` plus `destWhere` is
+  // the real filter; `where` alone is what that count is measured against.
+  const destWhere: string[] = [];
+
   const originStates = expandStates(input.originStates);
   if (originStates.length) where.push(`t.origin_state = ANY(${p.add(originStates)}::text[])`);
   const destStates = expandStates(input.destStates);
-  if (destStates.length) where.push(`t.dest_state = ANY(${p.add(destStates)}::text[])`);
+  if (destStates.length) destWhere.push(`t.dest_state = ANY(${p.add(destStates)}::text[])`);
 
   if (input.originCity) where.push(`lower(t.origin_city) = lower(${p.add(input.originCity)})`);
-  if (input.destCity) where.push(`lower(t.dest_city) = lower(${p.add(input.destCity)})`);
+  if (input.destCity) destWhere.push(`lower(t.dest_city) = lower(${p.add(input.destCity)})`);
   if (input.originZip) where.push(`t.origin_zip LIKE ${p.add(zipPattern(input.originZip))}`);
-  if (input.destZip) where.push(`t.dest_zip LIKE ${p.add(zipPattern(input.destZip))}`);
+  if (input.destZip) destWhere.push(`t.dest_zip LIKE ${p.add(zipPattern(input.destZip))}`);
 
   // "Only trucks whose post never said where they are headed". The map cannot
   // draw such a truck on the Deliveries view and the matcher cannot promise it
@@ -297,7 +336,7 @@ export async function searchTrucks(
       where.push(radiusClause(input.origin, input.radiusMiles, p, "t.origin_lat", "t.origin_lng"));
     }
     if (input.destination && input.destRadiusMiles) {
-      where.push(
+      destWhere.push(
         radiusClause(input.destination, input.destRadiusMiles, p, "t.dest_lat", "t.dest_lng"),
       );
     }
@@ -310,12 +349,19 @@ export async function searchTrucks(
     where.push(boundsClause(box, p, "t.origin_lat", "t.origin_lng"));
   }
 
-  const whereSql = where.length ? `WHERE ${where.join("\n  AND ")}` : "";
+  const allWhere = [...where, ...destWhere];
+  const whereSql = allWhere.length ? `WHERE ${allWhere.join("\n  AND ")}` : "";
 
   // Snapshot the bind values the WHERE clause needs, before adding any that only
   // the SELECT list uses: Postgres rejects a bind with more parameters than the
   // statement references, and the summary query has no SELECT list to speak of.
   const whereValues = [...p.values];
+
+  // How many trucks this destination filter is hiding purely for having no
+  // stated destination. Asked only when there IS such a filter, and only
+  // outside corridor mode, which counts its own exclusions in JS below.
+  const noDestHidden =
+    destWhere.length && !corridor ? await countNoDestination(where, destWhere, whereValues) : 0;
 
   // --- distance column ------------------------------------------------------
   // An explicit origin outranks the viewer's own location, and it is measured to
@@ -358,8 +404,35 @@ export async function searchTrucks(
       routeMode: "endpoints",
       departsBy: input.departsBy ?? null,
       truncated: summary.count > offset + rows.length,
+      noDestExcluded: noDestHidden || undefined,
     },
   };
+}
+
+/**
+ * Trucks that pass every OTHER filter and were dropped for having no stated
+ * destination -- the number the Trucks tab prints rather than swallowing.
+ *
+ * `destWhere` is re-attached inside a branch that can never be taken, and that
+ * is not decoration. This query reuses the main query's bind values, and
+ * Postgres counts a prepared statement's parameters by the highest `$n` it
+ * mentions: drop the destination predicates entirely and the highest `$n` can
+ * fall below the number of values supplied, which is a bind error rather than a
+ * wrong answer. Mentioning them under `true OR (...)` keeps the parameter list
+ * identical while the planner discards the branch.
+ */
+async function countNoDestination(
+  where: string[],
+  destWhere: string[],
+  whereValues: unknown[],
+): Promise<number> {
+  const clauses = [...where, `t.dest_lat IS NULL`];
+  if (destWhere.length) clauses.push(`(true OR (${destWhere.join(" AND ")}))`);
+  const row = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n ${TRUCK_FROM_SQL} WHERE ${clauses.join(" AND ")}`,
+    whereValues,
+  );
+  return row?.n ?? 0;
 }
 
 /** The truck headline, over the whole filtered set rather than the page. */

@@ -19,10 +19,18 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Role } from "@/lib/session";
 import type { BoundsInput, LoadSummary } from "@/lib/loads/types";
-import type { PublicLoadRow, PublicSearchResult } from "@/lib/loads/publicView";
+import type { TruckSummary } from "@/lib/loads/truckTypes";
+import type {
+  PublicLoadRow,
+  PublicSearchResult,
+  PublicTruckRow,
+  PublicTruckSearchResult,
+} from "@/lib/loads/publicView";
 import { OPEN_LOCATION_EVENT, useViewerLocation } from "@/lib/location";
 import { api } from "@/lib/basePath";
 import { boardDay, formatCf, formatRate, truckLine } from "@/lib/loads/present";
+import { boardHeadline, summarizeTrucks, truckSubline } from "@/lib/loads/truckPresent";
+import { truckFilterNotes, truckFiltersToQuery } from "./truckFilters";
 import {
   clearedFilters,
   emptyStateSuggestions,
@@ -39,7 +47,9 @@ import {
   type Filters,
 } from "./FilterBar";
 import { JobList, JobListSkeleton, partitionUnverified } from "./LoadViews";
+import { TruckList, TruckListSkeleton } from "./TruckViews";
 import { LoadDetail } from "./LoadDetail";
+import { TruckDetail } from "./TruckDetail";
 import { BottomSheet, snapHeightPx, type SheetSnap } from "./BottomSheet";
 import { MapBoundary } from "./MapBoundary";
 import { EmptyState } from "./ui";
@@ -53,6 +63,8 @@ export interface BoardProps {
   initialQuery: string;
   /** /jobs/[id] -> opens the detail drawer on that job. */
   initialJobId?: number | null;
+  /** /trucks/[id] -> opens the Trucks tab with that truck's drawer open. */
+  initialTruckId?: number | null;
   signedIn: boolean;
   /** isAdmin = role === "admin"; per job canManageJob = admin || (poster && posted_by === userId). */
   role: Role | null;
@@ -109,7 +121,36 @@ function summarize(rows: PublicLoadRow[]): LoadSummary {
   };
 }
 
-export function Board({ initialQuery, initialJobId, signedIn, role, userId, demoMode }: BoardProps) {
+/**
+ * Which population the LIST is showing, and which headlines print.
+ *
+ * `both` is the default because co-presence is the point of the feature and a
+ * default of `jobs` would ship it switched off (SPEC 15.1). What `both` means
+ * here in stage 2 is: the job list, with the truck count and free-space total
+ * printed on a line of their own underneath. It is never a merged list and
+ * never a combined count -- "104 listings" is a sentence this board cannot say.
+ *
+ * `jobs` is reachable only from a URL. It exists so a link can mean "freight
+ * only, and do not mention trucks at all"; stage 3's map emphasis control is
+ * what will set it from the UI.
+ */
+type Show = "jobs" | "trucks" | "both";
+
+function hydrateShow(qs: string, truckId: number | null | undefined): Show {
+  if (truckId != null) return "trucks";
+  const raw = new URLSearchParams(qs).get("show");
+  return raw === "jobs" || raw === "trucks" ? raw : "both";
+}
+
+export function Board({
+  initialQuery,
+  initialJobId,
+  initialTruckId,
+  signedIn,
+  role,
+  userId,
+  demoMode,
+}: BoardProps) {
   const { current, home, hydrated } = useViewerLocation();
   const isAdmin = role === "admin";
 
@@ -123,6 +164,22 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   const [selectedId, setSelectedId] = useState<number | null>(initialJobId ?? null);
   const [autoContact, setAutoContact] = useState(false);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
+
+  // --- the second population ------------------------------------------------
+  // A SECOND fetch to a SECOND endpoint, and the two fail independently on
+  // purpose (SPEC 13): a trucks outage prints one line above an otherwise
+  // working job board and must never blank it. `GET /api/loads` is not modified
+  // by this feature -- not its parser, not its response shape -- so there was
+  // never a single request that could have carried both.
+  const [show, setShow] = useState<Show>(() => hydrateShow(initialQuery, initialTruckId));
+  const [trucks, setTrucks] = useState<PublicTruckRow[]>([]);
+  const [truckSummary, setTruckSummary] = useState<TruckSummary | null>(null);
+  const [truckLoading, setTruckLoading] = useState(true);
+  const [truckError, setTruckError] = useState<string | null>(null);
+  const [noDestHidden, setNoDestHidden] = useState(0);
+  const [selectedTruckId, setSelectedTruckId] = useState<number | null>(initialTruckId ?? null);
+  const [truckAutoContact, setTruckAutoContact] = useState(false);
+  const [hoveredTruckId, setHoveredTruckId] = useState<number | null>(null);
 
   const [searchAsMove, setSearchAsMove] = useState(false);
   const [bounds, setBounds] = useState<BoundsInput | null>(null);
@@ -153,6 +210,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   );
 
   const requestId = useRef(0);
+  const truckRequestId = useRef(0);
   const root = useRef<HTMLDivElement>(null);
   const filterRow = useRef<HTMLDivElement>(null);
   const listScroller = useRef<HTMLDivElement>(null);
@@ -263,15 +321,92 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     void search();
   }, [hydrated, search]);
 
+  /**
+   * The truck query, built by translating the SAME filter state rather than by
+   * reusing the job board's query string.
+   *
+   * `parseTruckSearchParams` answers 400 to `minCf`, `readyBy`, `deliverBy` and
+   * `hasPrice`, so sending the job URL to `/api/trucks` would fail loudly --
+   * which is the design: those keys describe freight, and answering them with
+   * an unfiltered truck board is the silent wrong answer this whole feature
+   * refuses. `truckFiltersToQuery` drops them and `truckFilterNotes` prints, in
+   * the Trucks tab, exactly which ones are not narrowing what is on screen.
+   */
+  const truckQuery = useMemo(
+    () => truckFiltersToQuery(filters, { current, home, bounds: searchAsMove ? bounds : null }),
+    [filters, current, home, bounds, searchAsMove],
+  );
+
+  const notes = useMemo(() => truckFilterNotes(filters), [filters]);
+  const pricedOnly = filters.hasPrice;
+
+  const searchTrucksNow = useCallback(async () => {
+    const id = ++truckRequestId.current;
+    setTruckLoading(true);
+    setTruckError(null);
+    try {
+      // "Priced only" hides every truck, because a truck carries no price in
+      // v1. Answering that here rather than asking the server for an empty set
+      // keeps the note above the list and saves a round trip for a question
+      // whose answer is already known.
+      if (pricedOnly) {
+        if (id !== truckRequestId.current) return;
+        setTrucks([]);
+        setTruckSummary(summarizeTrucks([], new Date()));
+        setNoDestHidden(0);
+        return;
+      }
+      const qs = truckQuery ? `${truckQuery}&limit=500` : "limit=500";
+      const res = await fetch(api(`/api/trucks?${qs}`));
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "Couldn't load trucks");
+      const data = body as PublicTruckSearchResult;
+      if (id !== truckRequestId.current) return;
+      const received = data.rows ?? [];
+      setTrucks(received);
+      setTruckSummary(data.summary ?? summarizeTrucks(received, new Date()));
+      setNoDestHidden(data.applied?.noDestExcluded ?? 0);
+    } catch (err) {
+      if (id !== truckRequestId.current) return;
+      setTrucks([]);
+      setTruckSummary(null);
+      setNoDestHidden(0);
+      setTruckError(err instanceof Error ? err.message : "Couldn't load trucks");
+    } finally {
+      if (id === truckRequestId.current) setTruckLoading(false);
+    }
+  }, [truckQuery, pricedOnly]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    // `show === "jobs"` is a deliberate "do not mention trucks at all", so it
+    // does not ask for them either.
+    if (show === "jobs") {
+      setTruckLoading(false);
+      return;
+    }
+    void searchTrucksNow();
+  }, [hydrated, searchTrucksNow, show]);
+
   // --- URL -----------------------------------------------------------------
   // replaceState, not push: the filter bar is not browser history. The open
   // job is, in the sense that it is what a shared link points at, but pushing
   // an entry per keystroke of the search box would bury the back button.
   useEffect(() => {
-    const path = selectedId != null ? `/jobs/${selectedId}` : "/";
-    const url = visibleQuery ? `${path}?${visibleQuery}` : path;
-    window.history.replaceState(null, "", api(url));
-  }, [visibleQuery, selectedId]);
+    const path =
+      selectedTruckId != null
+        ? `/trucks/${selectedTruckId}`
+        : selectedId != null
+          ? `/jobs/${selectedId}`
+          : "/";
+    // `show` rides in the URL so a shared link restores the tab that was open.
+    // Omitted at the default, exactly as `map=delivery` is, so the common link
+    // stays short.
+    const sp = new URLSearchParams(visibleQuery);
+    if (show !== "both") sp.set("show", show);
+    const qs = sp.toString();
+    window.history.replaceState(null, "", api(qs ? `${path}?${qs}` : path));
+  }, [visibleQuery, selectedId, selectedTruckId, show]);
 
   useEffect(() => {
     if (!notice) return;
@@ -290,6 +425,39 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     setSelectedId(null);
     setAutoContact(false);
   }, []);
+
+  const openTruck = useCallback((truck: PublicTruckRow, opts?: { contact?: boolean }) => {
+    // One drawer at a time: the column holds one listing, and leaving a job
+    // open underneath would make "Back to 6 trucks" land on a job.
+    setSelectedId(null);
+    setAutoContact(false);
+    setSelectedTruckId(truck.id);
+    setTruckAutoContact(Boolean(opts?.contact));
+    if (window.matchMedia("(max-width: 767px)").matches) setSnap("half");
+  }, []);
+
+  const closeTruck = useCallback(() => {
+    setSelectedTruckId(null);
+    setTruckAutoContact(false);
+  }, []);
+
+  /**
+   * The two tabs, and what each one means for the rest of the board.
+   *
+   * Jobs writes `both` rather than `jobs`: the default view names both
+   * populations, and a driver tapping back from Trucks should get the board
+   * they started on, not a narrower one they never chose. A URL that says
+   * `show=jobs` is honoured and left alone.
+   */
+  const chooseJobs = useCallback(() => {
+    closeTruck();
+    setShow((v) => (v === "jobs" ? v : "both"));
+  }, [closeTruck]);
+
+  const chooseTrucks = useCallback(() => {
+    closeJob();
+    setShow("trucks");
+  }, [closeJob]);
 
   const selectFromMap = useCallback(
     (id: number | null) => {
@@ -395,6 +563,19 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
   );
   const shown = place ? summarize(listed) : (summary ?? summarize(rows));
   const now = useMemo(() => new Date(), [rows]);
+  /** The server's figures, or the client fallback for a partial response. */
+  const truckShown =
+    truckSummary ?? (trucks.length ? summarizeTrucks(trucks, now) : null);
+  const listKind: "jobs" | "trucks" = show === "trucks" ? "trucks" : "jobs";
+  /**
+   * TWO STRINGS OUT, never one, and they are never added together: the two
+   * summaries share no field that carries a volume, so there is no arithmetic
+   * here to get wrong. See SPEC 15.3 and npm run check:sums.
+   */
+  const headline = boardHeadline(shown, show === "jobs" ? null : truckShown);
+  const truckStats = truckShown ? truckSubline(truckShown) : null;
+  const selectedTruck = trucks.find((t) => t.id === selectedTruckId) ?? null;
+  const truckFirstLoad = truckLoading && truckSummary == null && trucks.length === 0;
   const selectedJob = ordered.find((j) => j.id === selectedId) ?? null;
   const suggestions = emptyStateSuggestions(filters);
   // Not on a phone, and not on a landscape phone either: it is a 320 px card
@@ -409,7 +590,71 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
    */
   const firstLoad = loading && summary == null && rows.length === 0;
 
-  const header = firstLoad ? (
+  /**
+   * The two tabs. They render at EVERY width, including inside the bottom
+   * sheet's handle on a phone.
+   *
+   * `onPointerDown` stops there because the handle captures the pointer to drag
+   * the sheet, and a captured pointer never becomes a click on a child. The
+   * drag still works from everywhere else on the handle, which is most of it.
+   *
+   * The zero is printed rather than hidden: a control that silently does
+   * nothing looks broken, and one that says "Trucks (0)" is informative -- it
+   * is also the only invitation to post the first one (SPEC 2).
+   */
+  const tabs = (
+    <div
+      className="mb-[var(--sp-2)] flex items-center gap-[var(--sp-1)]"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Tab
+        label="Jobs"
+        count={firstLoad ? null : shown.count}
+        active={listKind === "jobs"}
+        onClick={chooseJobs}
+      />
+      <Tab
+        label="Trucks"
+        count={truckError ? null : truckFirstLoad ? null : (truckShown?.count ?? 0)}
+        active={listKind === "trucks"}
+        onClick={chooseTrucks}
+      />
+    </div>
+  );
+
+  const truckHeader = truckError ? (
+    <div>
+      <div className="big text-(length:--fs-xl)" style={{ color: "var(--muted)" }}>
+        Trucks unavailable
+      </div>
+      <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        The truck board could not be read
+      </div>
+    </div>
+  ) : truckFirstLoad ? (
+    <div aria-hidden="true">
+      <span className="skeleton h-[20px] w-[150px]" />
+      <span className="skeleton mt-[5px] h-[12px] w-[210px]" />
+    </div>
+  ) : (
+    <div>
+      <div className="big nums text-(length:--fs-xl)">
+        {/* Null only when the set is empty, and then the tab label above
+            already carries the zero -- so this says nothing rather than
+            "0 trucks". */}
+        {headline.truckLine ?? "No trucks"}
+      </div>
+      <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        {truckStats
+          ? [truckStats.departing, truckStats.unsized, truckStats.noDest, truckStats.swing]
+              .filter(Boolean)
+              .join(" · ")
+          : ""}
+      </div>
+    </div>
+  );
+
+  const jobHeader = firstLoad ? (
     // "0 jobs · 0 ready now · 0 priced" is a confident answer to a question
     // nobody has answered yet, and it is the wrong one often enough to matter.
     <div aria-hidden="true">
@@ -479,10 +724,156 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         )}
         {truncated && " · showing first 500"}
       </div>
+      {/* THE THIRD LINE, and it is a line of its own for a structural reason:
+          the board must never print a combined figure, so the truck total sits
+          under the freight total rather than beside it, in its own unit words
+          ("cf free", never a bare "cf"). It is absent entirely when there are
+          no trucks -- the tab label carries that zero. */}
+      {show === "both" && headline.truckLine && (
+        <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+          <button
+            type="button"
+            className="underline"
+            style={{ color: "var(--accent)", background: "none" }}
+            onClick={chooseTrucks}
+          >
+            {headline.truckLine}
+          </button>
+        </div>
+      )}
+      {show === "both" && truckError && (
+        <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--danger)" }}>
+          Couldn&apos;t load trucks.
+        </div>
+      )}
+    </div>
+  );
+
+  const header = (
+    <div>
+      {tabs}
+      {listKind === "trucks" ? truckHeader : jobHeader}
     </div>
   );
 
   const conflict = filterConflict(filters);
+
+  /**
+   * The Trucks tab.
+   *
+   * The notes above the list are not decoration and are not optional: when a
+   * job-only filter is set, this is where the board says which of the controls
+   * the driver can see is NOT narrowing what is under it. A control that looks
+   * like it is doing something and is not is the deliver-by mistake from wave 1,
+   * and the board only gets to make that one once.
+   */
+  const truckBody = (
+    <>
+      {notes.length > 0 && (
+        <ul className="mb-[var(--sp-2)] flex flex-col gap-[var(--sp-1)]">
+          {notes.map((n) => (
+            <li
+              key={n.key}
+              className="rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+              style={{ background: "var(--surface-2)", color: "var(--text-2)" }}
+            >
+              {n.text}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Printed, never silent: every one of these trucks is a real listing a
+          destination filter removed for saying nothing about where it is going.
+          The count comes from the server, over the whole filtered set. */}
+      {noDestHidden > 0 && (
+        <p
+          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+          style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
+        >
+          {noDestHidden} truck{noDestHidden === 1 ? "" : "s"} with no stated destination{" "}
+          {noDestHidden === 1 ? "is" : "are"} hidden by this filter.
+        </p>
+      )}
+
+      {truckError && trucks.length > 0 && (
+        <p
+          className="mb-[var(--sp-2)] flex items-center gap-[var(--sp-3)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+          style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
+        >
+          <span>{stopped(truckError)} Showing the last results.</span>
+          <button type="button" className="btn btn-sm ml-auto" onClick={() => void searchTrucksNow()}>
+            Try again
+          </button>
+        </p>
+      )}
+
+      {truckLoading && trucks.length === 0 ? (
+        <>
+          <p className="sr-only" role="status">
+            Loading trucks…
+          </p>
+          <TruckListSkeleton />
+        </>
+      ) : truckError ? (
+        <EmptyState
+          title="Could not load trucks"
+          hint={`${stopped(truckError)} Nothing could be read from the truck board, so this is not the same as no trucks being listed.`}
+        >
+          <button type="button" className="btn btn-sm" onClick={() => void searchTrucksNow()}>
+            Try again
+          </button>
+        </EmptyState>
+      ) : trucks.length === 0 && pricedOnly ? (
+        // Correct behaviour that reads exactly like a bug, so it is stated.
+        <EmptyState
+          title="Priced only hides every truck"
+          hint="Trucks never carry a price on this board, so nothing can match. Clear it to see the trucks again."
+        >
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setFilters((f) => ({ ...f, hasPrice: false }))}
+          >
+            Clear “priced only”
+          </button>
+        </EmptyState>
+      ) : trucks.length === 0 && isDefault(filters) ? (
+        // Day one, and the state this feature launches in: nobody has posted
+        // yet. The only thing this screen can usefully ask for is supply.
+        <EmptyState
+          title="No trucks listed yet"
+          hint="Driving a leg empty? Post it — it takes about a minute and dispatchers on this board will see it."
+        >
+          <a className="btn btn-primary btn-sm" href={api("/post/truck")}>
+            Post truck space
+          </a>
+        </EmptyState>
+      ) : trucks.length === 0 ? (
+        <EmptyState
+          title="No trucks match this search"
+          hint="Trucks are listed by drivers with an empty leg, and there are far fewer of them than jobs. Widening the lane or the dates is usually what finds one."
+        >
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setFilters(clearedFilters(filters))}
+          >
+            Clear filters
+          </button>
+        </EmptyState>
+      ) : (
+        <TruckList
+          trucks={trucks}
+          selectedId={selectedTruckId}
+          hoveredId={hoveredTruckId}
+          now={now}
+          onSelect={openTruck}
+          onHover={setHoveredTruckId}
+        />
+      )}
+    </>
+  );
 
   const listBody = (
     <>
@@ -597,8 +988,22 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     </>
   );
 
-  const detail =
-    selectedId != null ? (
+  const detail = selectedTruckId != null ? (
+    <TruckDetail
+      truck={selectedTruck}
+      truckId={selectedTruckId}
+      totalInList={truckShown?.count ?? trucks.length}
+      signedIn={signedIn}
+      demoMode={demoMode}
+      role={role}
+      userId={userId}
+      viewer={current}
+      autoContact={truckAutoContact}
+      mobile={mobile}
+      onClose={closeTruck}
+      onChanged={() => void searchTrucksNow()}
+    />
+  ) : selectedId != null ? (
       <LoadDetail
         job={selectedJob}
         jobId={selectedId}
@@ -783,7 +1188,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
             padded={detail == null}
             handle={<div className="w-full pt-[var(--sp-2)]">{header}</div>}
           >
-            {detail ?? listBody}
+            {detail ?? (listKind === "trucks" ? truckBody : listBody)}
           </BottomSheet>
         </div>
       </div>
@@ -827,12 +1232,55 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
                 {header}
               </header>
               <div ref={listScroller} className="min-h-0 flex-1 overflow-y-auto p-[var(--sp-3)]">
-                {listBody}
+                {listKind === "trucks" ? truckBody : listBody}
               </div>
             </>
           )}
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * One of the two list tabs.
+ *
+ * A count of `null` means "not known yet" and prints nothing, rather than a
+ * confident zero next to a request that has not answered. A count of 0 is a
+ * real answer and is printed.
+ */
+function Tab({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number | null;
+  active: boolean;
+  onClick(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className="chip chip-button"
+      aria-pressed={active}
+      onClick={onClick}
+      style={{
+        background: active ? "var(--accent-soft)" : "transparent",
+        color: active ? "var(--accent)" : "var(--muted)",
+        fontWeight: active ? 600 : 500,
+        minHeight: "var(--tap-min)",
+        paddingInline: "var(--sp-3)",
+      }}
+    >
+      {label}
+      {count != null && (
+        <span className="nums" style={{ opacity: 0.85 }}>
+          {" "}
+          ({count.toLocaleString("en-US")})
+        </span>
+      )}
+    </button>
   );
 }

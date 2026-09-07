@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, jobIdFrom, notFound } from "@/lib/api";
 import { HttpError, isAdminActor, requireUser } from "@/lib/auth";
-import { queryOne } from "@/lib/db";
-import { isTruckVisible } from "@/lib/loads/truckQuery";
+import { truckOwner } from "@/lib/loads/truckQuery";
 import { updateWebTruck, MANUAL_TRUCK_STATUSES, WebTruckValidationError } from "@/lib/pipeline/web";
 
 /**
@@ -40,16 +39,10 @@ export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ id: s
     badRequest(`Status must be one of: ${MANUAL_TRUCK_STATUSES.join(", ")}`);
   }
 
-  const visible = await isTruckVisible(truckId, "public", {
+  const owner = await truckOwner(truckId, "public", {
     userId: user.id,
     includeDemo: isAdminActor(user),
   });
-  if (!visible) notFound("Truck not found");
-
-  const owner = await queryOne<{ posted_by: number | null }>(
-    `SELECT posted_by FROM trucks WHERE id = $1`,
-    [truckId],
-  );
   if (!owner) notFound("Truck not found");
   if (!isAdminActor(user) && owner.posted_by !== user.id) {
     throw new HttpError(403, "You can only update trucks you posted");
