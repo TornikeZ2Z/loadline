@@ -27,6 +27,7 @@ import type { Role } from "@/lib/session";
 import {
   boardDay,
   deliverByLabel,
+  distanceCaveat,
   formatCf,
   formatPrice,
   freshnessLabel,
@@ -36,6 +37,7 @@ import {
   readyLabel,
   requirementChip,
   senderLine,
+  twinLabel,
   TAG_LABELS,
 } from "@/lib/loads/present";
 import { ContactGate } from "./ContactGate";
@@ -196,6 +198,11 @@ export function LoadDetail({
   const requirement = requirementChip(row.requirements);
   const trip = data?.distances?.trip ?? null;
   const toPickup = data?.distances?.toPickup ?? null;
+  // Two caveats, two spans. The pickup→delivery leg can be blurred by either
+  // end; the viewer→pickup leg only by the pickup. Both are independent of
+  // whether a road route came back — see `distanceCaveat`.
+  const tripCaveat = distanceCaveat(row, "trip");
+  const nearCaveat = distanceCaveat(row, "toPickup");
   // The public copy of the post is masked by the server and masked again below;
   // the revealed copy is the original the gate just handed back, so it is shown
   // as written. Masking that a second time would redact the very number the
@@ -204,6 +211,14 @@ export function LoadDetail({
   const revealedBody = revealed?.sourceBody ?? null;
   const revealedLines = revealedBody?.split("\n") ?? null;
   const sourceBody = revealedBody ?? data?.source?.body ?? null;
+
+  // Cross-sender twins. The chip counts postings INCLUDING this one
+  // (`dup_count`, computed by the server from `dup_group_id`); the list further
+  // down is the OTHER rows in that group, so it is one shorter. The two can
+  // disagree for a moment while the detail fetch is in flight, because the chip
+  // comes from the list row and the rows come from the response.
+  const twin = twinLabel(row.dup_count);
+  const twins = data?.duplicates ?? [];
 
   /**
    * The gate. On a phone it is NOT rendered here — see the bar below the
@@ -256,6 +271,11 @@ export function LoadDetail({
                 Unverified
               </Chip>
             )}
+            {twin && (
+              <Chip tone="approx" title={twin.title}>
+                {twin.label}
+              </Chip>
+            )}
             <PrecisionNote precision={row.pickup_precision} />
             {row.pickup_precision !== row.delivery_precision && (
               <PrecisionNote precision={row.delivery_precision} />
@@ -282,9 +302,14 @@ export function LoadDetail({
           </div>
           <div>
             <div className="label">Price</div>
+            {/* The detail has room the card's price slot does not, so it spends
+                it on the next step rather than on more words for the same fact:
+                the card states what is missing, this states who can supply it,
+                with the contact gate five sections below. Not "Negotiable" and
+                not "Make offer" -- neither is a thing the post said. */}
             {price.tone === "muted" ? (
               <div className="text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
-                Not stated — ask
+                Not stated — ask the sender
               </div>
             ) : (
               <>
@@ -310,17 +335,36 @@ export function LoadDetail({
             note={ready.text}
             noteTitle={ready.title}
           />
+          {/* Two independent statements, deliberately not merged.
+              WHAT KIND OF NUMBER: a road route, a straight line, or none at all
+              -- the provider either answered or it did not.
+              HOW GOOD THE ENDS ARE: a post that never named a city is measured
+              to a state centroid, and a road route to a centroid is still a
+              route to a made-up address. This job is the live example: an exact
+              Kearny pickup, "SC 29588" that resolved only to the state, and a
+              confident-looking "726 mi by road" between them.
+              A job can be any of the four combinations, so the caveat rides
+              alongside rather than replacing the kind. */}
           <div
             className="my-[var(--sp-1)] ml-[5px] border-l border-dashed pl-[var(--sp-4)] text-(length:--fs-sm)"
             style={{ borderColor: "var(--border-strong)", color: "var(--muted)", minHeight: 28 }}
+            title={tripCaveat?.title ?? undefined}
           >
             {trip
-              ? `${Math.round(trip.miles).toLocaleString()} mi by road · ${formatDuration(trip.minutes)} driving`
+              ? `${tripCaveat ? "≈ " : ""}${Math.round(trip.miles).toLocaleString()} mi by road · ${formatDuration(trip.minutes)} driving`
               : data == null
                 ? "checking road distance…"
                 : row.trip_miles != null
-                  ? `${Math.round(row.trip_miles).toLocaleString()} mi straight line`
+                  ? `${tripCaveat ? "≈ " : ""}${Math.round(row.trip_miles).toLocaleString()} mi straight line`
                   : "Distance not available"}
+            {/* Only where there is a number to qualify: "Distance not available
+                to an approximate delivery" says nothing the first half did not. */}
+            {tripCaveat && (trip != null || row.trip_miles != null) && (
+              <span style={{ color: "var(--approx)" }}>
+                {" · "}
+                {tripCaveat.note}
+              </span>
+            )}
           </div>
           <Stop
             label="Delivery"
@@ -334,11 +378,15 @@ export function LoadDetail({
         <section className="mt-[var(--sp-5)] grid grid-cols-2 gap-[var(--sp-2)]">
           <Fact label="From you">
             {toPickup ? (
-              <span className="nums">
+              <span className="nums" title={nearCaveat?.title ?? undefined}>
+                {nearCaveat ? "≈ " : ""}
                 {Math.round(toPickup.miles).toLocaleString()} mi · {formatDuration(toPickup.minutes)} to pickup
               </span>
             ) : row.distance_miles != null ? (
-              <span className="nums">{Math.round(row.distance_miles).toLocaleString()} mi straight line</span>
+              <span className="nums" title={nearCaveat?.title ?? undefined}>
+                {nearCaveat ? "≈ " : ""}
+                {Math.round(row.distance_miles).toLocaleString()} mi straight line
+              </span>
             ) : (
               <button
                 type="button"
@@ -352,6 +400,14 @@ export function LoadDetail({
               >
                 Set your location to see this
               </button>
+            )}
+            {/* Same caveat as the timeline's, worded for this leg. The box has
+                the room for the words; the card, which shows the same number,
+                has only the "≈" and the tooltip. */}
+            {nearCaveat && (toPickup != null || row.distance_miles != null) && (
+              <div className="text-(length:--fs-sm)" style={{ color: "var(--approx)" }}>
+                {nearCaveat.note}
+              </div>
             )}
           </Fact>
 
@@ -468,10 +524,44 @@ export function LoadDetail({
           </section>
         )}
 
-        {(data?.duplicates?.length ?? 0) > 0 && (
-          <p className="mt-[var(--sp-2)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-            Also posted by another sender
-          </p>
+        {/* The other postings of what looks like this same load.
+            "Also posted by another sender" was the whole of this before, which
+            told a driver a fact they could do nothing with: not who, not what
+            the other posting says, not whether it is worth the second call. The
+            rows are already in the response, phone-free like every other public
+            row, so this prints the two things that decide it -- what the other
+            sender is offering, and how recently they said it. We do not merge
+            them and we do not pick one: the match is lane, delivery ZIP and
+            cubic feet, which is strong evidence and not proof, and the terms on
+            the two rows can genuinely differ. */}
+        {twins.length > 0 && (
+          <section className="mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]">
+            <div className="label">Also posted by another sender</div>
+            <ul className="flex flex-col gap-[var(--sp-1)]">
+              {twins.map((d) => {
+                const dp = formatPrice(d);
+                const dr = readyLabel(d, today);
+                return (
+                  <li key={d.id} className="text-(length:--fs-base)">
+                    <span className="font-semibold">{senderLine(d)}</span>
+                    <span style={{ color: "var(--muted)" }}>
+                      {" · "}
+                      {dp.headline}
+                      {" · "}
+                      {dr.text}
+                      {" · "}
+                      {freshnessLabel(d, now).text}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+              Same pickup, delivery ZIP and size, posted within a week. Both stay
+              on the board as posted — MoverMesh cannot confirm they are the same
+              freight, so it does not merge them or choose between them.
+            </p>
+          </section>
         )}
 
         {/* 8 — manage */}
