@@ -29,6 +29,30 @@
  *    state centroid is drawn as a hollow amber ring and says so on hover.
  *    Dropping it would hide real inventory; drawing it solid would be a lie.
  *
+ *  - **Clicking a pile opens it, and how depends on the pile.** Aggregation
+ *    hides two completely different situations behind one dot, and they need
+ *    opposite answers:
+ *
+ *      * *One real position.* Eleven jobs out of one Rochester warehouse share
+ *        a coordinate because they genuinely share a warehouse. No amount of
+ *        zoom separates them, and fanning them out would draw eleven positions
+ *        that do not exist. What actually differs between those eleven jobs is
+ *        **where they go**, so the map draws that: the other end of each one,
+ *        with the warehouse kept on screen as the anchor.
+ *      * *Several real positions that merely round together.* Markers group at
+ *        three decimals (~110 m), so two separate addresses can land on one
+ *        dot. Those **fan out** on leader lines and become separately
+ *        hoverable and clickable -- honest, because every position drawn is a
+ *        position the data asserts.
+ *
+ *    `PointGroup.spots` is the one thing that decides which: length 1 is the
+ *    first case, more is the second.
+ *
+ *  - **The camera never claims more precision than the row.** A city centroid
+ *    framed at street zoom is a lie told by the viewport rather than by the
+ *    dot, so every zoom this component chooses is capped by
+ *    `maxZoomFor(precision)` -- z10.5 for a city, z5.5 for a state centroid.
+ *
  *  - **The selected route is the real road**, from HERE's truck router, fetched
  *    from `/api/loads/:id/route` and cached on the row. One routing call per
  *    job, ever -- never for a list, a hover, or this points view. With no key
@@ -61,10 +85,13 @@ import {
   endPoint,
   groupSummary,
   idsOf,
+  maxZoomFor,
+  maxZoomOver,
   pointRadius,
   RADIUS_STOPS,
   RADIUS_ZOOM,
   type PointGroup,
+  type PointSpot,
 } from "@/lib/geo/points";
 
 export interface LoadMapProps {
@@ -79,6 +106,15 @@ export interface LoadMapProps {
   onStateClick(st: string): void;
   /** A marker holding several jobs was clicked: narrow the list to exactly these. */
   onGroupClick(ids: number[], label: string): void;
+  /**
+   * The list is currently narrowed to one place. The map opens that state and
+   * the list's own chip can close it, so the map has to follow when it does --
+   * otherwise dismissing the chip leaves the map looking inside a marker with
+   * a full list behind it and no way back that agrees with what is on screen.
+   */
+  placeActive?: boolean;
+  /** The map is done looking inside a marker: show every job again. */
+  onPlaceClear?(): void;
   searchAsMove: boolean;
   onSearchAsMoveChange(v: boolean): void;
   onBoundsChange(b: BoundsInput | null): void;
@@ -184,7 +220,7 @@ const COUNT_SLOTS: Array<[number, number]> = [
 /** Breathing room around a placed label, in px. */
 const LABEL_PAD = 3;
 
-type LabelKind = "route" | "count" | "state";
+type LabelKind = "route" | "count" | "state" | "focus";
 
 interface MapLabel {
   kind: LabelKind;
@@ -503,6 +539,106 @@ function bboxOf(coords: [number, number][]): [[number, number], [number, number]
   ];
 }
 
+/* ------------------------- looking inside a marker ------------------------
+ *
+ * See the two cases in the file header. `Focus` is what the viewer clicked;
+ * everything else is derived from it and from the current result set, so a new
+ * search cannot leave the map inside a marker that no longer exists.
+ */
+interface Focus {
+  /** The marker that was clicked. */
+  key: string;
+  /**
+   * Which real position inside it, once the fan is open and a leaf has been
+   * chosen. Null while the fan itself is what is on screen.
+   */
+  spot: string | null;
+}
+
+/** What is on screen because a marker was opened. */
+type FocusView =
+  | { mode: "fan"; group: PointGroup; label: string; ids: number[] }
+  | {
+      mode: "outward";
+      group: PointGroup;
+      /** The one real position the jobs leave from; the group itself when it holds only one. */
+      at: { lng: number; lat: number; approx: boolean; precision: string | null };
+      label: string;
+      ids: number[];
+    };
+
+/** Properties on a fanned-out leaf; the same flat shape `PointProps` uses. */
+interface LeafProps {
+  role: "leaf";
+  key: string;
+  label: string;
+  count: number;
+  cf: number;
+  unsized: number;
+  approx: boolean;
+  ids: string;
+}
+
+function leafProps(spot: PointSpot): LeafProps {
+  return {
+    role: "leaf",
+    key: spot.key,
+    label: spot.label,
+    count: spot.ids.length,
+    cf: spot.cf,
+    unsized: spot.unsized,
+    approx: spot.approx,
+    ids: spot.ids.join(","),
+  };
+}
+
+/**
+ * The fan: every real position under one marker, pushed out to where a finger
+ * can hit it, each still tied to the coordinate it actually has.
+ *
+ * Screen space, not geography -- the whole reason these need separating is
+ * that they are within ~110 m of each other, so any fixed geographic offset
+ * would either overlap at one zoom or fly apart at another. Recomputed while
+ * the map moves; the LEADER LINE is what keeps it honest, because it runs from
+ * the position the data asserts to the disc that stands in for it.
+ */
+function fanFeatures(m: maplibregl.Map, group: PointGroup): FeatureCollection {
+  const centre = m.project([group.lng, group.lat]);
+  const n = group.spots.length;
+  // Enough arc between neighbours to hit one without hitting the next, and
+  // capped so the fan stays a thing hanging off one dot rather than a
+  // constellation of its own.
+  const radius = Math.min(92, 30 + n * 8);
+  const features: FeatureCollection["features"] = [];
+  group.spots.forEach((spot, i) => {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    const at = m.unproject([
+      centre.x + radius * Math.cos(angle),
+      centre.y + radius * Math.sin(angle),
+    ]);
+    features.push({
+      type: "Feature",
+      properties: {},
+      geometry: {
+        type: "LineString",
+        // From where it really is, to where it is being shown. Both ends
+        // matter: the first is the claim, the second is only the handle.
+        coordinates: [
+          [spot.lng, spot.lat],
+          [at.lng, at.lat],
+        ],
+      },
+    });
+    features.push({
+      type: "Feature",
+      id: spot.key,
+      properties: leafProps(spot),
+      geometry: { type: "Point", coordinates: [at.lng, at.lat] },
+    });
+  });
+  return { type: "FeatureCollection", features };
+}
+
 /**
  * Normalise whatever was thrown into an `Error` the boundary can print.
  *
@@ -560,6 +696,8 @@ export function LoadMap({
   filteredSummary,
   loading = false,
   error = false,
+  placeActive = false,
+  onPlaceClear,
 }: LoadMapProps) {
   const container = useRef<HTMLDivElement>(null);
   /** The canvas plus everything floating over it; the declutter frame. */
@@ -569,6 +707,16 @@ export function LoadMap({
   const [inView, setInView] = useState<{ count: number; cf: number; unsized: number } | null>(null);
   const [zoom, setZoom] = useState(4);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
+  /** A marker the viewer opened: see `Focus` and the file header. */
+  const [focus, setFocus] = useState<Focus | null>(null);
+  /**
+   * One fanned-out leaf under the pointer, and the spot on screen it was
+   * pushed out to -- the card is pinned to the disc the pointer is on, not to
+   * the coordinate it stands for, which is up to 92 px away under the marker.
+   */
+  const [hoverLeaf, setHoverLeaf] = useState<{ spot: PointSpot; at: [number, number] } | null>(
+    null,
+  );
   const [route, setRoute] = useState<{ id: number; road: RoadRouteResponse } | null>(null);
   const palette = useRef<Palette>(FALLBACK);
   /**
@@ -591,17 +739,25 @@ export function LoadMap({
   // a parent re-render; a remount would drop the viewport the user set.
   const cb = useRef({ onSelect, onHover, onStateClick, onGroupClick, onBoundsChange, searchAsMove });
   cb.current = { onSelect, onHover, onStateClick, onGroupClick, onBoundsChange, searchAsMove };
+  /** How much of the canvas the phone's bottom sheet is covering, for the same reason. */
+  const pad = useRef(bottomPadding);
+  pad.current = bottomPadding;
+  const narrow = useRef(compact);
+  narrow.current = compact;
 
   const stateMarkers = useRef<maplibregl.Marker[]>([]);
   const placeMarkers = useRef<maplibregl.Marker[]>([]);
   const countMarkers = useRef<maplibregl.Marker[]>([]);
+  /** The name of the place a marker was opened from, pinned to its anchor. */
+  const focusMarkers = useRef<maplibregl.Marker[]>([]);
   const labelMarkers = useRef<maplibregl.Marker[]>([]);
   /** Everything the declutter pass places, across all three marker groups. */
   const labels = useRef<MapLabel[]>([]);
   /** Rendered size per element class + text; a pan must not read layout. */
   const labelSize = useRef(new Map<string, [number, number]>());
   const popup = useRef<maplibregl.Popup | null>(null);
-  const stated = useRef<string[]>([]);
+  /** Every feature-state we have set, and where, so it can be cleared exactly. */
+  const stated = useRef<Array<{ source: string; key: string }>>([]);
   const priorBounds = useRef<maplibregl.LngLatBounds | null>(null);
   /** The `fitKey` the current viewport was fitted for; null until the first fit. */
   const lastFit = useRef<string | null>(null);
@@ -652,10 +808,63 @@ export function LoadMap({
   }, [fitKey, towardHome, viewer, home]);
 
   const built = useMemo(() => buildGroups(jobs, end), [jobs, end]);
+
+  /**
+   * What a click on a marker opened, resolved against the CURRENT result set.
+   *
+   * Derived rather than stored, so a search that no longer contains the place
+   * simply stops focusing it instead of leaving the map inside a marker that
+   * is not on it any more.
+   */
+  const focused = useMemo<FocusView | null>(() => {
+    if (!focus) return null;
+    const group = built.byKey.get(focus.key);
+    if (!group) return null;
+    if (focus.spot) {
+      const spot = group.spots.find((s) => s.key === focus.spot);
+      return spot
+        ? { mode: "outward", group, at: spot, label: spot.label, ids: spot.ids }
+        : null;
+    }
+    // The fan is only drawn where the positions really do differ. One position
+    // holding eleven jobs is the other case, and fanning it would invent ten
+    // coordinates -- which is the false precision this whole board avoids.
+    return group.spots.length > 1
+      ? { mode: "fan", group, label: group.label, ids: group.ids }
+      : { mode: "outward", group, at: group, label: group.label, ids: group.ids };
+  }, [focus, built]);
+
+  /** Which end the map is DRAWING: the other one, while looking out of a place. */
+  const drawnEnd: MapEnd =
+    focused?.mode === "outward" ? (end === "pickup" ? "delivery" : "pickup") : end;
+
+  /**
+   * Where the focused jobs go -- the far end of each one, grouped the same way
+   * the board's own markers are, so a warehouse sending eleven loads to nine
+   * towns draws nine dots with their own tallies.
+   */
+  const outward = useMemo(() => {
+    if (focused?.mode !== "outward") return null;
+    const wanted = new Set(focused.ids);
+    return buildGroups(
+      jobs.filter((j) => wanted.has(j.id)),
+      end === "pickup" ? "delivery" : "pickup",
+    );
+  }, [focused, jobs, end]);
+
+  /** The markers actually on screen: the board's, or the focused place's. */
+  const drawn = outward ?? built;
+  /** The source those markers live in, for feature-state and hit-testing. */
+  const drawnSource = outward ? "focus" : "points";
+
   // Read by the map's own event handlers, which are registered once and must
   // not close over a stale result set.
-  const groups = useRef(built.groups);
-  groups.current = built.groups;
+  const groups = useRef(drawn.groups);
+  groups.current = drawn.groups;
+  const byKey = useRef(built.byKey);
+  byKey.current = built.byKey;
+  const focusRef = useRef<FocusView | null>(focused);
+  focusRef.current = focused;
 
   // A single boolean rather than the raw zoom: `zoom` ticks on every frame of
   // every wheel gesture, and rebuilding a screenful of HTML markers per frame
@@ -974,6 +1183,9 @@ export function LoadMap({
       // know how far along the line each pixel is.
       instance.addSource("road", { type: "geojson", data: EMPTY, lineMetrics: true });
       instance.addSource("toward", { type: "geojson", data: EMPTY });
+      // What a marker holds, once it has been opened: either the fan of real
+      // positions under it, or the far end of every job standing at it.
+      instance.addSource("focus", { type: "geojson", data: EMPTY, promoteId: "key" });
 
       // The route corridor sits under everything: it is context, not content.
       instance.addLayer({
@@ -1144,6 +1356,77 @@ export function LoadMap({
         },
       });
 
+      /* ------------------- what is inside an opened marker ------------------
+       *
+       * The leader line first, so a leaf always sits on top of its own tether.
+       * It is thin, dashed and quiet on purpose: it is not a lane, not a road
+       * and not a claim about travel. It says only "the disc you are about to
+       * click really stands here", which is the one thing that makes fanning a
+       * marker apart honest rather than decorative.
+       */
+      instance.addLayer({
+        id: "focus-leader",
+        type: "line",
+        source: "focus",
+        filter: ["==", ["geometry-type"], "LineString"],
+        paint: {
+          // The mark's own colour, not a neutral hairline: a 1 px grey thread
+          // measured out at 0.45 over OpenStreetMap's road web at city zoom is
+          // invisible, and an invisible tether turns an honest fan back into
+          // three dots in places nothing stands. Dashed, because it is a
+          // pointer and not a route.
+          "line-color": colors.pickup,
+          "line-width": 1.5,
+          "line-dasharray": [2, 2],
+          "line-opacity": 0.75,
+        },
+      });
+      // The place the viewer opened, while its jobs' far ends are on screen.
+      // Hollow and ringed rather than filled: it is not one of the marks being
+      // counted, it is where they are being counted FROM.
+      instance.addLayer({
+        id: "focus-anchor",
+        type: "circle",
+        source: "focus",
+        filter: ["==", ["get", "role"], "anchor"],
+        paint: {
+          "circle-radius": 8,
+          "circle-color": "#ffffff",
+          "circle-opacity": 0.9,
+          "circle-stroke-width": 3,
+          "circle-stroke-color": colors.accentHover,
+        },
+      });
+      // The same mark the board uses, at the same sizes, so a destination
+      // holding 1,900 cf reads against a pickup holding 6,006 cf without
+      // anybody having to learn a second vocabulary. Two extra pixels of
+      // radius because a leaf is a hit target as well as a mark.
+      instance.addLayer({
+        id: "focus-points",
+        type: "circle",
+        source: "focus",
+        filter: ["==", ["get", "role"], "leaf"],
+        paint: {
+          "circle-color": colors.pickup,
+          "circle-radius": zoomRadius(2),
+          "circle-blur": APPROX_BLUR,
+          "circle-opacity": ["case", ["get", "approx"], presence(0.72), presence(0.94)],
+          "circle-stroke-width": [
+            "case",
+            ["boolean", ["feature-state", "active"], false],
+            3,
+            2,
+          ],
+          "circle-stroke-color": [
+            "case",
+            ["boolean", ["feature-state", "active"], false],
+            colors.accentHover,
+            "#ffffff",
+          ],
+          "circle-stroke-opacity": presence(1),
+        },
+      });
+
       // The selected job's road, drawn ON TOP of the points: it is the one
       // thing on screen that is about a decision rather than an inventory.
       // A wide, very faint wash under the casing: without it the route is a
@@ -1247,14 +1530,86 @@ export function LoadMap({
           cb.current.onSelect(ids[0]!);
           return;
         }
-        // A group is not a job. Clicking it says "show me these", and the map
-        // goes in far enough that the members stop being one dot.
-        cb.current.onGroupClick(ids, String(feature?.properties?.label ?? "this place"));
-        const at = (feature?.geometry as GeoPoint | undefined)?.coordinates as
-          | [number, number]
-          | undefined;
-        if (at) {
-          instance.easeTo({ center: at, zoom: Math.max(instance.getZoom() + 2.5, 9), duration: 600 });
+        // A group is not a job. Clicking it says "show me these" -- and then
+        // shows what is inside it, which is one of two completely different
+        // pictures depending on whether those jobs share a real position or
+        // merely share a rounding. See the file header.
+        const key = String(feature?.properties?.key ?? "");
+        const group = byKey.current.get(key);
+        if (!group) return;
+        cb.current.onGroupClick(ids, group.label);
+        setFocus({ key, spot: null });
+
+        // The camera may never claim more than the datum. This is the
+        // overshoot the CTO hit: the old line was an unbounded +2.5, so a
+        // marker clicked from a city zoom flew to individual driveways for a
+        // coordinate known only to the city.
+        const cap = maxZoomFor(group.precision);
+        const here = instance.getZoom();
+        const target = Math.min(Math.max(here + 2.5, 9), Math.max(cap, here));
+        // The fan needs room to open; the outward view frames its own
+        // destinations a moment later and must not be fought for the camera.
+        if (group.spots.length > 1) {
+          instance.easeTo({
+            center: [group.lng, group.lat],
+            zoom: target,
+            // Into the middle of what can actually be SEEN, which on a phone
+            // is neither the middle of the canvas nor the middle of the
+            // window. The sheet floats over the lower half of the canvas, so
+            // the fan would open behind it; the "on screen" panel holds the
+            // left 234 px of a 390 px map, so a 54 px fan centred in what is
+            // left would put two of its three leaves under a glass card.
+            offset: [narrow.current ? 90 : 0, -pad.current / 2],
+            duration: 600,
+          });
+        }
+      });
+
+      /* ---------------- the fan's leaves, and the far ends ----------------- */
+      instance.on("mousemove", "focus-points", (e: MapLayerMouseEvent) => {
+        instance.getCanvas().style.cursor = "pointer";
+        const props = e.features?.[0]?.properties;
+        const key = props?.key as string | undefined;
+        const ids = idsOf(props?.ids);
+        const view = focusRef.current;
+        if (view?.mode === "fan") {
+          // A leaf is a position inside a marker and has no group of its own,
+          // so it carries its own card.
+          const spot = view.group.spots.find((s) => s.key === key);
+          const at = (e.features?.[0]?.geometry as GeoPoint | undefined)?.coordinates as
+            | [number, number]
+            | undefined;
+          setHoverLeaf(spot && at ? { spot, at } : null);
+        } else {
+          // In the outward view a leaf IS a group -- of the far end -- so the
+          // ordinary hover card already knows how to describe it.
+          setHoverKey(key ?? null);
+        }
+        cb.current.onHover(ids.length === 1 ? ids[0]! : null);
+      });
+      instance.on("mouseleave", "focus-points", () => {
+        instance.getCanvas().style.cursor = "";
+        setHoverLeaf(null);
+        setHoverKey(null);
+        cb.current.onHover(null);
+      });
+      instance.on("click", "focus-points", (e: MapLayerMouseEvent) => {
+        const props = e.features?.[0]?.properties;
+        const ids = idsOf(props?.ids);
+        if (!ids.length) return;
+        if (ids.length === 1) {
+          cb.current.onSelect(ids[0]!);
+          return;
+        }
+        const key = String(props?.key ?? "");
+        const label = String(props?.label ?? "this place");
+        cb.current.onGroupClick(ids, label);
+        // A leaf of the fan is one of the real positions: opening it is the
+        // first case all over again, one level down. A far-end marker is
+        // already the answer to "where do these go", so clicking it only
+        // narrows the list.
+        if (focusRef.current?.mode === "fan") {
+          setFocus((f) => (f ? { ...f, spot: key } : f));
         }
       });
 
@@ -1297,7 +1652,7 @@ export function LoadMap({
     });
 
     return () => {
-      for (const list of [stateMarkers, placeMarkers, labelMarkers, countMarkers]) {
+      for (const list of [stateMarkers, placeMarkers, labelMarkers, countMarkers, focusMarkers]) {
         for (const m of list.current) m.remove();
         list.current = [];
       }
@@ -1316,9 +1671,11 @@ export function LoadMap({
     const m = map.current;
     if (!ready || !m) return;
     (m.getSource("points") as GeoJSONSource | undefined)?.setData(built.features);
-    // A new result set changes the totals even when the viewport does not.
+    // A new result set changes the totals even when the viewport does not --
+    // and so does opening a place, which swaps the whole set of marks the
+    // panel is counting without the camera moving at all.
     measureInView();
-  }, [built, ready, measureInView]);
+  }, [built, drawn, ready, measureInView]);
 
   // Pickups and deliveries are different colours because they are different
   // questions; the layer is built once, so the colour is repainted here.
@@ -1331,6 +1688,161 @@ export function LoadMap({
     m.setPaintProperty("points", "circle-color", solid);
     m.setPaintProperty("points-lift", "circle-color", solid);
   }, [end, ready]);
+
+  /* ------------------- what is inside the opened marker --------------------
+   *
+   * One source, two pictures, and the layer order does the rest. The fan is
+   * recomputed while the map moves because its leaves are placed in SCREEN
+   * space (see `fanFeatures`); the outward view is real geography and is set
+   * once per focus.
+   */
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+    const source = m.getSource("focus") as GeoJSONSource | undefined;
+    if (!source) return;
+
+    // The board's own dots are the OTHER end while the outward view is up, and
+    // a map showing pickups and deliveries in one frame answers neither
+    // question. The place itself stays, as the anchor.
+    const hideBoard = focused?.mode === "outward";
+    for (const id of ["points", "points-lift", "points-active", "points-active-gap"]) {
+      if (m.getLayer(id)) {
+        m.setLayoutProperty(id, "visibility", hideBoard ? "none" : "visible");
+      }
+    }
+    const mark = drawnEnd === "pickup" ? palette.current.pickup : palette.current.delivery;
+    if (m.getLayer("focus-points")) m.setPaintProperty("focus-points", "circle-color", mark);
+    if (m.getLayer("focus-leader")) m.setPaintProperty("focus-leader", "line-color", mark);
+
+    for (const marker of focusMarkers.current) marker.remove();
+    focusMarkers.current = [];
+    setLabels("focus", []);
+
+    if (!focused) {
+      source.setData(EMPTY);
+      return;
+    }
+
+    if (focused.mode === "outward") {
+      // The ring says "not one of these"; only a name says which place it is.
+      // Without it the bar at the top of the map is the only thing tying nine
+      // scattered dots to the warehouse they came out of, and the bar is not
+      // where the eye is.
+      const { marker, el } = endMarker(m, [focused.at.lng, focused.at.lat], focused.label);
+      focusMarkers.current.push(marker);
+      setLabels("focus", [
+        {
+          kind: "focus",
+          marker,
+          el,
+          lng: focused.at.lng,
+          lat: focused.at.lat,
+          anchor: "left",
+          base: [14, 0],
+          // The subject of the whole view: nothing on screen outranks it
+          // except the two ends of an open job.
+          weight: Number.MAX_SAFE_INTEGER - 1,
+          fixed: true,
+        },
+      ]);
+
+      source.setData({
+        type: "FeatureCollection",
+        features: [
+          ...(outward?.features.features ?? []).map((f) => ({
+            ...f,
+            id: f.properties.key,
+            properties: { ...f.properties, role: "leaf" },
+          })),
+          {
+            type: "Feature",
+            properties: { role: "anchor" },
+            geometry: { type: "Point", coordinates: [focused.at.lng, focused.at.lat] },
+          },
+        ],
+      });
+      return;
+    }
+
+    // The fan: laid out now, and again on every frame the camera moves.
+    const paint = () => source.setData(fanFeatures(m, focused.group));
+    paint();
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        paint();
+      });
+    };
+    m.on("move", schedule);
+    return () => {
+      m.off("move", schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [focused, outward, drawnEnd, ready, setLabels]);
+
+  /* ---------------------- framing what was opened -------------------------
+   *
+   * The outward view is the only thing on this map whose subject is off
+   * screen by default: a warehouse in Minnesota sending loads to nine states
+   * is not visible in the frame that was showing the warehouse. So it fits to
+   * the destinations AND the place they leave from -- and remembers what the
+   * viewer was looking at, because closing this has to give it back.
+   */
+  const focusPrior = useRef<maplibregl.LngLatBounds | null>(null);
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+    if (focused?.mode !== "outward" || !outward) {
+      if (focusPrior.current) {
+        m.fitBounds(focusPrior.current, { duration: 500 });
+        focusPrior.current = null;
+      }
+      return;
+    }
+    const coords: [number, number][] = outward.groups.map((g) => [g.lng, g.lat]);
+    coords.push([focused.at.lng, focused.at.lat]);
+    const box = bboxOf(coords);
+    if (!box) return;
+    if (!focusPrior.current) focusPrior.current = m.getBounds();
+    m.fitBounds(box, {
+      padding: { top: 70, right: 60, bottom: 60 + bottomPadding, left: 60 },
+      duration: 600,
+      // Every destination here is a real row with a real precision, and one
+      // job going one town over must not frame that town at street zoom.
+      maxZoom: Math.min(11, maxZoomOver(outward.groups.map((g) => g.precision))),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, outward, ready]);
+
+  /**
+   * The list's chip and the map's own Back button close the same state, so
+   * whichever is pressed, both come back. A new search clears `place` in the
+   * Board, which lands here as the same signal.
+   */
+  useEffect(() => {
+    if (!placeActive && focus) setFocus(null);
+  }, [placeActive, focus]);
+
+  /** Escape is the other obvious way out, and costs nothing to offer. */
+  useEffect(() => {
+    if (!focus) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setFocus(null);
+      onPlaceClear?.();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focus, onPlaceClear]);
+
+  const leaveFocus = useCallback(() => {
+    setFocus(null);
+    setHoverLeaf(null);
+    onPlaceClear?.();
+  }, [onPlaceClear]);
 
   // --- refit when the filter set changes -----------------------------------
   // Keyed on the DATA, not on `fitKey`: the key changes the instant a filter
@@ -1379,7 +1891,17 @@ export function LoadMap({
     }
 
     const box = bboxOf(built.groups.map((g) => [g.lng, g.lat] as [number, number]));
-    m.fitBounds(box ?? CONUS, { padding, duration, maxZoom: 9 });
+    m.fitBounds(box ?? CONUS, {
+      padding,
+      duration,
+      // 9 was the only cap here, which is the right ceiling for a busy search
+      // and the wrong one for a search that narrowed to a single job placed on
+      // a state centroid: fitBounds on one point takes the cap literally, and
+      // z9 over a state centroid draws a neighbourhood the row never claimed.
+      // The cap only ever binds on a small box, so a national frame is
+      // untouched by the precisions inside it.
+      maxZoom: Math.min(9, maxZoomOver(built.groups.map((g) => g.precision))),
+    });
     // Record the key only once there is something real to frame: before the
     // first response lands `built` is empty because nothing has been fetched
     // yet rather than because the search found nothing, and consuming the key
@@ -1393,22 +1915,41 @@ export function LoadMap({
     const m = map.current;
     if (!ready || !m) return;
     const focusId = hoveredId ?? selectedId;
-    const focusKey = hoverKey ?? (focusId != null ? built.keyByJob.get(focusId) : undefined);
+    const focusKey = hoverKey ?? (focusId != null ? drawn.keyByJob.get(focusId) : undefined);
 
-    for (const key of stated.current) {
-      m.setFeatureState({ source: "points", id: key }, { dim: false, active: false });
+    // Whichever source is carrying the marks right now: while a place is open
+    // outward, the board's own dots are hidden and the far ends are the map.
+    for (const { source, key } of stated.current) {
+      m.setFeatureState({ source, id: key }, { dim: false, active: false });
     }
     stated.current = [];
 
+    // A marker whose fan is open has handed its jobs to the leaves. It stays
+    // on screen as the hub the tethers run from -- take it away and three
+    // discs are left floating over nothing -- but it recedes, because the
+    // marks that mean something now are the three real positions.
+    if (focused?.mode === "fan") {
+      m.setFeatureState({ source: "points", id: focused.group.key }, { dim: true, active: false });
+      stated.current.push({ source: "points", key: focused.group.key });
+    }
+
+    // A fanned-out leaf highlights itself rather than the whole marker: it is
+    // the thing under the pointer, and its siblings are 40 px away.
+    if (hoverLeaf) {
+      m.setFeatureState({ source: "focus", id: hoverLeaf.spot.key }, { active: true });
+      stated.current.push({ source: "focus", key: hoverLeaf.spot.key });
+      return;
+    }
+
     if (!focusKey) return;
-    for (const group of built.groups) {
+    for (const group of drawn.groups) {
       m.setFeatureState(
-        { source: "points", id: group.key },
+        { source: drawnSource, id: group.key },
         { dim: group.key !== focusKey, active: group.key === focusKey },
       );
-      stated.current.push(group.key);
+      stated.current.push({ source: drawnSource, key: group.key });
     }
-  }, [hoveredId, hoverKey, selectedId, built, ready]);
+  }, [hoveredId, hoverKey, hoverLeaf, selectedId, drawn, drawnSource, focused, ready]);
 
   /* ------------------------------ what is hovered --------------------------
    *
@@ -1424,15 +1965,23 @@ export function LoadMap({
    * is drawn for the job a driver opens -- deliberately, once, and it stays.
    */
   const hovered = useMemo(() => {
-    const key = hoverKey ?? (hoveredId != null ? built.keyByJob.get(hoveredId) : undefined);
-    const group = key ? built.byKey.get(key) : undefined;
+    // A fanned-out leaf is a real position with no group of its own; it wears
+    // the same card, pinned to the disc rather than to the coordinate, because
+    // the disc is what the pointer is on.
+    if (hoverLeaf) {
+      const spot = hoverLeaf.spot;
+      const single = spot.ids.length === 1 ? (jobs.find((j) => j.id === spot.ids[0]) ?? null) : null;
+      return { key: spot.key, group: spot, single, at: hoverLeaf.at };
+    }
+    const key = hoverKey ?? (hoveredId != null ? drawn.keyByJob.get(hoveredId) : undefined);
+    const group = key ? drawn.byKey.get(key) : undefined;
     if (!group) return null;
     // One job gets its own line -- lane, size, price, readiness -- because that
     // is what the viewer is about to decide on. A place gets the tally.
     const single =
       group.ids.length === 1 ? (jobs.find((j) => j.id === group.ids[0]) ?? null) : null;
-    return { key: group.key, group, single };
-  }, [hoverKey, hoveredId, jobs, built]);
+    return { key: group.key, group, single, at: [group.lng, group.lat] as [number, number] };
+  }, [hoverKey, hoverLeaf, hoveredId, jobs, drawn]);
 
   // --- hover card ----------------------------------------------------------
   useEffect(() => {
@@ -1513,7 +2062,7 @@ export function LoadMap({
       // the mark the card is about.
       offset: Math.round(pointRadius(group.cf, m.getZoom())) + 9,
     })
-      .setLngLat([group.lng, group.lat])
+      .setLngLat(hovered.at)
       .setDOMContent(box)
       .addTo(m);
   }, [hovered, ready]);
@@ -1615,7 +2164,10 @@ export function LoadMap({
       m.fitBounds(box, {
         padding: { top: 60, right: 60, bottom: 60 + bottomPadding, left: 60 },
         duration: 600,
-        maxZoom: 11,
+        // A short job -- Miami to Fort Lauderdale -- fits inside the old flat
+        // 11, and both its ends may be city centroids. The frame is capped by
+        // whichever end is known least precisely.
+        maxZoom: Math.min(11, maxZoomOver([from?.precision, to?.precision])),
       });
     }
 
@@ -1706,8 +2258,15 @@ export function LoadMap({
     countMarkers.current = [];
 
     const next: MapLabel[] = [];
-    for (const group of built.groups) {
+    // The markers actually drawn, which while a place is open outward are the
+    // far ends of its jobs -- a badge counting pickups over a delivery dot
+    // would be the map contradicting itself.
+    for (const group of drawn.groups) {
       if (group.ids.length < 2) continue;
+      // Its own fan is open: the count is now spread across the leaves, and a
+      // badge reading 8 over three discs holding 6, 1 and 1 is arithmetic the
+      // viewer has to do to disbelieve. The bar says which place this is.
+      if (focused?.mode === "fan" && group.key === focused.group.key) continue;
       const el = document.createElement("div");
       if (detailed) {
         // Zoomed in the badge is carrying the place's NAME as well, so it is
@@ -1729,7 +2288,7 @@ export function LoadMap({
         el.className = "map-count nums";
         el.textContent = String(group.ids.length);
       }
-      el.dataset.end = end;
+      el.dataset.end = drawnEnd;
       if (group.approx) el.dataset.approx = "";
       el.title = groupSummary(group);
       const marker = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -12] })
@@ -1759,7 +2318,7 @@ export function LoadMap({
       });
     }
     setLabels("count", next);
-  }, [built, detailed, end, ready, setLabels]);
+  }, [drawn, detailed, drawnEnd, focused, ready, setLabels]);
 
   // --- state-total pills ---------------------------------------------------
   useEffect(() => {
@@ -1767,7 +2326,12 @@ export function LoadMap({
     if (!ready || !m) return;
     for (const marker of stateMarkers.current) marker.remove();
     stateMarkers.current = [];
-    if (detailed) {
+    // Not while a place is open outward: these pills total the WHOLE result on
+    // the end the board is filtering, and the map underneath them is showing
+    // one warehouse's nine destinations. Two different sets, one screen -- and
+    // a pill that filters the board is the wrong control to offer somebody who
+    // is inside a marker.
+    if (detailed || focused?.mode === "outward") {
       setLabels("state", []);
       return;
     }
@@ -1828,7 +2392,7 @@ export function LoadMap({
       });
     }
     setLabels("state", next);
-  }, [jobs, end, detailed, ready, shortPills, setLabels]);
+  }, [jobs, end, detailed, focused, ready, shortPills, setLabels]);
 
   // --- re-place the labels whenever the viewport moves ---------------------
   // On `move`, not `moveend`: markers follow the camera every frame, so waiting
@@ -1876,8 +2440,13 @@ export function LoadMap({
   }, []);
 
   const totalCf = inView?.cf ?? 0;
-  const allShown = inView != null && inView.count >= jobs.length;
-  const notPlotted = jobs.length - built.plotted;
+  // While a place is open outward the panel is counting ITS jobs, not the
+  // board's -- `inView` is measured over whatever `drawn` holds, so the
+  // denominators here have to move with it or the panel would report a
+  // fraction of one set as a fraction of another.
+  const plottable = focused?.mode === "outward" ? focused.ids.length : jobs.length;
+  const allShown = inView != null && inView.count >= plottable;
+  const notPlotted = plottable - drawn.plotted;
 
   // Re-read on every write to the location record, which is what `setAt`
   // stamps -- and not on every render, which on this component means once per
@@ -1931,8 +2500,15 @@ export function LoadMap({
            to one line and its own title: everything hidden here is printed
            again in the list header a thumb's width away, and neither screen
            can afford to say it twice. */
-        className={`glass absolute left-[var(--sp-3)] top-[var(--sp-3)] max-w-[260px] ${compact ? "p-[var(--sp-2)]" : "p-[var(--sp-3)]"}`}
-        title={`Jobs whose ${end} is on screen, and the cubic feet standing there. Hollow markers sit on a state centroid rather than a real address. Jobs without a stated size are counted but add nothing to the total.`}
+        className={`glass absolute left-[var(--sp-3)] max-w-[260px] ${compact ? "p-[var(--sp-2)]" : "p-[var(--sp-3)]"}`}
+        /* The bar that says which marker is open takes the top strip while it
+           is there, and this panel goes under it. Unconditional rather than
+           measured: the bar is centred and this panel is 260 px on the left,
+           so whether they collide depends on the width of the map, and a
+           layout that is correct at 1440 and overlapping at 1024 is the kind
+           of thing nobody sees until a customer does. */
+        style={{ top: focused ? "calc(var(--sp-3) + 72px)" : "var(--sp-3)" }}
+        title={`Jobs whose ${drawnEnd} is on screen, and the cubic feet standing there. Hollow markers sit on a state centroid rather than a real address. Jobs without a stated size are counted but add nothing to the total.`}
       >
         {/* The list header counts the whole result; this counts the viewport.
             Saying which is which costs one small line and stops the two
@@ -2012,10 +2588,14 @@ export function LoadMap({
         )}
         {notPlotted > 0 && (
           <div className="mt-[2px] text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
-            {notPlotted} job{notPlotted === 1 ? " has" : "s have"} no mappable {end}
+            {notPlotted} job{notPlotted === 1 ? " has" : "s have"} no mappable {drawnEnd}
           </div>
         )}
-        {filteredSummary && inView && filteredSummary.count !== inView.count && (
+        {/* Not while a place is open outward: the number on the line above is
+            then a count of that place's destinations, and "of 98 filtered"
+            beneath it invites reading one set as a fraction of the other. The
+            bar at the top of the map already says which set is on screen. */}
+        {focused?.mode !== "outward" && filteredSummary && inView && filteredSummary.count !== inView.count && (
           <div className="text-(length:--fs-xs)" style={{ color: "var(--muted-2)" }}>
             of {filteredSummary.count} filtered
           </div>
@@ -2043,12 +2623,68 @@ export function LoadMap({
           network -- a blocked tile host, a routing provider that timed out --
           and neither one is a reason to take the map away, let alone the board:
           the jobs are plotted either way. Each retries only itself. */}
-      {(tilesDown || noRoad) && (
-        <div className="absolute left-1/2 top-[var(--sp-3)] flex -translate-x-1/2 flex-col items-center gap-[var(--sp-2)]">
+      {(focused || tilesDown || noRoad) && (
+        /* Full width and centred, not `left-1/2` with a translate: an
+           absolutely positioned box with only `left` set shrinks to fit the
+           space from that edge to the right of the map, which on a 390 px
+           phone is 195 px -- and a bar half the screen wide wrapped "Where 11
+           jobs at Rochester, MN go" onto four lines. The strip lets pointer
+           events through; only what is drawn in it takes them. */
+        <div className="pointer-events-none absolute inset-x-0 top-[var(--sp-3)] flex flex-col items-center gap-[var(--sp-2)] px-[var(--sp-3)]">
+          {/* Looking inside a marker is a mode, and a mode with no visible way
+              out is a trap -- the CTO's complaint began with a click that
+              changed the map and left nothing on screen saying what had
+              happened. So this says what is being shown, in the words of the
+              two cases, and carries the way back. Escape does the same, and so
+              does the list's own chip; all three clear one piece of state. */}
+          {focused && (
+            <div
+              data-map-chrome
+              /* Capped in vw rather than in per cent: on a phone the map is
+                 the viewport and this has to leave the "on screen" panel its
+                 corner; on the desktop board the map is 1019 px of 1440 and
+                 the cap is the 420 px, not the ratio. */
+              className="glass pointer-events-auto flex max-w-[min(90vw,420px)] items-center gap-[var(--sp-3)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+            >
+              <div className="min-w-0">
+                <div className="font-semibold" style={{ color: "var(--text)" }}>
+                  {focused.mode === "fan"
+                    ? `${focused.group.spots.length} places on one marker`
+                    : // In Deliveries the marker is where freight ARRIVES, so
+                      // the other end is where it started: "go" would have the
+                      // country pointing the wrong way.
+                      `Where ${focused.ids.length} job${focused.ids.length === 1 ? "" : "s"} at ${focused.label} ${end === "pickup" ? "go" : "come from"}`}
+                </div>
+                {!compact && (
+                  <div className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+                    {focused.mode === "fan"
+                      ? // Said plainly, because the fan's discs are NOT where
+                        // the jobs are: the leader lines are, and a viewer who
+                        // has not been told that will read the ring as data.
+                        `${focused.label} — pulled apart on lines to where each really is`
+                      : outward && outward.groups.length > 0
+                        ? `${outward.groups.length} ${drawnEnd === "delivery" ? "destination" : "origin"}${outward.groups.length === 1 ? "" : "s"}` +
+                          (notPlotted > 0
+                            ? ` · ${notPlotted} with no mappable ${drawnEnd}`
+                            : "")
+                        : // Nothing to draw, said as nothing to draw. The list
+                          // beside this still holds the jobs.
+                          `No ${drawnEnd} on any of these could be placed on a map`}
+                  </div>
+                )}
+              </div>
+              {/* On a phone the map band is 261 px tall at the sheet's default
+                  snap and this bar is at the top of it, so the words that can
+                  go, go. What may not go is the button: it is the way out. */}
+              <button type="button" className="btn btn-sm shrink-0" onClick={leaveFocus}>
+                {compact ? "Back" : "Back to all jobs"}
+              </button>
+            </div>
+          )}
           {tilesDown && (
             <div
               data-map-chrome
-              className="glass flex items-center gap-[var(--sp-3)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+              className="glass pointer-events-auto flex items-center gap-[var(--sp-3)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
               style={{ color: "var(--approx)" }}
             >
               <span>Basemap unavailable — jobs are still plotted.</span>
@@ -2060,7 +2696,7 @@ export function LoadMap({
           {noRoad && (
             <div
               data-map-chrome
-              className="glass px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+              className="glass pointer-events-auto px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
               style={{ color: "var(--approx)" }}
             >
               Road route unavailable — showing a straight line.
@@ -2069,18 +2705,19 @@ export function LoadMap({
         </div>
       )}
 
-      {/* Hidden on a phone while a job is open, and only then. The visible map
-          band is 261 px at the sheet's default snap, and the two labels naming
-          the route's ends are placed near their points -- so they and this
-          legend both want the bottom-left corner. The labels win: they are what
-          the map is saying right now, and this is reference material. */}
-      {compact && selectedId != null ? null : (
+      {/* Hidden on a phone while a job is open, and while a marker is open --
+          and only then. The visible map band is 261 px at the sheet's default
+          snap, and both of those states put something on it that IS the map's
+          current sentence: the route's two end labels, or a fan of discs on
+          leader lines. This is reference material, and reference material
+          loses. */}
+      {compact && (selectedId != null || focused) ? null : (
       <div
         data-map-chrome
         className="glass point-legend px-[var(--sp-3)] py-[var(--sp-2)]"
         style={
           {
-            "--map-point": end === "pickup" ? "var(--pickup)" : "var(--delivery)",
+            "--map-point": drawnEnd === "pickup" ? "var(--pickup)" : "var(--delivery)",
           } as React.CSSProperties
         }
       >
