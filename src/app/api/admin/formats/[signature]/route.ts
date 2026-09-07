@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, notFound } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { reprocessMessages } from "@/lib/pipeline/process";
 
@@ -11,7 +11,7 @@ import { reprocessMessages } from "@/lib/pipeline/process";
  * URL-encoded (it contains "|", "+" and spaces).
  */
 export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ signature: string }> }) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { signature: raw } = await ctx.params;
   const signature = decodeURIComponent(raw);
   const body = (await req.json()) as { status?: string };

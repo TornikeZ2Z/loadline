@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import { loadsForMessage } from "@/lib/demo/chats";
 import { extractInventory, scopedRules, type ExtractionOutcome } from "@/lib/extract";
@@ -19,7 +19,7 @@ import { loadRuleSet } from "@/lib/pipeline/rules";
  * signature -- which is what "Teach line" uses for its live re-parse preview.
  */
 export const POST = handler(async (req: Request) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const body = (await req.json()) as {
     text?: string;
     author?: string;

@@ -5,18 +5,20 @@ import { AppShell } from "@/components/AppShell";
 import { PostLoadForm } from "@/components/PostLoadForm";
 
 /**
- * Posting a job from the website. Posters and admins only.
+ * Posting a job from the website. Any signed-in account.
  *
- * A driver who lands here is not shown a wall -- they are sent back to the
- * board with a one-line notice. Finding out that posting needs a poster account
- * is worth a sentence, not a locked door.
+ * This used to bounce the `driver` role, which is what made a company that both
+ * hauls and posts open two accounts. Posting is a capability now
+ * (`users.can_post`, on by default), so the redirect only fires for an account
+ * an admin has switched it off for -- and even then it is a sentence on the
+ * board, not a locked door.
  */
 export const dynamic = "force-dynamic";
 
 export default async function PostPage() {
   const user = await getCurrentUser();
   if (!user) redirect(loginHref("/post"));
-  if (user.role === "driver") redirect("/?notice=poster-only");
+  if (!user.canPost) redirect("/?notice=poster-only");
 
   return (
     <AppShell user={user} active="post" currentPath="/post">

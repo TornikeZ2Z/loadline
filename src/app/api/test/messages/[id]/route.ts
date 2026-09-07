@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, notFound } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireRole, requireWriteRole } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { getMessage, listGroups, listMessages, loadsForMessage } from "@/lib/demo/chats";
 import { deleteMessage } from "@/lib/pipeline/reconcile";
@@ -49,7 +49,7 @@ export const GET = handler(async (_req: Request, ctx: Ctx) => {
  * so there is no way to accumulate stale duplicates.
  */
 export const PATCH = handler(async (req: Request, ctx: Ctx) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { id } = await ctx.params;
   const body = (await req.json()) as {
     text?: string;
@@ -96,7 +96,7 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
  * remaining jobs settle into the right statuses.
  */
 export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { id } = await ctx.params;
 
   const existing = await queryOne<{ group_id: number | null }>(

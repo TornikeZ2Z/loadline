@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, jobIdFrom, notFound } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import { parseGroupLink } from "@/lib/loads/groupLink";
 
@@ -17,7 +17,7 @@ import { parseGroupLink } from "@/lib/loads/groupLink";
  * Sending `invite_url: null` or "" removes it.
  */
 export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { id: raw } = await ctx.params;
   const id = jobIdFrom(raw);
   if (id == null) notFound("Group not found");

@@ -15,6 +15,13 @@ import {
  * This is a deliberate authentication bypass and only makes sense while the app
  * is a demo running on sample data. `DEMO_MODE=off` disables it without any
  * code change, which is the switch to throw the day real data goes in.
+ *
+ * What it hands out is bounded by the rows it signs in to, not by anything
+ * here: all three carry `users.is_demo`, so the admin session it issues opens
+ * every console and cannot change one (src/lib/auth.ts `requireWriteRole`).
+ * That is what makes handing a stranger an admin session survivable, and it
+ * holds for the ordinary password form too -- the limit is on the account, not
+ * on this door.
  */
 export const POST = handler(async (req: Request) => {
   if (!demoModeEnabled()) {

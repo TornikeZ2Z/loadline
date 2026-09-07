@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { handler, notFound } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import type { ExtractionOutcome } from "@/lib/extract";
 
@@ -11,7 +11,7 @@ import type { ExtractionOutcome } from "@/lib/extract";
  * a format solved once can never silently regress.
  */
 export const POST = handler(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { id } = await ctx.params;
   const messageId = Number(id);
   const body = (await req.json().catch(() => ({}))) as { expected?: unknown[] };

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, rateLimit } from "@/lib/api";
-import { getCurrentUser, requireRole } from "@/lib/auth";
+import { getCurrentUser, requirePosting } from "@/lib/auth";
 import { searchLoads } from "@/lib/loads/query";
 import { parseSearchParams } from "@/lib/loads/searchParams";
 import { toPublicLoads } from "@/lib/loads/publicView";
@@ -36,9 +36,16 @@ export const GET = handler(async (req: Request) => {
   return NextResponse.json({ ...result, rows: toPublicLoads(result.rows) });
 });
 
-/** A poster publishing a job from the website rather than a WhatsApp group. */
+/**
+ * Publishing a job from the website rather than a WhatsApp group.
+ *
+ * A capability, not a role (`users.can_post`): a company that both hauls and
+ * posts used to need two accounts, because "poster" was an exclusive choice
+ * made once on the registration form. It never gated anything real either --
+ * picking "poster" there takes ten seconds and no approval.
+ */
 export const POST = handler(async (req: Request) => {
-  const user = await requireRole("poster", "admin");
+  const user = await requirePosting();
   const body = await readBody(req);
 
   try {

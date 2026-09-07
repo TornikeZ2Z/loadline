@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, notFound } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/extract/phone";
 import { rebuildSender } from "@/lib/pipeline/reconcile";
@@ -21,7 +21,7 @@ import { rebuildSender } from "@/lib/pipeline/reconcile";
  * overwrites), it stays fixed through later posts and reprocesses.
  */
 export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ key: string }> }) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { key: raw } = await ctx.params;
   const key = decodeURIComponent(raw);
   const body = (await req.json()) as {

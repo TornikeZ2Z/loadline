@@ -57,7 +57,10 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     role: "admin",
     company: null,
     phone: null,
-    blurb: "Pipeline, needs-attention queue and the WhatsApp console",
+    // Says "read" on purpose. A demo admin opens every console and changes
+    // nothing in them (src/lib/auth.ts `requireWriteRole`), so the button that
+    // promises the tour should not also imply the buttons inside it work.
+    blurb: "Read the pipeline, the needs-attention queue and the WhatsApp console",
   },
 ];
 
@@ -102,9 +105,15 @@ export async function createDemoAccounts(): Promise<void> {
       // change is that those rows stop accepting it. Every cold start rotates
       // them. Only the demo identities are touched; a real account created
       // through /register shares no e-mail with them.
-      `INSERT INTO users (email, password_hash, name, role, phone, company)
-       VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+      //
+      // `is_demo` is re-asserted on the same pass, and for the same reason: it
+      // is what stops a one-click admin session reaching POST /api/test/reset,
+      // so a row that lost the flag -- seeded before the column existed, or
+      // cleared by hand -- must not stay unmarked until the next deploy.
+      `INSERT INTO users (email, password_hash, name, role, phone, company, is_demo)
+       VALUES ($1,$2,$3,$4,$5,$6,true)
+       ON CONFLICT (email) DO UPDATE
+         SET password_hash = EXCLUDED.password_hash, is_demo = true`,
       [a.email, hashPassword(DEMO_PASSWORD), a.name, a.role, a.phone, a.company],
     );
   }
