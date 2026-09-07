@@ -331,6 +331,9 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     setPlace({ ids, label });
   }, []);
 
+  /** The one way out of a narrowed list, shared by the chip and the map. */
+  const clearPlace = useCallback(() => setPlace(null), []);
+
   const dismissNudge = () => {
     setNudged(true);
     try {
@@ -501,7 +504,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
             className="chip chip-accent"
             style={{ cursor: "pointer" }}
             title="Show every job in this search again"
-            onClick={() => setPlace(null)}
+            onClick={clearPlace}
           >
             {place.label} · {place.ids.length} job{place.ids.length === 1 ? "" : "s"}
             <span aria-hidden>✕</span>
@@ -660,6 +663,12 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
           compact={mobile || shortScreen}
           filteredSummary={summary}
           loading={firstLoad}
+          /* The map opens a place and the chip above the list closes it, so
+             both have to be looking at the same fact. Without this the chip's
+             ✕ would leave the map inside a marker with the whole list back
+             behind it. */
+          placeActive={place != null}
+          onPlaceClear={clearPlace}
           /* The fetch failed, so `jobs` is empty because nothing could be
              read. Without this the map's "on screen" panel counts that empty
              list truthfully and reports "All 0 jobs · 0 cf" to a visitor whose

@@ -22,6 +22,30 @@ import type { MapEnd } from "@/lib/loads/types";
 import { STATE_BY_ABBR } from "@/lib/geo/states";
 import { formatCf, placeLabel } from "@/lib/loads/present";
 
+/**
+ * One real position inside a marker: every job whose end resolved to the SAME
+ * coordinate, not merely to a coordinate within the marker's rounding.
+ *
+ * The distinction is the whole of it. Eleven jobs out of one Rochester
+ * warehouse resolve to one city centroid and are one spot; two different ZIPs
+ * eighty metres apart are two spots that happen to round into one marker. The
+ * first cannot be pulled apart without inventing eleven positions; the second
+ * can, because both positions are real.
+ */
+export interface PointSpot {
+  /** Full-precision "lng,lat"; unique within its group. */
+  key: string;
+  lng: number;
+  lat: number;
+  ids: number[];
+  cf: number;
+  unsized: number;
+  label: string;
+  approx: boolean;
+  /** Coarsest precision any member here carries; caps how far a click may zoom. */
+  precision: string | null;
+}
+
 /** One drawn marker: every job whose selected end sits on the same spot. */
 export interface PointGroup {
   /** Rounded "lng,lat" -- the feature id, and the key everything syncs on. */
@@ -37,6 +61,16 @@ export interface PointGroup {
   state: string | null;
   /** Every member of this group is a state-centroid guess, not a real address. */
   approx: boolean;
+  /**
+   * The distinct real coordinates under this marker, biggest first.
+   *
+   * Length 1 means the jobs genuinely share one position. Length > 1 means the
+   * rounding put separate places on one dot, and they can honestly be fanned
+   * apart. Nothing else on the map needs to ask which case it is.
+   */
+  spots: PointSpot[];
+  /** Coarsest precision under this marker; caps how far a click may zoom. */
+  precision: string | null;
 }
 
 /** The group, flattened onto a GeoJSON feature MapLibre can style. */
@@ -71,16 +105,66 @@ export interface BuiltPoints {
 export function endPoint(
   job: PublicLoadRow,
   end: MapEnd,
-): { lng: number; lat: number; approx: boolean } | null {
+): { lng: number; lat: number; approx: boolean; precision: string | null } | null {
   const lat = end === "pickup" ? job.pickup_lat : job.delivery_lat;
   const lng = end === "pickup" ? job.pickup_lng : job.delivery_lng;
   const precision = end === "pickup" ? job.pickup_precision : job.delivery_precision;
   if (lat != null && lng != null) {
-    return { lng, lat, approx: precision === "state" || precision === "region" };
+    return { lng, lat, approx: precision === "state" || precision === "region", precision };
   }
   const st = end === "pickup" ? job.pickup_state : job.delivery_state;
   const info = st ? STATE_BY_ABBR.get(st) : null;
-  return info ? { lng: info.lng, lat: info.lat, approx: true } : null;
+  // A state centroid stood in for a coordinate nobody geocoded: the row's own
+  // precision column has nothing to do with where this dot ended up.
+  return info ? { lng: info.lng, lat: info.lat, approx: true, precision: "state" } : null;
+}
+
+/* ------------------------------ how far in --------------------------------
+ *
+ * How far a click may zoom, by the precision the row actually carries.
+ *
+ * A city centroid drawn at street zoom is a lie told by a camera: the dot has
+ * not moved, but the frame around it now says "this building", and the CTO hit
+ * exactly that -- clicking a Rochester marker known only to city precision
+ * flew the map down to driveways. The stops are the size of the thing the
+ * coordinate stands for, so the frame never claims more than the datum:
+ *
+ *   address  z15   a street
+ *   zip      z12   ~20 km across -- a postcode's own spread
+ *   city     z10.5 ~60 km across -- the town and its outskirts
+ *   region   z7
+ *   state    z5.5  the state fills the frame, which is all we know
+ *
+ * Unknown precision is treated as a city: it is the coarsest thing the
+ * geocoder writes for a placed point, so guessing finer is the one direction
+ * that could mislead.
+ */
+export const ZOOM_BY_PRECISION: Record<string, number> = {
+  address: 15,
+  zip: 12,
+  city: 10.5,
+  region: 7,
+  state: 5.5,
+};
+
+/** Precision unknown: assume the coarsest thing a placed point is ever written at. */
+export const UNKNOWN_MAX_ZOOM = ZOOM_BY_PRECISION.city!;
+
+/** The furthest in a point of this precision may honestly be framed. */
+export function maxZoomFor(precision: string | null | undefined): number {
+  return (precision ? ZOOM_BY_PRECISION[precision] : undefined) ?? UNKNOWN_MAX_ZOOM;
+}
+
+/** The tightest cap over a set of precisions -- the coarsest datum wins. */
+export function maxZoomOver(precisions: Array<string | null | undefined>): number {
+  let cap = Infinity;
+  for (const p of precisions) cap = Math.min(cap, maxZoomFor(p));
+  return Number.isFinite(cap) ? cap : UNKNOWN_MAX_ZOOM;
+}
+
+/** Coarser of two precisions, by the same ladder the zoom caps use. */
+function coarser(a: string | null, b: string | null): string | null {
+  return maxZoomFor(a) <= maxZoomFor(b) ? a : b;
 }
 
 /**
@@ -107,6 +191,7 @@ export function endLabelText(job: PublicLoadRow, end: MapEnd): string {
  */
 export function buildGroups(jobs: PublicLoadRow[], end: MapEnd): BuiltPoints {
   const byKey = new Map<string, PointGroup>();
+  const spotsByKey = new Map<string, Map<string, PointSpot>>();
   const keyByJob = new Map<number, string>();
   let plotted = 0;
 
@@ -118,6 +203,36 @@ export function buildGroups(jobs: PublicLoadRow[], end: MapEnd): BuiltPoints {
     const key = `${at.lng.toFixed(3)},${at.lat.toFixed(3)}`;
     keyByJob.set(job.id, key);
 
+    /* Five decimals -- about a metre. Finer than that is not a distinction any
+     * geocoder is making, and two rows differing in the ninth decimal are one
+     * place with a floating-point history, not two addresses. */
+    const spotKey = `${at.lng.toFixed(5)},${at.lat.toFixed(5)}`;
+    let spots = spotsByKey.get(key);
+    if (!spots) {
+      spots = new Map();
+      spotsByKey.set(key, spots);
+    }
+    const spot = spots.get(spotKey);
+    if (spot) {
+      spot.ids.push(job.id);
+      spot.cf += job.cubic_feet ?? 0;
+      if (job.cubic_feet == null) spot.unsized += 1;
+      spot.approx &&= at.approx;
+      spot.precision = coarser(spot.precision, at.precision);
+    } else {
+      spots.set(spotKey, {
+        key: spotKey,
+        lng: at.lng,
+        lat: at.lat,
+        ids: [job.id],
+        cf: job.cubic_feet ?? 0,
+        unsized: job.cubic_feet == null ? 1 : 0,
+        label: endLabelText(job, end),
+        approx: at.approx,
+        precision: at.precision,
+      });
+    }
+
     const existing = byKey.get(key);
     if (existing) {
       existing.ids.push(job.id);
@@ -125,6 +240,7 @@ export function buildGroups(jobs: PublicLoadRow[], end: MapEnd): BuiltPoints {
       if (job.cubic_feet == null) existing.unsized += 1;
       // Only a group where EVERY member is a guess is drawn as one.
       existing.approx &&= at.approx;
+      existing.precision = coarser(existing.precision, at.precision);
       continue;
     }
 
@@ -138,10 +254,19 @@ export function buildGroups(jobs: PublicLoadRow[], end: MapEnd): BuiltPoints {
       label: endLabelText(job, end),
       state: end === "pickup" ? job.pickup_state : job.delivery_state,
       approx: at.approx,
+      spots: [],
+      precision: at.precision,
     });
   }
 
   const groups = [...byKey.values()];
+  for (const g of groups) {
+    // Biggest pile first, then by key so the fan is laid out the same way on
+    // every render rather than in whatever order the rows happened to arrive.
+    g.spots = [...(spotsByKey.get(g.key)?.values() ?? [])].sort(
+      (a, b) => b.cf - a.cf || b.ids.length - a.ids.length || a.key.localeCompare(b.key),
+    );
+  }
   const features: Feature<GeoPoint, PointProps>[] = groups.map((g) => ({
     type: "Feature",
     geometry: { type: "Point", coordinates: [g.lng, g.lat] },
@@ -165,8 +290,18 @@ export function buildGroups(jobs: PublicLoadRow[], end: MapEnd): BuiltPoints {
   };
 }
 
-/** "Rochester, MN · 11 jobs · 6,006 cf" */
-export function groupSummary(g: PointGroup): string {
+/**
+ * "Rochester, MN · 11 jobs · 6,006 cf"
+ *
+ * Takes the shape rather than the type, so a marker and one real position
+ * inside a fanned-out marker are described by the same sentence.
+ */
+export function groupSummary(g: {
+  label: string;
+  ids: number[];
+  cf: number;
+  unsized: number;
+}): string {
   const jobs = `${g.ids.length} job${g.ids.length === 1 ? "" : "s"}`;
   const size = g.cf > 0 ? formatCf(g.cf) : "size not stated";
   const unsized = g.unsized > 0 && g.cf > 0 ? ` (${g.unsized} without a size)` : "";
