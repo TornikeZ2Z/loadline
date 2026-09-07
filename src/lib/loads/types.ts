@@ -79,6 +79,14 @@ export interface LoadRow {
   is_canonical: boolean;
   dup_count: number;
 
+  /**
+   * Published from a demo account, and therefore visible only to the account
+   * that posted it (see `LoadAudience` and db/schema.sql). Anonymous callers
+   * and other accounts never receive a row where this is true, so on their wire
+   * it is always false -- it is here so the poster's own copy can say so.
+   */
+  is_demo: boolean;
+
   group_name: string | null;
   source_message_id: number | null;
   posted_by: number | null;
@@ -177,6 +185,30 @@ export interface LoadSearchParams {
   sort?: SortKey;
   limit?: number;
   offset?: number;
+}
+
+/**
+ * Who is asking -- the one thing that decides whether a demo-posted row exists.
+ *
+ * Deliberately NOT part of `LoadSearchParams`. That shape is built by
+ * `parseSearchParams` out of a URL, and anything in it can be typed by the
+ * caller; an audience that could arrive in a query string would be no gate at
+ * all. It travels as a separate argument to `searchLoads` / `getLoad` instead,
+ * where the only thing that can produce one is a route reading the session
+ * cookie.
+ *
+ * Omitting it entirely means "anonymous", which is the strictest answer: a
+ * caller who forgets this parameter sees fewer rows, never more.
+ */
+export interface LoadAudience {
+  /** `users.id` of the signed-in caller; null for a visitor with no session. */
+  userId: number | null;
+  /**
+   * A REAL admin (`isAdminActor`, never a demo one) asked to see demo listings
+   * as well -- `GET /api/loads?demo=1`. Off by default so the counts an admin
+   * reads on the board describe the real corpus.
+   */
+  includeDemo?: boolean;
 }
 
 export interface LoadSummary {

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isAdminActor } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
+import { isLoadVisible } from "@/lib/loads/query";
 import { cleanReportDetails, isReportReason } from "@/lib/reports";
 
 /**
@@ -55,14 +56,23 @@ export const POST = handler(async (req: Request) => {
 
   const details = cleanReportDetails(body.details);
 
-  // Reporting a job that is not there is a typo or a probe, not a report.
-  // `queryOne` here reads nothing but the id -- no phone, no sender, nothing
-  // that could be echoed back -- and the response below carries none of it.
-  const job = await queryOne<{ id: number }>(`SELECT id FROM loads WHERE id = $1`, [loadId]);
-  if (!job) notFound("That job is not on the board");
-
-  // Signed in when they happen to be; nothing asks them to be.
+  // Signed in when they happen to be; nothing asks them to be. Read before the
+  // job is looked up, because who is asking is part of whether the job exists.
   const user = await getCurrentUser();
+
+  // Reporting a job that is not there is a typo or a probe, not a report.
+  // "Not there" is asked FOR THIS CALLER: `isLoadVisible` applies the same
+  // predicate the board does, so a listing posted from a demo account answers
+  // the same 404 to everyone but the account that posted it. Without that, this
+  // route would be an existence oracle over demo listings and a way to put a
+  // report about an invisible job into a real admin's queue. It reads nothing
+  // but whether a row matched -- no phone, no sender, and the response below
+  // carries none of it either way.
+  const visible = await isLoadVisible(loadId, {
+    userId: user?.id ?? null,
+    includeDemo: !!user && isAdminActor(user),
+  });
+  if (!visible) notFound("That job is not on the board");
 
   await queryOne(
     // ON CONFLICT is where the design lives, so read the SETs one at a time:

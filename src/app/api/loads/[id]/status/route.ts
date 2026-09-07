@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { badRequest, handler, notFound } from "@/lib/api";
 import { HttpError, isAdminActor, requireUser } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
+import { isLoadVisible } from "@/lib/loads/query";
 import { setManualStatus, type ManualStatus } from "@/lib/pipeline/reconcile";
 
 /** Only these can be set by a person. */
@@ -42,6 +43,17 @@ export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ id: s
     [id],
   );
   if (!load) notFound("Job not found");
+
+  // Ownership already refuses somebody else's row, so this is not what stops a
+  // stranger marking a demo listing taken -- it is what stops the 403 telling
+  // them the listing is there. A row the caller may not see must be indistin-
+  // guishable from a row that does not exist. The demo poster still owns theirs,
+  // and a real admin still reaches every row (`includeDemo`).
+  const visible = await isLoadVisible(load.id, {
+    userId: user.id,
+    includeDemo: isAdminActor(user),
+  });
+  if (!visible) notFound("Job not found");
 
   if (!isAdminActor(user) && load.posted_by !== user.id) {
     throw new HttpError(403, "You can only update jobs you posted");

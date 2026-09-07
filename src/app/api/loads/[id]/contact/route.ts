@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
-import { HttpError, getCurrentUser } from "@/lib/auth";
+import { HttpError, getCurrentUser, isAdminActor } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { getLoad } from "@/lib/loads/query";
 import { parseGroupLink } from "@/lib/loads/groupLink";
@@ -44,7 +44,15 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
   const jobId = jobIdFrom(id);
   if (jobId == null) notFound("Job not found");
 
-  const load = await getLoad(jobId);
+  // Audienced, and this is the load-bearing call: `revealContact` below is a
+  // bare `WHERE l.id = $1` with no predicate of its own, so a listing this
+  // caller may not see has to fail HERE or its phone number leaves the server.
+  // A demo account still reveals contacts on the real corpus, and still reveals
+  // its own listing's; nobody else can reach a demo listing at all.
+  const load = await getLoad(jobId, {
+    userId: user.id,
+    includeDemo: isAdminActor(user),
+  });
   if (!load) notFound("Job not found");
 
   const contact = await revealContact(load.id, user.id);

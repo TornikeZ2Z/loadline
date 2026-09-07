@@ -5,6 +5,12 @@
  * lives until its own `expires_at` or until the poster marks it Taken.
  * Ownership is `posted_by`, which is also what B's PATCH /status gate checks --
  * `sender_key` stays NULL, and the public row reports that as `is_web`.
+ *
+ * This is the ONLY writer that ever sets `loads.is_demo`, and it sets it from
+ * the session's own `users.is_demo` -- never from anything in the body. A demo
+ * account walks the entire flow and what it publishes is visible to itself
+ * alone; see db/schema.sql for why the demo is not simply refused, and
+ * src/lib/loads/query.ts for the predicate that holds it.
  */
 import { query, queryOne } from "@/lib/db";
 import { computeExpiry } from "@/lib/extract/dates";
@@ -76,8 +82,38 @@ const TAGS = new Set([
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * How many listings one demo account keeps, and for how long.
+ *
+ * The lifetime question, answered where it costs nothing to enforce. A demo
+ * listing is scratch: nobody but its poster ever sees it, the poster is a
+ * shared identity a stranger enters with one click, and a fresh visitor tomorrow
+ * has no use for what a visitor typed today. Left alone it would still grow
+ * without limit, one row per click, for as long as the site is up.
+ *
+ * So every demo post sweeps its OWN account's older ones. That bounds the table
+ * by the shape of the thing rather than by the number of requests -- at most
+ * `DEMO_KEEP` rows per demo account, forever, however hard anybody leans on the
+ * button -- which is the same bound `problem_reports` gets from its UNIQUE key.
+ * A cron job would be a second moving part to answer a question the insert
+ * already knows the answer to; a sweep on insert cannot fail to run, because
+ * the only way to make demo rows is to run it.
+ *
+ * The age rule is the tidiness half and bounds nothing on its own: it is what
+ * makes the demo look untouched to the next visitor rather than lived-in.
+ * An account that posts five listings and never returns keeps five rows, which
+ * is a fair price for the walkthrough still working when they come back.
+ */
+const DEMO_KEEP = 5;
+const DEMO_MAX_AGE_HOURS = 24;
+
+/**
+ * `isDemo` is required, not optional with a false default. A caller who forgets
+ * it should not quietly publish a demo post to the whole board -- the one
+ * failure mode this whole change exists to remove -- so the compiler asks.
+ */
 export async function insertWebJob(
-  user: { id: number; name: string; phone: string | null },
+  user: { id: number; name: string; phone: string | null; isDemo: boolean },
   body: WebJobBody,
 ): Promise<{ id: number }> {
   const now = new Date();
@@ -211,7 +247,7 @@ export async function insertWebJob(
        sender_key, job_key, ordinal,
        is_canonical, confidence, needs_review,
        first_seen_at, last_seen_at, seen_count,
-       expires_at
+       expires_at, is_demo
      ) VALUES (
        NULL, NULL, $1,
        'available', 'derived',
@@ -225,7 +261,7 @@ export async function insertWebJob(
        NULL, NULL, 1,
        true, 1.0, false,
        now(), now(), 1,
-       $32
+       $32, $33
      ) RETURNING id`,
     [
       user.id,
@@ -242,6 +278,7 @@ export async function insertWebJob(
       tags, (body.notes ?? "").trim() || null, (body.requirements ?? "").trim() || null,
       contactName, contactPhone, rawPhone || null,
       computeExpiry(readyDate, now),
+      user.isDemo,
     ],
   );
 
@@ -249,10 +286,45 @@ export async function insertWebJob(
   await query(`INSERT INTO load_events (load_id, actor_id, kind, detail) VALUES ($1,$2,'created',$3)`, [
     id,
     user.id,
-    JSON.stringify({ source: "web" }),
+    JSON.stringify({ source: "web", demo: user.isDemo }),
   ]);
 
+  if (user.isDemo) await sweepDemoJobs(user.id);
+
   return { id };
+}
+
+/**
+ * Retire this demo account's older listings. See `DEMO_KEEP` above.
+ *
+ * Scoped to `posted_by` AND `is_demo`, never to `is_demo` alone: the predicate
+ * has to be one a real row can never satisfy, or a bug here would delete the
+ * corpus rather than a stranger's scratch listing. Deleting is right rather
+ * than expiring, because an expired row is still a row and the point is that
+ * the table does not grow. `load_events` cascades with it; `problem_reports`
+ * holds a soft reference and keeps a report about a job that has gone, which is
+ * what that table's comment says it is for.
+ *
+ * Runs after the insert, so `DEMO_KEEP` counts the listing just made.
+ */
+async function sweepDemoJobs(userId: number): Promise<number> {
+  const gone = await query<{ id: number }>(
+    `DELETE FROM loads
+      WHERE is_demo = true
+        AND posted_by = $1
+        AND (
+          created_at < now() - ($2 || ' hours')::interval
+          OR id NOT IN (
+            SELECT id FROM loads
+             WHERE is_demo = true AND posted_by = $1
+             ORDER BY id DESC
+             LIMIT $3
+          )
+        )
+      RETURNING id`,
+    [userId, String(DEMO_MAX_AGE_HOURS), DEMO_KEEP],
+  );
+  return gone.length;
 }
 
 function numberOrNull(v: string | undefined): number | null {

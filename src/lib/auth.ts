@@ -80,9 +80,28 @@ export async function endSession(): Promise<void> {
   jar.delete(COOKIE);
 }
 
+/**
+ * The session cookie, or nothing.
+ *
+ * `cookies()` throws when there is no request to read one from -- a gate script
+ * invoking an exported handler directly, a module evaluated at build time. The
+ * only honest answer in that situation is "there is no session", and it is also
+ * the safe one: every guard below fails CLOSED on a null user, so the failure
+ * mode is a 401, never an unguarded pass. Swallowing it here rather than in
+ * each caller keeps handlers callable from scripts/check-demo.ts, which asserts
+ * against the real GET /api/loads/:id that an anonymous caller gets a 404.
+ */
+async function sessionToken(): Promise<string | undefined> {
+  try {
+    const jar = await cookies();
+    return jar.get(COOKIE)?.value;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getCurrentUser(): Promise<SessionUser | null> {
-  const jar = await cookies();
-  const id = decode(jar.get(COOKIE)?.value);
+  const id = decode(await sessionToken());
   if (id == null) return null;
   return queryOne<SessionUser>(
     `SELECT id, email, name, role, phone, company,
@@ -151,9 +170,25 @@ export async function requireWriteRole(...roles: Role[]): Promise<SessionUser> {
  *
  * Not a role test: see `users.can_post`. Every account may post unless an admin
  * has taken the capability away, which is what stops a company that both hauls
- * and posts from needing two accounts. A demo account is NOT excluded here --
- * posting is something any visitor can do by registering, so refusing it would
- * cost the demo its poster walkthrough and buy no protection.
+ * and posts from needing two accounts.
+ *
+ * A demo account is still NOT excluded here, and the first half of the old
+ * reason still holds: refusing it would cost the demo its poster walkthrough,
+ * which is the whole of what the poster demo has to show. The second half --
+ * "and buys no protection, because any visitor could register and post anyway"
+ * -- was wrong, and wrong in the direction that matters on a public deployment.
+ * Registering produces an account with an address, a row of its own and a
+ * `can_post` an admin can withdraw from that one account; `POST /api/auth/demo`
+ * hands every stranger the SAME row with no credential at all, so there is
+ * nothing to attribute a listing to and nothing to revoke that would not close
+ * the demo. With DEMO_MODE=on in production that was two clicks to a listing on
+ * the live public board.
+ *
+ * The fix is not here. Refusing the post would have taken the walkthrough with
+ * it, so the demo posts and the ROW carries the mark: `loads.is_demo`, written
+ * from this session in src/lib/pipeline/web.ts and honoured by every read in
+ * src/lib/loads/query.ts. This guard answers "may you publish?"; what publishing
+ * means for a shared identity is a question about the row, not about the door.
  */
 export async function requirePosting(): Promise<SessionUser> {
   const user = await requireUser();

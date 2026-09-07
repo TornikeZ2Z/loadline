@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { handler, jobIdFrom, notFound, rateLimit } from "@/lib/api";
+import { getCurrentUser, isAdminActor } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { getDuplicates, getLoad } from "@/lib/loads/query";
 import { loadDistances } from "@/lib/loads/roadDistance";
@@ -17,6 +18,12 @@ interface Ctx {
  * here either -- opening a job is browsing, not interest. The one event worth
  * counting is written by POST /api/loads/:id/contact, where a real person with
  * a real account asked for a real number.
+ *
+ * "Public" is not "unaudienced". The session is read -- it gates nothing, and a
+ * visitor with no cookie still gets the whole board -- but a listing posted from
+ * a demo account exists only for the account that posted it, and `getLoad`
+ * cannot know which that is unless it is told. Without this the demo hole would
+ * merely have moved from the board to the URL.
  */
 export const GET = handler(async (req: Request, ctx: Ctx) => {
   rateLimit(req, "detail", 120);
@@ -25,10 +32,16 @@ export const GET = handler(async (req: Request, ctx: Ctx) => {
   const jobId = jobIdFrom(id);
   if (jobId == null) notFound("Job not found");
 
-  const load = await getLoad(jobId);
+  const user = await getCurrentUser();
+  const audience = {
+    userId: user?.id ?? null,
+    includeDemo: !!user && isAdminActor(user),
+  };
+
+  const load = await getLoad(jobId, audience);
   if (!load) notFound("Job not found");
 
-  const duplicates = await getDuplicates(load);
+  const duplicates = await getDuplicates(load, audience);
 
   // The viewer's position travels with the request, never from a stored column:
   // a location lives in the browser. Without it there is no "from you" leg.

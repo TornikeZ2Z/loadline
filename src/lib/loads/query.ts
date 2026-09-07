@@ -15,6 +15,13 @@
  * board's headline ("18 jobs · 6,450 cf ≈ 4.3 trucks") describes the whole
  * filtered set, and a driver deciding whether a lane is worth the trip is
  * reading that number, not the page size.
+ *
+ * EVERY read here takes an optional `audience`, and `demoVisibilitySql` is the
+ * one predicate it feeds. It is the whole of what keeps a demo account's post
+ * off the public board -- see db/schema.sql on `loads.is_demo` -- and it is
+ * enforced in the SQL rather than in a route, because the route layer is where
+ * the next handler will forget. `scripts/check-demo.ts` is the gate that says
+ * so out loud.
  */
 import { params, query, queryOne } from "@/lib/db";
 import { DEFAULT_TZ } from "@/lib/extract/dates";
@@ -30,6 +37,7 @@ import { REGIONS } from "@/lib/geo/states";
 import type {
   BoundsInput,
   GeoPoint,
+  LoadAudience,
   LoadRow,
   LoadSearchParams,
   LoadSearchResult,
@@ -68,7 +76,7 @@ const SELECT_COLUMNS = `
   l.seen_count, l.relist_count,
   l.delisted_at::text   AS delisted_at,
   l.snapshot_message_id,
-  l.confidence, l.needs_review, l.dup_group_id, l.is_canonical,
+  l.confidence, l.needs_review, l.dup_group_id, l.is_canonical, l.is_demo,
   g.name AS group_name,
   l.source_message_id, l.posted_by,
   l.created_at::text  AS created_at,
@@ -88,6 +96,57 @@ const SELECT_COLUMNS = `
 /** Per-cubic-foot price, in SQL: what a mover compares two jobs on. */
 const PER_CF_SQL = `coalesce(l.price_per_cf, l.price_flat / nullif(l.cubic_feet, 0))`;
 
+/**
+ * The demo predicate: the one place "may this caller see this row?" is decided.
+ *
+ * Every read that can reach a browser goes through it, because a filter added
+ * only to the board query would leave a demo listing reachable by id -- and
+ * `GET /api/loads/:id`, the contact reveal and the road geometry are all
+ * `WHERE l.id = $1` with no status predicate to extend. So this returns a
+ * FRAGMENT, and each of those paths ANDs it in; `isLoadVisible` below is the
+ * same fragment for callers that hold an id and no row.
+ *
+ * Read it as: a row nobody posted from the demo is everybody's; a row posted
+ * from the demo belongs to the account that posted it and to nobody else.
+ * `null` for `userId` needs no special case -- `l.posted_by = NULL` is NULL,
+ * `false OR NULL` is NULL, and a NULL WHERE clause excludes the row. It is
+ * bound as a parameter rather than interpolated all the same.
+ *
+ * Returns null when there is nothing to add: a real admin who explicitly asked
+ * for demo listings, and only then.
+ */
+function demoVisibilitySql(
+  audience: LoadAudience | null | undefined,
+  p: ReturnType<typeof params>,
+): string | null {
+  if (audience?.includeDemo) return null;
+  const viewer = audience?.userId ?? null;
+  if (viewer == null) return `l.is_demo = false`;
+  return `(l.is_demo = false OR l.posted_by = ${p.add(viewer)})`;
+}
+
+/**
+ * Does this job exist FOR THIS CALLER?
+ *
+ * For the paths that hold an id and never load a row -- the road geometry, the
+ * status PATCH -- so they can answer 404 rather than serve, or admit to, a
+ * listing that is not theirs. One primary-key lookup.
+ */
+export async function isLoadVisible(
+  id: number,
+  audience?: LoadAudience | null,
+): Promise<boolean> {
+  const p = params();
+  const idP = p.add(id);
+  const visible = demoVisibilitySql(audience, p);
+  const row = await queryOne<{ ok: number }>(
+    `SELECT 1 AS ok FROM loads l
+      WHERE l.id = ${idP}${visible ? `\n        AND ${visible}` : ""}`,
+    p.values,
+  );
+  return row != null;
+}
+
 /** Haversine in SQL. `latCol`/`lngCol` are column refs, never user input. */
 function distanceSql(latCol: string, lngCol: string, latP: string, lngP: string): string {
   return `(3958.7613 * 2 * asin(least(1, sqrt(
@@ -97,9 +156,24 @@ function distanceSql(latCol: string, lngCol: string, latP: string, lngP: string)
   ))))`;
 }
 
-export async function searchLoads(input: LoadSearchParams): Promise<LoadSearchResult> {
+/**
+ * `audience` is a second argument rather than a field on `input` on purpose:
+ * `input` is parsed out of a URL, and a viewer identity that could be typed
+ * into a query string would gate nothing. Omitting it means "anonymous", which
+ * hides every demo-posted row -- forgetting it costs rows, never leaks them.
+ */
+export async function searchLoads(
+  input: LoadSearchParams,
+  audience?: LoadAudience | null,
+): Promise<LoadSearchResult> {
   const p = params();
   const where: string[] = [];
+
+  // --- who is asking --------------------------------------------------------
+  // First, so it is the one clause no later branch can drop: the corridor
+  // branch below rewrites the endpoint filters, and this must survive that.
+  const visible = demoVisibilitySql(audience, p);
+  if (visible) where.push(visible);
 
   // --- status ---------------------------------------------------------------
   const statuses = input.statuses?.length ? input.statuses : ["available"];
@@ -548,24 +622,43 @@ export function pageOffset(offset: number | undefined): number {
   return Number.isFinite(offset) ? clamp(Math.round(offset!), 0, 100_000) : 0;
 }
 
-/** Single job with its duplicate siblings and source message. */
-export async function getLoad(id: number): Promise<LoadRow | null> {
+/**
+ * Single job with its duplicate siblings and source message.
+ *
+ * `WHERE l.id = $1` had no predicate to extend, which is exactly why the demo
+ * fragment has to be added here by hand: a filter that lived only in
+ * `searchLoads` would keep a demo listing off the board and leave it a URL away
+ * -- and one `POST /api/loads/:id/contact` away from its phone number, because
+ * that route reaches `revealContact` only after this function has found a row.
+ * Same default as `searchLoads`: no audience means anonymous.
+ */
+export async function getLoad(id: number, audience?: LoadAudience | null): Promise<LoadRow | null> {
+  const p = params();
+  const idP = p.add(id);
+  const visible = demoVisibilitySql(audience, p);
   const rows = await query<LoadRow>(
     `SELECT ${SELECT_COLUMNS}, NULL::float8 AS distance_miles
        FROM loads l LEFT JOIN whatsapp_groups g ON g.id = l.group_id
-      WHERE l.id = $1`,
-    [id],
+      WHERE l.id = ${idP}${visible ? `\n        AND ${visible}` : ""}`,
+    p.values,
   );
   return rows[0] ?? null;
 }
 
-export async function getDuplicates(load: LoadRow): Promise<LoadRow[]> {
+export async function getDuplicates(
+  load: LoadRow,
+  audience?: LoadAudience | null,
+): Promise<LoadRow[]> {
   if (!load.dup_group_id) return [];
+  const p = params();
+  const groupP = p.add(load.dup_group_id);
+  const idP = p.add(load.id);
+  const visible = demoVisibilitySql(audience, p);
   return query<LoadRow>(
     `SELECT ${SELECT_COLUMNS}, NULL::float8 AS distance_miles
        FROM loads l LEFT JOIN whatsapp_groups g ON g.id = l.group_id
-      WHERE l.dup_group_id = $1 AND l.id <> $2
+      WHERE l.dup_group_id = ${groupP} AND l.id <> ${idP}${visible ? `\n        AND ${visible}` : ""}
       ORDER BY l.last_seen_at DESC NULLS LAST, l.id DESC`,
-    [load.dup_group_id, load.id],
+    p.values,
   );
 }

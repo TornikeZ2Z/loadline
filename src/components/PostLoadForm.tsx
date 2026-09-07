@@ -21,7 +21,7 @@ import { TAG_LABELS } from "@/lib/loads/present";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
 
 export interface PostLoadFormProps {
-  user: { name: string; phone: string | null };
+  user: { name: string; phone: string | null; isDemo: boolean };
 }
 
 /** The tags worth a checkbox; the rest of the vocabulary only ever arrives from a post. */
@@ -190,6 +190,16 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
         Same shape as a post in the group — origin, destination, cubic feet, price — but structured,
         so nothing has to be read out of it.
       </p>
+
+      {user.isDemo && (
+        <p
+          className="mt-[var(--sp-3)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-base)"
+          style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
+        >
+          You are signed in to the demo. The whole flow works — post it, open it, mark it taken —
+          but a demo listing is visible to this account only. Nobody browsing the board will see it.
+        </p>
+      )}
 
       <form onSubmit={submit} className="card mt-[var(--sp-4)] flex flex-col gap-[var(--sp-4)] p-[var(--sp-5)]">
         <Field label="Pickup" required htmlFor="pickup">
@@ -461,7 +471,14 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
             className="rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-base)"
             style={{ background: "var(--ok-soft)", color: "var(--ok)" }}
           >
-            Job #{posted} is live on the board.{" "}
+            {/*
+              "Live on the board" is true for a real account and a lie for a
+              demo one, and the demo account is the one most likely to believe
+              it: it is the first thing a stranger clicks. Say which it is.
+            */}
+            {user.isDemo
+              ? `Job #${posted} is posted, and visible to this demo account only. `
+              : `Job #${posted} is live on the board. `}
             <Link href={`/jobs/${posted}`} className="underline">
               See it →
             </Link>
