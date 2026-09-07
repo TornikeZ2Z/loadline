@@ -25,6 +25,11 @@ export interface StatePickerProps {
   /** "Near you: FL" / "Home: NJ" — offered, never applied on its own. */
   ghost?: { text: string; state: string } | null;
   fullScreen?: boolean;
+  /** `pickupZip` / `deliveryZip`, which the API has always honoured. */
+  zip?: string;
+  onZip?(v: string): void;
+  /** How many jobs on the board actually carry a ZIP on this end. */
+  zipNote?: React.ReactNode;
 }
 
 /** The shorthands worth one click, in the order a mover would scan them. */
@@ -50,7 +55,16 @@ function chipLabel(token: string): string {
   return region.label.replace(" Area", "");
 }
 
-export function StatePicker({ label, value, onChange, ghost, fullScreen }: StatePickerProps) {
+export function StatePicker({
+  label,
+  value,
+  onChange,
+  ghost,
+  fullScreen,
+  zip = "",
+  onZip,
+  zipNote,
+}: StatePickerProps) {
   const selected = value.filter(Boolean);
   const shown = selected.slice(0, 3);
   const overflow = selected.length - shown.length;
@@ -64,10 +78,28 @@ export function StatePicker({ label, value, onChange, ghost, fullScreen }: State
   const trigger = (
     <>
       <span style={{ color: selected.length ? "var(--muted)" : "var(--text)" }}>{label}</span>
-      {selected.length === 0 ? (
+      {selected.length === 0 && !zip ? (
         <span className="ghost">Any</span>
       ) : (
         <>
+          {zip && (
+            <span className="pill-chip" title={`${label} ZIP starts with ${zip}`}>
+              {zip}
+              <span
+                role="button"
+                tabIndex={-1}
+                aria-label={`Remove ZIP ${zip}`}
+                title={`Remove ZIP ${zip}`}
+                style={{ cursor: "pointer", opacity: 0.7 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onZip?.("");
+                }}
+              >
+                ×
+              </span>
+            </span>
+          )}
           {shown.map((token) => (
             <span key={token} className="pill-chip">
               {chipLabel(token)}
@@ -101,14 +133,24 @@ export function StatePicker({ label, value, onChange, ghost, fullScreen }: State
     <span className="inline-flex shrink-0 items-center gap-[var(--sp-1)]">
       <PopoverButton
         label={trigger}
-        active={selected.length > 0}
+        active={selected.length > 0 || Boolean(zip)}
         width={360}
         triggerClassName="pill shrink-0"
         fullScreen={fullScreen}
         panelTitle={`${label} state`}
         ariaLabel={`${label} state`}
       >
-        {() => <Panel selected={selected} onToggle={toggle} onClear={() => onChange([])} />}
+        {() => (
+          <StatePanel
+            selected={selected}
+            onToggle={toggle}
+            onClear={() => onChange([])}
+            zip={zip}
+            onZip={onZip}
+            zipLabel={`${label} ZIP`}
+            zipNote={zipNote}
+          />
+        )}
       </PopoverButton>
 
       {ghost && selected.length === 0 && (
@@ -126,14 +168,31 @@ export function StatePicker({ label, value, onChange, ghost, fullScreen }: State
   );
 }
 
-function Panel({
+/**
+ * The regions-and-states grid, on its own.
+ *
+ * Exported because the phone bar no longer has room for two separate picker
+ * pills: at 390 px the Delivery one was pushed off the end of a scroller (§5.2),
+ * so both panels are now stacked inside one Lane sheet, which is also the only
+ * arrangement in which a driver who set a pickup cannot miss the delivery.
+ */
+export function StatePanel({
   selected,
   onToggle,
   onClear,
+  zip,
+  onZip,
+  zipLabel,
+  zipNote,
 }: {
   selected: string[];
   onToggle(token: string): void;
   onClear(): void;
+  /** `pickupZip` / `deliveryZip` — omitted where this panel has no zip to own. */
+  zip?: string;
+  onZip?(v: string): void;
+  zipLabel?: string;
+  zipNote?: React.ReactNode;
 }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
@@ -210,6 +269,32 @@ function Panel({
           </p>
         )}
       </div>
+
+      {/* The ZIP filter lives here rather than in the route controls: it
+          narrows one end of the lane, which is the question this panel already
+          answers. A prefix is a real filter -- the query builder matches
+          `zip LIKE '070%'` on anything shorter than five digits -- so the field
+          says so instead of silently truncating. */}
+      {onZip && (
+        <div>
+          <div className="label">{zipLabel ?? "ZIP"}</div>
+          <input
+            className="field nums"
+            inputMode="numeric"
+            placeholder="07032"
+            aria-label={`${zipLabel ?? "ZIP"} code or prefix`}
+            value={zip ?? ""}
+            onChange={(e) => onZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
+          />
+          <p className="mt-[5px] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+            A prefix works: <span className="nums">070</span> is north Jersey.
+          </p>
+          {/* Plenty of posts give a city and no ZIP, so this filter is much
+              narrower than it looks. It says how much narrower rather than
+              leaving a driver to conclude the board is empty. */}
+          {zipNote}
+        </div>
+      )}
 
       {selected.length > 0 && (
         <button type="button" className="btn btn-ghost btn-sm self-start" onClick={onClear}>

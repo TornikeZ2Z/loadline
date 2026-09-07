@@ -28,10 +28,14 @@ import {
   emptyStateSuggestions,
   emptyStateTitle,
   FilterBar,
+  filterConflict,
   filtersToQuery,
   hydrate,
   isDefault,
+  isTowardHome,
   LIFECYCLE_NOTE,
+  RouteStrip,
+  type CorridorStats,
   type Filters,
 } from "./FilterBar";
 import { JobList, JobListSkeleton, partitionUnverified } from "./LoadViews";
@@ -69,6 +73,11 @@ const NUDGE_KEY = "loadline.locnudge";
 function stopped(message: string): string {
   const trimmed = message.trim();
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+/** An end the post placed no more precisely than a whole state or region. */
+function isApproxEnd(precision: string | null): boolean {
+  return precision === "state" || precision === "region";
 }
 
 /**
@@ -336,6 +345,44 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     setPlace(null);
   }, [visibleQuery]);
 
+  /**
+   * What the results actually contain, for the two controls that would
+   * otherwise misrepresent themselves: the deadline filter (which is inert
+   * because no job in the corpus carries a `deliver_by`) and the corridor
+   * read-out (whose numbers the API returns and nothing rendered).
+   *
+   * Counted over the rows on screen rather than the server summary, which
+   * carries neither figure — so it is described as "the jobs on the board",
+   * never as a claim about every job that exists.
+   */
+  const resultStats = useMemo(() => {
+    let withDeliverBy = 0;
+    let withPickupZip = 0;
+    let withDeliveryZip = 0;
+    for (const r of rows) {
+      if (r.deliver_by != null) withDeliverBy += 1;
+      if (r.pickup_zip) withPickupZip += 1;
+      if (r.delivery_zip) withDeliveryZip += 1;
+    }
+    return { withDeliverBy, withPickupZip, withDeliveryZip };
+  }, [rows]);
+
+  const corridorStats = useMemo<CorridorStats | null>(() => {
+    if (filters.routeMode !== "corridor") return null;
+    let min: number | null = null;
+    let max: number | null = null;
+    let approximate = 0;
+    for (const r of rows) {
+      const d = r.detour_miles;
+      if (d != null) {
+        min = min == null || d < min ? d : min;
+        max = max == null || d > max ? d : max;
+      }
+      if (isApproxEnd(r.pickup_precision) || isApproxEnd(r.delivery_precision)) approximate += 1;
+    }
+    return { matched: rows.length, minDetour: min, maxDetour: max, approximate };
+  }, [filters.routeMode, rows]);
+
   const ordered = useMemo(() => partitionUnverified(rows), [rows]);
   // The map always draws the whole result; only the list narrows to one place,
   // so the surrounding inventory stays visible while you read what is at it.
@@ -432,8 +479,21 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
     </div>
   );
 
+  const conflict = filterConflict(filters);
+
   const listBody = (
     <>
+      {/* The corridor's own read-out, above the jobs it selected: the route,
+          its width, and the extra driving. `off_route_miles` and `detour_miles`
+          have been on every corridor row since the engine shipped and were
+          rendered nowhere. */}
+      <RouteStrip
+        filters={filters}
+        onChange={setFilters}
+        current={current}
+        home={home}
+        stats={corridorStats}
+      />
       {place && (
         <div className="mb-[var(--sp-2)] flex items-center gap-[var(--sp-2)]">
           <button
@@ -498,6 +558,19 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         >
           <button type="button" className="btn btn-sm" onClick={() => void search()}>
             Try again
+          </button>
+        </EmptyState>
+      ) : rows.length === 0 && conflict ? (
+        // A fourth state, and it is about the FORM, not the freight: nothing can
+        // match a range whose floor is above its ceiling, so saying "no jobs
+        // match this search" would blame the board for what the search asked.
+        <EmptyState title={conflict.title} hint={conflict.hint}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setFilters(conflict.fix.next)}
+          >
+            {conflict.fix.label}
           </button>
         </EmptyState>
       ) : rows.length === 0 ? (
@@ -573,7 +646,10 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
           onBoundsChange={setBounds}
           viewer={current}
           home={home}
-          towardHome={filters.towardHome}
+          /* The map draws the you-to-home corridor itself, so it is told only
+             about that one: a corridor between two TYPED places is not the
+             viewer's own line and must not be drawn as if it were. */
+          towardHome={isTowardHome(filters)}
           fitKey={visibleQuery}
           /* How much of the map the sheet is covering right now: the map frames
              the jobs into what is left, and lifts its own legend and MapLibre's
@@ -588,7 +664,9 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
 
         {showNudge && (
           <div className="glass absolute bottom-[var(--sp-6)] left-1/2 w-[320px] -translate-x-1/2 p-[var(--sp-3)]">
-            <div className="font-semibold">Where are you now?</div>
+            {/* The same question the header pill now asks: not where the person
+                is, but where the truck comes free (§5.1). */}
+            <div className="font-semibold">Where will you be empty?</div>
             <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
               Jobs sort by distance to the pickup, and cards show how far each one is.
             </p>
@@ -602,7 +680,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
                   )
                 }
               >
-                Set your location
+                Set truck location
               </button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={dismissNudge}>
                 Skip — just browse
@@ -665,6 +743,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         home={home}
         isAdmin={isAdmin}
         compact={mobile || shortScreen}
+        stats={{ count: shown.count, ...resultStats, loading: firstLoad }}
       />
     </div>
   );

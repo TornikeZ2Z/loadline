@@ -163,6 +163,7 @@ export function PopoverButton({
   fullScreen = false,
   triggerClassName = "pill",
   panelTitle,
+  doneLabel,
   children,
 }: {
   label: React.ReactNode;
@@ -174,6 +175,12 @@ export function PopoverButton({
   triggerClassName?: string;
   /** Shown as the sheet header in full-screen mode. */
   panelTitle?: string;
+  /**
+   * The full-screen sheet's close button. Defaults to "Done", which says
+   * nothing about what pressing it will show; the filter sheet passes
+   * "Show 42 jobs" instead (§5.3).
+   */
+  doneLabel?: React.ReactNode;
   children: (close: () => void) => React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -266,7 +273,7 @@ export function PopoverButton({
             >
               <span className="big text-(length:--fs-lg)">{panelTitle ?? ariaLabel}</span>
               <button type="button" className="btn btn-primary" onClick={close}>
-                Done
+                {doneLabel ?? "Done"}
               </button>
             </div>
             <div className="px-[var(--sp-4)] pb-[var(--sp-6)]">{children(close)}</div>
