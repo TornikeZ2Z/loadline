@@ -14,7 +14,13 @@ import { query, queryOne, dbKind } from "../src/lib/db";
 import { ingestMessage } from "../src/lib/pipeline/ingest";
 import { processPending } from "../src/lib/pipeline/process";
 import { expireStaleLoads } from "../src/lib/pipeline/expire";
-import { createDemoAccounts, DEMO_ACCOUNTS, DEMO_PASSWORD } from "../src/lib/demo/accounts";
+import {
+  ADMIN_EMAIL,
+  createDemoAccounts,
+  DEMO_ACCOUNTS,
+  DEMO_PASSWORD,
+  ensureRealAdmin,
+} from "../src/lib/demo/accounts";
 import { GROUPS, MESSAGES } from "../src/lib/demo/sample-messages";
 
 async function main() {
@@ -23,6 +29,11 @@ async function main() {
 
   await createDemoAccounts();
   console.log(`users: ${DEMO_ACCOUNTS.length} demo accounts (one-click sign-in, or password "${DEMO_PASSWORD}")`);
+  // The demo accounts cannot change anything (users.is_demo), so a seeded
+  // database with only those three has no admin. Its password is NOT printed:
+  // src/lib/demo/accounts.ts holds the hash and the reasoning.
+  await ensureRealAdmin();
+  console.log(`admin: ${ADMIN_EMAIL} (real admin -- password form only, no one-click button)`);
 
   for (const g of GROUPS) {
     await query(
@@ -122,7 +133,7 @@ async function main() {
       `${totals?.review} flagged for review, ${totals?.states} pickup states`,
   );
   console.log(
-    '\nopen http://localhost:3000 — the board is public; press "Show contact" on any job to sign in as the demo driver; /login for poster/admin',
+    '\nopen http://localhost:3000 — the board is public; press "Show contact" on any job to sign in as the demo driver; /login for the demo poster, or the e-mail form there for the admin',
   );
 }
 

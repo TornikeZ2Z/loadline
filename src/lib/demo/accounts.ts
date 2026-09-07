@@ -1,15 +1,23 @@
 /**
- * Demo accounts and self-seeding.
+ * Seeded accounts and self-seeding.
  *
  * A hosted demo has to be useful the instant someone opens it, including on a
  * cold start where the embedded database was just rebuilt from nothing. So the
- * app seeds itself: if there are no users, create the demo accounts and replay
+ * app seeds itself: if there are no users, create the seeded accounts and replay
  * the sample WhatsApp corpus through the real pipeline.
  *
  * `ensureDemoData()` is cheap to call repeatedly -- one count query when the
  * database is already populated -- and is awaited by every entry point that
  * could be the first page of a cold demo: the board, a deep-linked job, the
  * sign-in page and the demo sign-in route.
+ *
+ * Two kinds of account are seeded here and they are not the same thing. The
+ * DEMO accounts below carry `users.is_demo`, which costs them every write
+ * (src/lib/auth.ts `requireWriteRole`). The REAL ADMIN at the bottom of this
+ * file does not, and it is the only account in the product that can reset the
+ * corpus, edit a rule or spend money at HERE. It lives in this file because
+ * this is the seeding module -- the one thing that runs on a cold start before
+ * anybody can sign in -- not because it has anything to do with the demo.
  */
 import { createHmac } from "node:crypto";
 import { query, queryOne } from "@/lib/db";
@@ -18,7 +26,7 @@ import type { Role } from "@/lib/session";
 import { resetDemoData } from "./reset";
 
 export interface DemoAccount {
-  /** "driver" | "poster" | "admin" -- the one-click sign-in key, equal to the role. */
+  /** "driver" | "poster" | "admin" -- the sign-in key, equal to the role. */
   key: Role;
   email: string;
   name: string;
@@ -27,10 +35,22 @@ export interface DemoAccount {
   phone: string | null;
   /** Shown under the sign-in button. */
   blurb: string;
+  /**
+   * Does this account get a one-click button on /login, and may
+   * POST /api/auth/demo issue a session for it?
+   *
+   * False for the demo admin, and that is the whole of it: the button is gone
+   * from the sign-in page AND the route refuses the key, because removing the
+   * button alone would leave `curl -d '{"role":"admin"}'` as an unguarded door
+   * to every console. The row itself stays seeded and stays `is_demo`, so its
+   * password keeps rotating with SESSION_SECRET on every cold start; dropping
+   * it from this list instead would freeze whatever hash it happens to hold.
+   */
+  oneClick: boolean;
 }
 
-// Driver stays first: `findDemoAccount(role ?? "driver")` and the contact gate
-// rely on the driver default. `/login` re-sorts the buttons poster · admin · driver.
+// Driver stays first: `findOneClickAccount(role ?? "driver")` and the contact
+// gate rely on the driver default. `/login` re-sorts the buttons poster · driver.
 export const DEMO_ACCOUNTS: DemoAccount[] = [
   {
     key: "driver",
@@ -40,6 +60,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     company: "Kaz Moving LLC",
     phone: "+19735550000",
     blurb: "See the contact on any job",
+    oneClick: true,
   },
   {
     key: "poster",
@@ -49,6 +70,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     company: "Sunshine Movers",
     phone: "+19085557788",
     blurb: "Post a job from the website and mark it taken",
+    oneClick: true,
   },
   {
     key: "admin",
@@ -57,10 +79,11 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     role: "admin",
     company: null,
     phone: null,
-    // Says "read" on purpose. A demo admin opens every console and changes
-    // nothing in them (src/lib/auth.ts `requireWriteRole`), so the button that
-    // promises the tour should not also imply the buttons inside it work.
-    blurb: "Read the pipeline, the needs-attention queue and the WhatsApp console",
+    // No button, and no `POST /api/auth/demo` either -- see `oneClick`. The
+    // blurb is kept only so this row still describes itself in scripts/seed.ts
+    // output; nothing renders it any more.
+    blurb: "Read-only console access; no one-click sign-in (see ADMIN_EMAIL below)",
+    oneClick: false,
   },
 ];
 
@@ -97,6 +120,81 @@ export function demoModeEnabled(): boolean {
   return (process.env.DEMO_MODE ?? "on").toLowerCase() !== "off";
 }
 
+// --- the real admin ----------------------------------------------------------
+
+/**
+ * The one account in the product that can change what everyone else sees.
+ *
+ * Every seeded account carries `users.is_demo`, and `requireWriteRole` refuses
+ * a demo account every write -- so after wave one the live site had nobody who
+ * could reset the corpus, edit a rule or run the geocode backfill. This row is
+ * that person: `is_demo` false, created on the same cold-start path as the demo
+ * rows, because an account that only exists once somebody SSHes in is an
+ * account the live site does not have.
+ *
+ * There is deliberately no button and no form field that produces it. It signs
+ * in through the ordinary e-mail form on /login and nowhere else.
+ */
+export const ADMIN_EMAIL = "admin@movermesh.com";
+
+/**
+ * scrypt hash of the chosen password, `ZipToZip123!`.
+ *
+ * RESIDUAL RISK, stated plainly because it is real: this repository is public,
+ * so this hash is public, and the password behind it is short and wordlist-
+ * guessable -- anyone who reads this file can recover it offline in seconds and
+ * sign in as a full admin on the live site. The CTO chose this password after
+ * being advised against it and reaffirmed the choice; it is recorded here so
+ * the next person to read this line knows it is a known cost, not an oversight.
+ *
+ * The fix needs no code change: set `ADMIN_PASSWORD` as a secret on the task
+ * and the next cold start hashes that instead (see `adminPasswordHash`). Until
+ * then the only thing standing between a reader of this file and
+ * `POST /api/test/reset` is that nobody has looked.
+ */
+const ADMIN_PASSWORD_HASH =
+  "scrypt$O5EqXzWrHAfwAdO56mvjJw$q_PjhS6mTaQvD1zlydaUDk_jACwFNTAEHMuTYaoEvLpdKebBK1wzieWwsQZM8_Evpz_8EKrQMQFhU4QoJVyOeA";
+
+/**
+ * `ADMIN_PASSWORD` first, then the committed hash.
+ *
+ * The environment wins so the password can be strengthened by setting one
+ * secret and restarting -- no code change, no migration, no deploy of this
+ * file. The committed hash is the floor that makes a fresh deployment usable
+ * before anybody has set that secret.
+ *
+ * Never the plaintext: only the hash is written down here, so reading this file
+ * costs an offline attack rather than handing the password over.
+ */
+function adminPasswordHash(): string {
+  const configured = process.env.ADMIN_PASSWORD;
+  return configured ? hashPassword(configured) : ADMIN_PASSWORD_HASH;
+}
+
+/**
+ * Create the real admin, or bring an existing row back in line with this file.
+ *
+ * DO UPDATE rather than DO NOTHING, for the same reason the demo rows rotate:
+ * this account is DEFINED IN CODE, so the code is what it is. That is what
+ * makes `ADMIN_PASSWORD` work at all -- a row that kept its first password
+ * could never be strengthened without a shell. It also means a hand-edited
+ * password, or `admin:grant --revoke` run against this address, is undone on
+ * the next cold start; the supported ways to close this account are to set
+ * `ADMIN_PASSWORD` or to delete the row.
+ *
+ * `is_demo` false is re-asserted on the same pass and is the load-bearing part:
+ * it is the entire difference between this row and the seeded demo admin.
+ */
+export async function ensureRealAdmin(): Promise<void> {
+  await query(
+    `INSERT INTO users (email, password_hash, name, role, phone, company, is_demo, can_post)
+     VALUES ($1,$2,'MoverMesh Admin','admin',NULL,NULL,false,true)
+     ON CONFLICT (email) DO UPDATE
+       SET password_hash = EXCLUDED.password_hash, role = 'admin', is_demo = false`,
+    [ADMIN_EMAIL, adminPasswordHash()],
+  );
+}
+
 export async function createDemoAccounts(): Promise<void> {
   for (const a of DEMO_ACCOUNTS) {
     await query(
@@ -130,11 +228,15 @@ export async function ensureDemoData(): Promise<void> {
   const existing = await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM users`);
   const fresh = (existing?.n ?? 0) === 0;
 
-  // Unconditional, and cheap: three upserts. A database seeded before the demo
+  // Unconditional, and cheap: four upserts. A database seeded before the demo
   // password stopped being a published literal still holds hashes of it, and
   // returning early here is exactly what would let them survive. Every cold
   // start now rotates them to the derived value.
   await createDemoAccounts();
+  // Unconditional for a second reason: the live database is NOT fresh, so an
+  // admin created only on the `fresh` branch would never appear on the one
+  // deployment that currently has no admin at all.
+  await ensureRealAdmin();
   if (!fresh) return;
 
   seeding ??= (async () => {
@@ -148,6 +250,13 @@ export async function ensureDemoData(): Promise<void> {
   await seeding;
 }
 
-export function findDemoAccount(key: string): DemoAccount | undefined {
-  return DEMO_ACCOUNTS.find((a) => a.key === key);
+/**
+ * A demo account that may be entered with one click.
+ *
+ * Named for what it grants rather than for what it looks up: a lookup that
+ * ignored `oneClick` would hand `POST /api/auth/demo` the admin row again, and
+ * the whole of removing the button is that the route refuses it too.
+ */
+export function findOneClickAccount(key: string): DemoAccount | undefined {
+  return DEMO_ACCOUNTS.find((a) => a.key === key && a.oneClick);
 }

@@ -7,6 +7,12 @@
  * page, so a demo admin may open every console and change nothing in one. Only
  * a real admin resets the corpus, edits a rule or spends money at HERE.
  *
+ * One real admin already exists: `admin@movermesh.com`, defined in
+ * src/lib/demo/accounts.ts and re-asserted on every cold start so the live site
+ * always has somebody who can run a write. This script is for the SECOND one
+ * and the ones after it -- a named person with their own password, which is
+ * what the shared built-in account should be replaced by.
+ *
  * There is deliberately no route, no form and no field on /register that can
  * produce one -- this script and a psql prompt are the only two ways, and they
  * both need access to the machine or the database.
@@ -19,6 +25,7 @@
  *   npm run admin:grant -- ops@yourcompany.com --revoke
  */
 import { query, queryOne } from "../src/lib/db";
+import { ADMIN_EMAIL } from "../src/lib/demo/accounts";
 
 interface Row {
   id: number;
@@ -44,6 +51,19 @@ async function main() {
   );
   if (!user) {
     console.error(`No account with that email. Create one at /register first, then run this.`);
+    process.exit(1);
+  }
+
+  if (email === ADMIN_EMAIL) {
+    // Both directions. Granting is a no-op -- the row is already an admin --
+    // and revoking LOOKS like it worked and is undone by the next cold start,
+    // which is the worse of the two failures: somebody would believe they had
+    // closed the account. Deleting the row, or setting ADMIN_PASSWORD, are the
+    // two things that actually hold.
+    console.error(
+      `${ADMIN_EMAIL} is defined in src/lib/demo/accounts.ts and re-asserted on every start. ` +
+        `Set ADMIN_PASSWORD or delete the row; this script cannot change it.`,
+    );
     process.exit(1);
   }
 
