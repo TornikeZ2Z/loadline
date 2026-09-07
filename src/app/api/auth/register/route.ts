@@ -7,10 +7,15 @@ import type { Role } from "@/lib/session";
 /**
  * Self-serve accounts, for the day `DEMO_MODE=off`.
  *
- * Two kinds, and only two: a **driver**, who wants the contact on a job, and a
- * **poster**, who wants to publish one. Admin is not on the menu -- an admin
- * comes from the seed or from someone with database access, never from a form
- * field a stranger can set.
+ * Admin is not on the menu -- an admin comes from someone with database access
+ * or from scripts/grant-admin.ts, never from a form field a stranger can set.
+ *
+ * The other two words are a label, not a limit. `role` records whether the
+ * person came for a contact or to publish, because that is what the copy around
+ * them says; it does not decide what they may then do. Posting is `can_post`,
+ * which every account gets (the column defaults to true), so the company that
+ * both hauls and posts stops needing a second account and nobody has to guess
+ * right at sign-up. The clamp below is only about admin.
  *
  * No home base is asked for. A location lives in the browser (localStorage) and
  * is set from the header in one click, so making it a registration field would
