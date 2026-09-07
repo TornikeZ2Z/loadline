@@ -3,19 +3,38 @@
  *
  * WHAT THIS IS FOR. Every surface that should offer "something here is wrong"
  * -- the footer, the header's More menu, the note at the end of /about and
- * /how-it-works, and (when its owner wires it up) the job detail -- links here
- * rather than each inventing its own wording and its own target.
+ * /how-it-works, and /cookies -- links here rather than each inventing its own
+ * wording and its own target.
  *
- * WHAT IS DELIBERATELY NOT HERE: the support mailbox itself. That is an
- * undecided business fact, and /contact renders it as the `[[SUPPORT EMAIL]]`
- * placeholder it has always been. This module is the ROUTE to that address, not
- * the address -- so when the mailbox is decided, exactly one rendered string on
- * /contact changes and every link below already points at it.
+ * WHAT IS DELIBERATELY NOT HERE: the support mailbox itself. This module is the
+ * ROUTE to that address, not the address -- it comes out of the settings store
+ * (`support_email` in src/lib/settings.ts) and renders on /contact as the
+ * `[[SUPPORT EMAIL]]` token until an admin fills it in.
  *
- * There is no form and no endpoint on purpose. A form with nowhere to post is
- * worse than no form: it looks like the problem was reported.
+ * THIS IS NOW ONE OF TWO ANSWERS TO "REPORT A PROBLEM", AND THAT IS ON PURPOSE.
  *
- * THE CONTRACT, for whoever adds the button to the job detail:
+ * This module used to say there was no form and no endpoint on purpose, because
+ * a form with nowhere to post looks like the problem was reported. That was
+ * true when it was written and is not any more: `POST /api/reports` exists, and
+ * a per-job report lands in the admin's needs-attention queue (see
+ * src/lib/reports.ts and src/components/ReportProblem.tsx).
+ *
+ * The split is by WHAT is being reported, not by who is asking:
+ *
+ *   this job is wrong  -> the in-app queue, on the job detail. A machine read a
+ *                         WhatsApp message and got a ZIP wrong; a rule fixes it.
+ *   everything else    -> here, to a person. Takedown and removal requests in
+ *                         particular: "my post should not be on your site" is a
+ *                         legal path with a human at the end of it, and the
+ *                         queue is not that.
+ *
+ * So the five links below -- the footer, the header's More menu, /about,
+ * /how-it-works, /cookies -- keep pointing at /contact, because none of them is
+ * standing on a particular job. `reportProblemHref(jobPath)` survives for a
+ * surface that has a job in hand and still wants the mailbox rather than the
+ * queue; the job detail itself does not use it.
+ *
+ * THE CONTRACT:
  *
  *   import { reportProblemHref } from "@/lib/support";
  *   <Link href={reportProblemHref(`/jobs/${load.id}`)}>Report a problem</Link>

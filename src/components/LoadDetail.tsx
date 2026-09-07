@@ -42,6 +42,7 @@ import {
   TAG_LABELS,
 } from "@/lib/loads/present";
 import { ContactGate } from "./ContactGate";
+import { ReportProblem } from "./ReportProblem";
 import { Chip, PrecisionNote, StatusChip } from "./ui";
 
 export interface LoadDetailProps {
@@ -611,6 +612,11 @@ export function LoadDetail({
             )}
           </section>
         )}
+
+        {/* 9 — report. Last, and open to everyone: it belongs after the reader
+            has seen our reading of the post and the original message it came
+            from, because that is the moment they can tell that it is wrong. */}
+        <ReportProblem loadId={row.id} />
         </div>
       </div>
 

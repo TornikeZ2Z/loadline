@@ -214,7 +214,21 @@ export function AdminConsole({ groups, initialTab, initialMessageId }: AdminCons
 
   return (
     <div className="mx-auto max-w-[1400px] p-[var(--sp-4)] md:p-[var(--sp-5)]">
-      <h1 className="big text-(length:--fs-xl)">Extraction admin</h1>
+      {/* Site settings is a link beside the title, not an eighth tab. Every tab
+          below is a view of the corpus and is opened weekly; that page is opened
+          about twice in the life of the company and rewrites what six PUBLIC
+          pages assert about who runs the site. Filing it under the corpus views
+          would say the two are the same kind of work. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-[var(--sp-2)]">
+        <h1 className="big text-(length:--fs-xl)">Extraction admin</h1>
+        <Link
+          href="/admin/settings"
+          className="font-semibold text-(length:--fs-base)"
+          style={{ color: "var(--accent)" }}
+        >
+          Site settings →
+        </Link>
+      </div>
       <p className="mt-[var(--sp-1)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
         Everything on the board is derived from the raw messages, so a message can always be replayed
         after a rule changes — and a fix saved here survives a database reset.
