@@ -12,6 +12,7 @@
  * re-exports redactPhones as maskPhones for a second line of defence in the DOM.
  */
 import type { LoadRow } from "./types";
+import type { TruckRow } from "./truckTypes";
 
 export const PHONE_MASK = "[phone hidden]";
 
@@ -91,5 +92,64 @@ export function redactJob<
     job_notes: redactPhones(row.job_notes),
     notes: redactPhones(row.notes),
     requirements: redactPhones(row.requirements),
+  };
+}
+
+/**
+ * `redactPhones` for a column the schema declares NOT NULL.
+ *
+ * A truck's `origin_label` is a `string`, and `redactPhones` widens everything
+ * to `string | null` for the nullable columns' sake. The mask never introduces
+ * a null -- a string in is a string out -- so this narrows the result back to
+ * the caller's own type instead of forcing `?? ""` at each site, where the
+ * fallback would silently blank a label if the function ever changed.
+ */
+function mask<S extends string | null>(text: S): S {
+  return redactPhones(text) as S;
+}
+
+/**
+ * A copy of a truck row with every phone stripped -- the same masking, in the
+ * same module, as `redactJob`. There continues to be exactly one place in this
+ * repo that knows how to hide a number.
+ *
+ * The field list is longer than a job's, and the two additions are the point.
+ * `truck_text` ("26ft box truck available Newark call 786-555-0128") and
+ * `equipment_notes` are free text a driver types on the line that IS the
+ * listing, and writing a number there is an ordinary way to post capacity.
+ * `origin_label` and `dest_label` are masked too: a place a person typed can
+ * carry a phone the same way a note can.
+ *
+ * `contact_phone_raw` is not here because it is not on `TruckRow` at all -- see
+ * the header of truckTypes.ts. Adding it to the row shape without adding it
+ * here is caught by npm run check:redact (R2), which scans the columns.
+ */
+export function redactTruck<
+  T extends Pick<
+    TruckRow,
+    | "contact_phone"
+    | "sender_key"
+    | "contact_name"
+    | "line_text"
+    | "notes"
+    | "requirements"
+    | "equipment_notes"
+    | "truck_text"
+    | "origin_label"
+    | "dest_label"
+  >,
+>(row: T): T {
+  return {
+    ...row,
+    contact_phone: null,
+    sender_key: null,
+    contact_name: isPhoneOnly(row.contact_name) ? null : redactPhones(row.contact_name),
+    line_text: mask(row.line_text),
+    notes: mask(row.notes),
+    requirements: mask(row.requirements),
+    equipment_notes: mask(row.equipment_notes),
+    truck_text: mask(row.truck_text),
+    origin_label: mask(row.origin_label),
+    dest_label: mask(row.dest_label),
   };
 }

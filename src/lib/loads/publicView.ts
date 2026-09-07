@@ -20,8 +20,9 @@
  */
 
 import type { LoadRow, LoadSearchResult } from "@/lib/loads/types";
+import type { TruckRow, TruckSearchResult } from "@/lib/loads/truckTypes";
 import type { Role } from "@/lib/session";
-import { redactJob, redactPhones, isPhoneOnly, PHONE_MASK } from "@/lib/loads/redact";
+import { redactJob, redactTruck, redactPhones, isPhoneOnly, PHONE_MASK } from "@/lib/loads/redact";
 import { normalizePhone } from "@/lib/extract/phone";
 
 export { PHONE_MASK };
@@ -56,6 +57,58 @@ export function toPublicLoad(row: LoadRow): PublicLoadRow {
 
 export function toPublicLoads(rows: LoadRow[]): PublicLoadRow[] {
   return rows.map(toPublicLoad);
+}
+
+/**
+ * The same wire contract for a truck: phone-free always, `sender_key` gone
+ * because it IS the number, and `has_phone` telling the UI whether the contact
+ * gate has anything behind it.
+ *
+ * A separate function rather than a generic one over both kinds. The two rows
+ * mask different field lists -- a truck's `truck_text` and `equipment_notes`
+ * carry numbers a job's shape has no column for -- and a shared implementation
+ * would have to be told which list to use, which is the same forgettable
+ * argument this file exists to remove.
+ */
+export interface PublicTruckRow extends Omit<TruckRow, "contact_phone" | "sender_key"> {
+  /** Always null on the public wire. */
+  contact_phone: null;
+  /** Always null: "phone:<E.164>" is the driver's own number. */
+  sender_key: null;
+  /** A usable phone exists behind the contact gate (drives the Show contact button). */
+  has_phone: boolean;
+  /** The server row had `sender_key === null`: a website post, not a WhatsApp one. */
+  is_web: boolean;
+}
+
+/**
+ * Strip and mask one truck. `has_phone` and `is_web` are read from the ORIGINAL
+ * row -- after `redactTruck` both fields they derive from are gone.
+ */
+export function toPublicTruck(row: TruckRow): PublicTruckRow {
+  const phone = normalizePhone(row.contact_phone);
+  const has_phone = phone.e164 != null || phone.display != null;
+  const is_web = row.sender_key === null;
+  return {
+    ...redactTruck(row),
+    contact_phone: null,
+    sender_key: null,
+    has_phone,
+    is_web,
+  };
+}
+
+export function toPublicTrucks(rows: TruckRow[]): PublicTruckRow[] {
+  return rows.map(toPublicTruck);
+}
+
+export interface PublicTruckSearchResult extends Omit<TruckSearchResult, "rows"> {
+  rows: PublicTruckRow[];
+}
+
+export interface PublicTruckDetailResponse {
+  truck: PublicTruckRow;
+  source: PublicSource | null;
 }
 
 /** The original WhatsApp message shown under a job. */
