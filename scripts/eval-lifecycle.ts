@@ -36,6 +36,9 @@
  *       marker, a cut-off post that also carries a partial phrase, the jobs
  *       such a post repeats still being sighted, and `last_full_at` staying
  *       on the earlier list so a later full post still retires what it omits.
+ *   S11 who may name a city: an unresolved ZIP carries none, the geo/zips.ts
+ *       sweep supplies one once a real geocoder places the ZIP, and a city the
+ *       poster wrote is never overwritten.
  */
 process.env.PGLITE_DIR = "memory://";
 
@@ -648,6 +651,56 @@ async function main() {
   expect(
     after10c.available === 3 && after10c.delisted === 7,
     `a real full post after a truncated one still retires the 7 it omits (got ${after10c.available}/${after10c.delisted})`,
+  );
+
+  // ----------------------------------------------------------------- S11
+  // Who is allowed to name a city. `zipApprox` places a ZIP it cannot resolve
+  // at the nearest gazetteer city's coordinates and reports NO city, because
+  // the nearest in-state entry is a guess about the ZIP rather than anything
+  // the sender wrote -- live, that guess was being served as `delivery_city`
+  // for "VA 24040" (Roanoke) and "ID 83664" (Boise) with needs_review false.
+  // A real geocoder answer is the first thing entitled to name one, so the
+  // name arrives with the geo/zips.ts sweep, and only where the poster did not
+  // supply one themselves.
+  console.log(`\n${DIM}S11: only a real geocoder names a city the sender did not${RESET}`);
+  const { warmBoardZips } = await import("../src/lib/geo/zips");
+  const S11 = "+17865559100";
+  // 30303 is Atlanta and the message never says so; 24011 says "Roanoke".
+  await post(S11, "FROM NEWARK NJ:\n350 - GA 30303 $3.00\n400 - Roanoke, VA 24011 $3.10", T0, T0);
+  const dest11 = async (zip: string) =>
+    (await queryOne<{ city: string | null; prec: string | null }>(
+      `SELECT delivery_city AS city, delivery_precision AS prec
+         FROM loads WHERE sender_key = $1 AND delivery_zip = $2`,
+      [`phone:${S11}`, zip],
+    ))!;
+  const preUnsaid = await dest11("30303");
+  const preStated = await dest11("24011");
+  expect(
+    preUnsaid.city === null && preUnsaid.prec === "state" && preStated.city === "Roanoke",
+    `an unresolved ZIP carries no city and a stated one keeps it ` +
+      `(got ${JSON.stringify(preUnsaid)}, ${JSON.stringify(preStated)})`,
+  );
+
+  // Stand in for a warmed cache: HERE is unconfigured in this run, so write the
+  // precise answers straight into `places` and let the sweep move the rows.
+  await query(
+    `UPDATE places SET city = 'Atlanta', state = 'GA', lat = 33.749, lng = -84.388,
+            precision = 'zip', source = 'here' WHERE query = 'zip:30303'`,
+  );
+  await query(
+    `UPDATE places SET city = 'Roanoke', state = 'VA', lat = 37.271, lng = -79.941,
+            precision = 'zip', source = 'here' WHERE query = 'zip:24011'`,
+  );
+  await warmBoardZips({ onlyCoarse: true });
+  const postUnsaid = await dest11("30303");
+  const postStated = await dest11("24011");
+  expect(
+    postUnsaid.city === "Atlanta" && postUnsaid.prec === "zip",
+    `the sweep names the ZIP-only endpoint once a real geocoder places it (got ${JSON.stringify(postUnsaid)})`,
+  );
+  expect(
+    postStated.city === "Roanoke" && postStated.prec === "zip",
+    `the poster's own city is never overwritten by the sweep (got ${JSON.stringify(postStated)})`,
   );
 
   console.log("");
