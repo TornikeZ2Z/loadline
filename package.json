@@ -14,6 +14,7 @@
     "check:redact": "tsx scripts/check-redact.ts",
     "check:routes": "tsx scripts/check-routes.ts",
     "check:demo": "tsx scripts/check-demo.ts",
+    "check:sums": "tsx scripts/check-sums.ts",
     "check:equiv": "tsx scripts/check-equivalence.ts",
     "survey:capacity": "tsx scripts/capacity-survey.ts",
     "admin:grant": "tsx scripts/grant-admin.ts",
