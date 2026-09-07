@@ -204,6 +204,18 @@ export function endLabelText(job: PublicLoadRow, end: MapEnd): string {
  * mixed array: `cf` is freight on a job and free space on a truck, and a
  * marker holding both would carry one number where there are two.
  */
+/**
+ * The marker key a coordinate falls in: three decimal places, ~110 m.
+ *
+ * Exported because the truck source has to derive per-marker facts that
+ * `buildGroups` does not carry -- a bearing, whether a destination was stated --
+ * and deriving them under a second, hand-rolled rounding is how two things that
+ * must be the same marker stop being the same marker.
+ */
+export function groupKey(lng: number, lat: number): string {
+  return `${lng.toFixed(3)},${lat.toFixed(3)}`;
+}
+
 export function buildGroups(marks: MapMark[]): BuiltPoints {
   const byKey = new Map<string, PointGroup>();
   const spotsByKey = new Map<string, Map<string, PointSpot>>();
@@ -213,7 +225,7 @@ export function buildGroups(marks: MapMark[]): BuiltPoints {
   for (const mark of marks) {
     plotted += 1;
 
-    const key = `${mark.lng.toFixed(3)},${mark.lat.toFixed(3)}`;
+    const key = groupKey(mark.lng, mark.lat);
     keyById.set(mark.id, key);
 
     /* Five decimals -- about a metre. Finer than that is not a distinction any
