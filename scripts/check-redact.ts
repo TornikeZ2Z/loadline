@@ -249,6 +249,18 @@ const RAW_SOURCES = [
   // The truck board's reads. Same shape, same phone columns, same rule.
   "searchTrucks",
   "getTruck",
+  // The batch reads behind the matcher: both return whole rows off the frozen
+  // SELECT lists, phone columns and all, for the handful of listings that
+  // survived a match.
+  "loadsByIds",
+  "trucksByIds",
+  // The matchers themselves. A match list is a list of LISTINGS -- every row in
+  // it carries the same phone columns the board's rows do, and the only thing
+  // standing between them and a response body is toPublicJobMatches /
+  // toPublicTruckMatches. Listed in the commit that created them, because a
+  // handler calling an unlisted producer passes the route assertion VACUOUSLY.
+  "matchesForTruck",
+  "matchesForJob",
   // Only counted in a handler whose SQL actually names a load or message table:
   // /api/auth/* reads `users` with these too, and a user's own row is not a
   // redaction question.
@@ -266,6 +278,10 @@ const RAW_SOURCE_MODULES: Record<string, string> = {
   getDuplicates: "../src/lib/loads/query",
   searchTrucks: "../src/lib/loads/truckQuery",
   getTruck: "../src/lib/loads/truckQuery",
+  loadsByIds: "../src/lib/loads/query",
+  trucksByIds: "../src/lib/loads/truckQuery",
+  matchesForTruck: "../src/lib/match/run",
+  matchesForJob: "../src/lib/match/run",
   revealContact: "../src/lib/pipeline/reconcile",
   revealTruckContact: "../src/lib/pipeline/reconcile",
   listMessages: "../src/lib/demo/chats",
@@ -281,6 +297,11 @@ const SANITIZERS = [
   "toPublicSource",
   "toPublicTruck",
   "toPublicTrucks",
+  // A match result is a list of listings with a verdict bolted on, so it goes
+  // through the SAME toPublicLoad / toPublicTruck the boards use. These two
+  // wrappers are sanitizers because that is all they do.
+  "toPublicJobMatches",
+  "toPublicTruckMatches",
   "redactJob",
   "redactTruck",
   "redactPhones",
@@ -717,6 +738,126 @@ async function liveTruckRouteChecks() {
 }
 
 /**
+ * R5 for the two match routes, and M14's fetch spy.
+ *
+ * A match list is a list of LISTINGS. Every row inside one carries the same
+ * `contact_phone`, `sender_key` and free-text columns the board's rows do, so
+ * these two handlers are exactly as capable of leaking a number as the detail
+ * routes are -- and they are newer, less looked at, and reached from a panel
+ * rather than a URL somebody typed. So they are imported and invoked for real,
+ * and their actual bytes go through the same patterns as everything else.
+ *
+ * Three things beyond the patterns:
+ *
+ *   * the scan is proved NON-VACUOUS. A match list of zero rows would pass every
+ *     phone pattern trivially, so at least one direction has to have produced a
+ *     match before the result means anything;
+ *   * `contact_phone` and `sender_key` are asserted STRUCTURALLY null on every
+ *     item, not merely free of phone-shaped text -- a name-shaped phone
+ *     ("Ana", from a sender key) has no digits to match;
+ *   * a fetch spy records zero outbound calls. Matching runs up to 2,000
+ *     evaluations behind one page view and must never make a billable HERE
+ *     call; `road_miles` is read when the column already holds it and is never
+ *     fetched to find out.
+ */
+async function liveMatchRouteChecks() {
+  const { query } = await import("../src/lib/db");
+
+  const trucks = await query<{ id: number; visibility: string }>(
+    `SELECT id, visibility FROM trucks ORDER BY id`,
+  );
+  const publicTruckIds = trucks.filter((t) => t.visibility === "public").map((t) => t.id);
+  const pendingId = trucks.find((t) => t.visibility === "pending")!.id;
+  const jobs = await query<{ id: number }>(
+    `SELECT id FROM loads WHERE status = 'available' ORDER BY id LIMIT 25`,
+  );
+  assert(publicTruckIds.length > 0 && jobs.length > 0, "nothing seeded to match against");
+
+  const truckMatches = (await import("../src/app/api/trucks/[id]/matches/route")) as {
+    GET: (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
+  };
+  const jobMatches = (await import("../src/app/api/loads/[id]/matches/route")) as {
+    GET: (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
+  };
+
+  const realFetch = globalThis.fetch;
+  let fetches = 0;
+  globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
+    fetches += 1;
+    return realFetch(...args);
+  }) as typeof fetch;
+
+  interface Item {
+    item: { id: number; contact_phone: unknown; sender_key: unknown };
+  }
+  let matchesSeen = 0;
+  let itemsSeen = 0;
+
+  const scan = async (
+    mod: typeof truckMatches,
+    id: number,
+    what: string,
+  ): Promise<void> => {
+    const res = await mod.GET(new Request(`http://localhost/${what}/${id}/matches`), {
+      params: Promise.resolve({ id: String(id) }),
+    });
+    assert(res.status === 200, `GET /api/${what}/${id}/matches answered ${res.status}`);
+    const text = await res.text();
+    for (const [re, label] of PAYLOAD_PATTERNS) {
+      const hit = text.match(re);
+      assert(
+        !hit,
+        `GET /api/${what}/${id}/matches returned a ${label}: ...${text.slice(Math.max(0, (hit?.index ?? 0) - 60), (hit?.index ?? 0) + 40)}...`,
+      );
+    }
+    const body = JSON.parse(text) as { matches: Item[] };
+    matchesSeen += body.matches.length;
+    for (const m of body.matches) {
+      itemsSeen += 1;
+      assert(
+        m.item.contact_phone === null,
+        `GET /api/${what}/${id}/matches returned a listing with a non-null contact_phone`,
+      );
+      assert(
+        m.item.sender_key === null,
+        `GET /api/${what}/${id}/matches returned a listing with a non-null sender_key`,
+      );
+    }
+  };
+
+  for (const id of publicTruckIds) await scan(truckMatches, id, "trucks");
+  for (const job of jobs) await scan(jobMatches, job.id, "loads");
+
+  globalThis.fetch = realFetch;
+
+  assert(
+    matchesSeen > 0,
+    "neither match route produced a single match, so the phone scan over them proves nothing",
+  );
+  assert(fetches === 0, `a match query made ${fetches} outbound fetch call(s) — matching must never reach HERE`);
+
+  // R7, extended to this route: the quarantine holds here too, and it is
+  // indistinguishable from an id that was never issued.
+  const noSuch = Math.max(...trucks.map((t) => t.id)) + 1000;
+  const call = (id: number) =>
+    truckMatches.GET(new Request(`http://localhost/api/trucks/${id}/matches`), {
+      params: Promise.resolve({ id: String(id) }),
+    });
+  const pending = await call(pendingId);
+  const missing = await call(noSuch);
+  assert(pending.status === 404, `GET /api/trucks/:id/matches answered ${pending.status} for a pending truck`);
+  assert(
+    (await pending.text()) === (await missing.text()),
+    "GET /api/trucks/:id/matches tells a pending truck apart from an id that was never issued",
+  );
+
+  console.log(
+    `${DIM}invoked both match routes over ${publicTruckIds.length} trucks and ${jobs.length} jobs: ` +
+      `${itemsSeen} listings inside ${matchesSeen} matches, 0 outbound fetches${RESET}`,
+  );
+}
+
+/**
  * The contact arm: the one door a truck's phone number leaves by.
  *
  * `POST /api/trucks/:id/contact` is the only handler in the repo besides its
@@ -857,6 +998,7 @@ async function main() {
   await liveRouteChecks();
   await truckCorpusChecks();
   await liveTruckRouteChecks();
+  await liveMatchRouteChecks();
   await truckContactChecks();
 
   if (failures.length) {

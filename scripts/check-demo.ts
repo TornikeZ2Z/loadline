@@ -426,6 +426,27 @@ async function main() {
 
   console.log(`${DIM}checked ${audiences.length} audiences against a demo listing and a real control${RESET}`);
 
+  // --- 2b. the same matrix, through the matcher ------------------------------
+  //
+  // A match list is a THIRD way to reach a listing, and the newest one. It has
+  // both of the shapes that leak: it reads across the two tables in one call,
+  // and it is reached from a panel rather than from a URL somebody typed, so
+  // nothing about it makes a reader wonder whose row they are looking at.
+  //
+  // The fixtures line up for this without any new ones: the demo truck and the
+  // demo job share a poster, so each is matched against the OTHER side's real
+  // control. Gate 3 (same party) keeps a listing out of its own owner's match
+  // list, which is why the pairs cross over.
+  await matchDemoChecks({
+    demoJob,
+    realJob,
+    demoTruck,
+    realTruck,
+    pendingTruck: quarantined,
+    audiences,
+    demoPosterId: demoPoster.id,
+  });
+
   // --- 3. the real handlers, invoked -----------------------------------------
   await liveRouteChecks(demoJob, realJob);
   await liveTruckRouteChecks(demoTruck, realTruck);
@@ -595,6 +616,142 @@ async function liveTruckRouteChecks(demoTruck: number, realTruck: number) {
   console.log(`${DIM}invoked GET /api/trucks and GET /api/trucks/:id anonymously${RESET}`);
 }
 
+// --- 2b. the matcher, audience by audience -----------------------------------
+
+interface MatchMatrix {
+  demoJob: number;
+  realJob: number;
+  demoTruck: number;
+  realTruck: number;
+  pendingTruck: number;
+  audiences: Array<{ label: string; audience: { userId: number | null; includeDemo?: boolean }; sees: boolean }>;
+  demoPosterId: number;
+}
+
+/**
+ * A match list may never contain a listing the same caller could not open.
+ *
+ * Three assertions per audience, and the second is the one that makes the first
+ * a check rather than a tautology: the NON-DEMO half of every match list has to
+ * be identical for everybody, or a predicate that simply returned nothing would
+ * pass. The third is the universal form -- every row that comes back is a row
+ * `getLoad` / `getTruck` would hand the same caller -- which holds no matter
+ * what the fixtures happen to be.
+ */
+async function matchDemoChecks(m: MatchMatrix): Promise<void> {
+  const { matchesForTruck, matchesForJob, previewMatches } = await import("../src/lib/match/run");
+  const { getLoad } = await import("../src/lib/loads/query");
+  const { getTruck } = await import("../src/lib/loads/truckQuery");
+
+  let jobBaseline: string | null = null;
+  let truckBaseline: string | null = null;
+  let sawDemoJob = false;
+  let sawDemoTruck = false;
+
+  for (const { label, audience, sees } of m.audiences) {
+    const forTruck = await matchesForTruck(m.realTruck, "public", audience);
+    assert(forTruck != null, `matchesForTruck: ${label} cannot open the real control truck`);
+    const jobIds = (forTruck?.matches ?? []).map((x) => x.item.id);
+    assert(
+      jobIds.includes(m.demoJob) === sees,
+      `matchesForTruck: ${label} ${jobIds.includes(m.demoJob) ? "SEES" : "does not see"} the demo job inside a match list (expected ${sees ? "sees" : "does not see"})`,
+    );
+    if (jobIds.includes(m.demoJob)) sawDemoJob = true;
+    const nonDemoJobs = JSON.stringify(jobIds.filter((id) => id !== m.demoJob));
+    if (jobBaseline == null) jobBaseline = nonDemoJobs;
+    assert(
+      nonDemoJobs === jobBaseline,
+      `matchesForTruck: ${label} got a different set of real jobs (${nonDemoJobs}) than the first audience (${jobBaseline}) -- the predicate is doing more than hiding demo rows`,
+    );
+    for (const id of jobIds) {
+      assert(
+        (await getLoad(id, audience)) != null,
+        `matchesForTruck: ${label} was handed job ${id} inside a match list but cannot open it`,
+      );
+    }
+
+    const forJob = await matchesForJob(m.realJob, "public", audience);
+    assert(forJob != null, `matchesForJob: ${label} cannot open the real control job`);
+    const truckIds = (forJob?.matches ?? []).map((x) => x.item.id);
+    assert(
+      truckIds.includes(m.demoTruck) === sees,
+      `matchesForJob: ${label} ${truckIds.includes(m.demoTruck) ? "SEES" : "does not see"} the demo truck inside a match list (expected ${sees ? "sees" : "does not see"})`,
+    );
+    if (truckIds.includes(m.demoTruck)) sawDemoTruck = true;
+    assert(
+      !truckIds.includes(m.pendingTruck),
+      `matchesForJob: ${label} was handed a truck from the review queue inside a match list`,
+    );
+    const nonDemoTrucks = JSON.stringify(truckIds.filter((id) => id !== m.demoTruck));
+    if (truckBaseline == null) truckBaseline = nonDemoTrucks;
+    assert(
+      nonDemoTrucks === truckBaseline,
+      `matchesForJob: ${label} got a different set of real trucks (${nonDemoTrucks}) than the first audience (${truckBaseline})`,
+    );
+    for (const id of truckIds) {
+      assert(
+        (await getTruck(id, "public", audience)) != null,
+        `matchesForJob: ${label} was handed truck ${id} inside a match list but cannot open it`,
+      );
+    }
+  }
+
+  // Non-vacuity. If the fixture lanes ever stop matching, every assertion above
+  // passes on two empty lists and proves nothing at all.
+  assert(sawDemoJob, "no audience ever saw the demo job in a match list, so the matrix above is vacuous");
+  assert(sawDemoTruck, "no audience ever saw the demo truck in a match list, so the matrix above is vacuous");
+
+  // Forgetting the audience must cost rows, never leak them.
+  const bare = await matchesForTruck(m.realTruck, "public");
+  assert(
+    !(bare?.matches ?? []).some((x) => x.item.id === m.demoJob),
+    "matchesForTruck with no audience returned the demo job",
+  );
+  const bareJob = await matchesForJob(m.realJob, "public");
+  assert(
+    !(bareJob?.matches ?? []).some((x) => x.item.id === m.demoTruck),
+    "matchesForJob with no audience returned the demo truck",
+  );
+
+  // The scope is the other predicate: a truck in the review queue has no match
+  // page at all, for anybody, including the account that posted it.
+  assert(
+    (await matchesForTruck(m.pendingTruck, "public", { userId: m.demoPosterId })) == null,
+    "a pending truck's own poster can open its match list on the public scope",
+  );
+
+  // ...and the preview, which reads jobs on behalf of a draft nobody has posted.
+  // `posted_by: null` so gate 3 cannot hide the demo job for the poster's own
+  // audience -- what is being measured here is the demo predicate, not the
+  // same-party one.
+  const draft = {
+    id: 0,
+    status: "available" as const,
+    visibility: "public" as const,
+    sender_key: null,
+    posted_by: null,
+    origin_lat: TRUCK.origin_lat,
+    origin_lng: TRUCK.origin_lng,
+    dest_lat: TRUCK.dest_lat,
+    dest_lng: TRUCK.dest_lng,
+    corridor_miles: TRUCK.corridor_miles,
+    free_cf: TRUCK.free_cf,
+    avail_now: true,
+    avail_from: null,
+    avail_to: null,
+  };
+  const anonPreview = await previewMatches(draft, { userId: null });
+  const posterPreview = await previewMatches(draft, { userId: m.demoPosterId });
+  assert(
+    posterPreview.total === anonPreview.total + 1,
+    `the posting preview counted ${posterPreview.total} for the demo poster and ${anonPreview.total} anonymously -- the demo job must be in exactly one of them`,
+  );
+
+  console.log(
+    `${DIM}drove matchesForTruck, matchesForJob and previewMatches over the same ${m.audiences.length} audiences${RESET}`,
+  );
+}
+
 // --- 4. the route layer, as text ---------------------------------------------
 
 /** Reads that hand back a job and therefore have to be told who is asking. */
@@ -622,6 +779,11 @@ const SCOPED: Record<string, { scopeAt: number; args: number }> = {
   // every other truck read and a row the caller may not see 404s before it can
   // 403. Added in the same commit that created it, exactly as RAW_SOURCES is.
   truckOwner: { scopeAt: 1, args: 3 },
+  // The matchers read BOTH tables -- a truck's match list is full of jobs and a
+  // job's is full of trucks -- so they carry both predicates and are charged the
+  // same price as every other read. Added in the commit that created them.
+  matchesForTruck: { scopeAt: 1, args: 3 },
+  matchesForJob: { scopeAt: 1, args: 3 },
 };
 
 /**

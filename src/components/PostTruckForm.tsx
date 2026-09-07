@@ -24,11 +24,13 @@
  */
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/basePath";
 import { TRUCK_CORRIDOR_OPTIONS, DEFAULT_TRUCK_CORRIDOR_MILES } from "@/lib/loads/constants";
 import { TAG_LABELS } from "@/lib/loads/present";
 import { SPACE_NOT_STATED } from "@/lib/loads/truckPresent";
+import { emptyMatchCopy } from "@/lib/match/reasons";
+import type { MatchPreview } from "@/lib/match/types";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
 
 export interface PostTruckFormProps {
@@ -107,6 +109,23 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
   const [busy, setBusy] = useState(false);
   const [posted, setPosted] = useState<number | null>(null);
   const [fieldError, setFieldError] = useState<{ field: string; message: string } | null>(null);
+
+  /**
+   * The live preview: how many jobs on the board today this leg would fit.
+   *
+   * A COUNT, and the same refusal histogram the panels print -- never a list.
+   * A driver who has not posted yet has no listing for anybody to have
+   * answered, and showing them job rows here would make the posting form a
+   * second board with no contact gate in front of it. The number is the honest
+   * part: "4 fit this" is a reason to finish the form, and a list is a reason
+   * not to.
+   *
+   * Null until there is an origin COORDINATE. A typed place with no suggestion
+   * picked has no lat/lng, and guessing one would make the count a fiction
+   * about a place the driver did not choose.
+   */
+  const [preview, setPreview] = useState<MatchPreview | null>(null);
+  const [previewState, setPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
   const errorFor = (field: string) =>
     fieldError?.field === field ? (
@@ -243,6 +262,67 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
   }
 
   const swing = Number(corridorMiles) || DEFAULT_TRUCK_CORRIDOR_MILES;
+
+  const originLat = originPick?.lat ?? null;
+  const originLng = originPick?.lng ?? null;
+  const previewDestLat = destUndecided ? null : (destPick?.lat ?? null);
+  const previewDestLng = destUndecided ? null : (destPick?.lng ?? null);
+  const previewFreeCf = freeUnknown ? "" : freeCf;
+
+  // Debounced, because the corridor select and the free-space box both change
+  // the answer and a request per keystroke would spend the 20/min bucket in
+  // seconds. Aborted on every change, so a slow early answer can never land on
+  // top of a fast later one.
+  useEffect(() => {
+    if (originLat == null || originLng == null) {
+      setPreview(null);
+      setPreviewState("idle");
+      return;
+    }
+    const controller = new AbortController();
+    setPreviewState("loading");
+    const timer = setTimeout(() => {
+      fetch(api("/api/trucks/preview-matches"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          originLat,
+          originLng,
+          destLat: previewDestLat,
+          destLng: previewDestLng,
+          corridorMiles,
+          freeCf: previewFreeCf,
+          availMode,
+          availFrom,
+          availTo,
+        }),
+      })
+        .then((r) => (r.ok ? (r.json() as Promise<MatchPreview>) : Promise.reject(r.status)))
+        .then((d) => {
+          setPreview(d);
+          setPreviewState("ready");
+        })
+        .catch((e: unknown) => {
+          if (e instanceof DOMException && e.name === "AbortError") return;
+          setPreviewState("error");
+        });
+    }, 400);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [
+    originLat,
+    originLng,
+    previewDestLat,
+    previewDestLng,
+    corridorMiles,
+    previewFreeCf,
+    availMode,
+    availFrom,
+    availTo,
+  ]);
 
   return (
     <div className="mx-auto max-w-[720px] p-[var(--sp-5)]">
@@ -490,6 +570,7 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
             We&apos;ll show you jobs whose pickup is within {swing} miles of your line.
           </p>
           {errorFor("corridorMiles")}
+          <PreviewLine state={previewState} preview={preview} freeCf={previewFreeCf} radius={previewDestLat == null} />
         </Field>
 
         <Field label="What you can handle">
@@ -635,6 +716,87 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
           truck, not an edit to this one.
         </p>
       </form>
+    </div>
+  );
+}
+
+/**
+ * "4 jobs on the board fit this right now" — or, when nothing does, why not.
+ *
+ * The zero case is the one that earns this control its place. A driver who
+ * fills in a leg and is told nothing at all fits will assume the board is
+ * empty; told "18 were going the wrong way · 6 weren't near your route", they
+ * know the board is full of jobs and this particular leg is the mismatch —
+ * which is a reason to widen the corridor rather than a reason to close the tab.
+ *
+ * It is a COUNT and never a list: see the note on `preview` above.
+ */
+function PreviewLine({
+  state,
+  preview,
+  freeCf,
+  radius,
+}: {
+  state: "idle" | "loading" | "ready" | "error";
+  preview: MatchPreview | null;
+  freeCf: string;
+  radius: boolean;
+}) {
+  if (state === "idle") return null;
+  if (state === "loading") {
+    return (
+      <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        Checking the board…
+      </p>
+    );
+  }
+  // A failure must never read as an answer: "0 jobs fit" and "we could not ask"
+  // are different sentences and only one of them is about the driver's leg.
+  if (state === "error" || !preview) {
+    return (
+      <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--warn)" }}>
+        Couldn&apos;t check the board just now. It changes nothing about your post.
+      </p>
+    );
+  }
+
+  if (preview.total === 0) {
+    const cf = Number(freeCf);
+    const copy = emptyMatchCopy(preview, "truck", {
+      freeCf: Number.isFinite(cf) && cf > 0 ? cf : null,
+      radius,
+    });
+    return (
+      <div className="mt-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)]" style={{ background: "var(--surface-2)" }} data-match-preview>
+        <p className="text-(length:--fs-base)">{copy.headline}</p>
+        {copy.clauses.length > 0 && (
+          <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+            {copy.clauses.join(" · ")}. Post it anyway — the board turns over daily.
+          </p>
+        )}
+        {copy.clauses.length === 0 && copy.ask && (
+          <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+            {copy.ask}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  const parts = [
+    preview.strong > 0 ? `${preview.strong} worth a call` : null,
+    preview.possible > 0 ? `${preview.possible} worth a look` : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="mt-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)]" style={{ background: "var(--accent-soft)" }} data-match-preview>
+      <p className="text-(length:--fs-base)" style={{ color: "var(--accent-deep)" }}>
+        {preview.total} {preview.total === 1 ? "job" : "jobs"} on the board fit this
+        {parts.length ? ` — ${parts.join(", ")}` : ""}.
+      </p>
+      <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        That is the board as it stands today, not a promise. You will see the list once you post.
+      </p>
     </div>
   );
 }

@@ -69,6 +69,14 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
     guard: "public",
     why: "road geometry for the open truck; carries no personal data, and isTruckVisible(id, \"public\", audience) 404s a pending or demo row before HERE is asked",
   },
+  "GET /api/trucks/[id]/matches": {
+    guard: "public",
+    why: "returns only jobs already public on the board, through toPublicJobMatches, so it cannot answer a question GET /api/loads cannot; matchesForTruck takes the literal \"public\" scope, so a pending truck 404s here exactly as on its detail route; no phone on either side; 60/min in its own bucket",
+  },
+  "GET /api/loads/[id]/matches": {
+    guard: "public",
+    why: "the mirror, same properties: only trucks already public on the board, through toPublicTruckMatches, and the \"public\" scope keeps an unreviewed truck out of a job's match list",
+  },
   "GET /api/places/suggest": { guard: "public", why: "place autocomplete, rate-limited" },
   "POST /api/places/resolve": { guard: "public", why: "place lookup, rate-limited" },
   "POST /api/reports": {
@@ -97,6 +105,10 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
   "POST /api/trucks": {
     guard: "posting",
     why: "users.can_post, the same capability a job needs — a driver posting their own empty leg is the whole point of the feature",
+  },
+  "POST /api/trucks/preview-matches": {
+    guard: "posting",
+    why: "counts only over an unsaved draft, no rows and no contacts; the same capability the post itself needs, because without it this is a free corridor-scan API. 20/min",
   },
 
   // --- a machine with a secret ----------------------------------------------

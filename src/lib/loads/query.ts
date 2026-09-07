@@ -568,6 +568,51 @@ export async function getLoad(id: number, audience?: LoadAudience | null): Promi
   return rows[0] ?? null;
 }
 
+/**
+ * The demo predicate, for the one module outside this file that has to build
+ * its own `WHERE` against `loads`: the matcher's candidate prefilter
+ * (`src/lib/match/candidates.ts`), which selects fourteen columns over a
+ * bounding box and cannot go through `searchLoads` without becoming a search.
+ *
+ * Exported rather than copied. `truckQuery.ts` copies its version deliberately,
+ * because the job query path is frozen for the truck feature and lifting a
+ * predicate out of `searchLoads` would have been a change to `searchLoads` --
+ * but a THIRD copy would be one more place for "may this caller see this row?"
+ * to drift, with nothing gained. npm run check:demo drives the match path over
+ * the same eight audiences as the board.
+ */
+export { demoVisibilitySql as loadDemoVisibilitySql };
+
+/**
+ * The rows behind a set of ids the caller already holds, in id order.
+ *
+ * For the matcher, which decides on a cheap 14-column prefilter and then needs
+ * the full public rows for the handful that survived. It exists so that path
+ * does not write its own `SELECT` list: `SELECT_COLUMNS` is the one place the
+ * board's columns are named, and a second copy of sixty column names in
+ * `lib/match` is how a job starts rendering differently depending on which page
+ * found it.
+ *
+ * `searchLoads` is not touched by this and neither is any predicate in it --
+ * this is a sibling of `getLoad`, one row at a time turned into many.
+ */
+export async function loadsByIds(
+  ids: number[],
+  audience?: LoadAudience | null,
+): Promise<LoadRow[]> {
+  if (!ids.length) return [];
+  const p = params();
+  const idsP = p.add(ids);
+  const visible = demoVisibilitySql(audience, p);
+  return query<LoadRow>(
+    `SELECT ${SELECT_COLUMNS}, NULL::float8 AS distance_miles
+       FROM loads l LEFT JOIN whatsapp_groups g ON g.id = l.group_id
+      WHERE l.id = ANY(${idsP}::bigint[])${visible ? `\n        AND ${visible}` : ""}
+      ORDER BY l.id`,
+    p.values,
+  );
+}
+
 export async function getDuplicates(
   load: LoadRow,
   audience?: LoadAudience | null,
