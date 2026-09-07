@@ -1,0 +1,496 @@
+[
+ {
+  "case": "Miami -> North Jersey, 75 mi (the spec's case)",
+  "total": 5,
+  "applied": {
+   "origin": {
+    "lat": 25.7617,
+    "lng": -80.1918,
+    "label": "Miami, FL",
+    "precision": "city"
+   },
+   "destination": {
+    "lat": 40.7357,
+    "lng": -74.1724,
+    "label": "Newark, NJ",
+    "precision": "city"
+   },
+   "corridorMiles": 75,
+   "routeMode": "corridor",
+   "readyBy": null,
+   "deliverBy": null,
+   "truncated": false
+  },
+  "summary": {
+   "count": 5,
+   "totalCf": 1500,
+   "withCf": 5,
+   "priced": 1,
+   "medianPricePerCf": 3.25,
+   "readyNow": "<measured against the wall clock; not asserted>",
+   "freshToday": "<measured against the wall clock; not asserted>"
+  },
+  "rows": [
+   {
+    "id": 61,
+    "off_route_miles": 0,
+    "detour_miles": 0,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 07102"
+   },
+   {
+    "id": 59,
+    "off_route_miles": 0,
+    "detour_miles": 2,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 07032"
+   },
+   {
+    "id": 60,
+    "off_route_miles": 0,
+    "detour_miles": 6,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 08234"
+   },
+   {
+    "id": 62,
+    "off_route_miles": 0,
+    "detour_miles": 13,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NY 11217"
+   },
+   {
+    "id": 63,
+    "off_route_miles": 0,
+    "detour_miles": 137,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "CT 06511"
+   }
+  ]
+ },
+ {
+  "case": "Miami -> North Jersey, 150 mi",
+  "total": 6,
+  "applied": {
+   "origin": {
+    "lat": 25.7617,
+    "lng": -80.1918,
+    "label": "Miami, FL",
+    "precision": "city"
+   },
+   "destination": {
+    "lat": 40.7357,
+    "lng": -74.1724,
+    "label": "Newark, NJ",
+    "precision": "city"
+   },
+   "corridorMiles": 150,
+   "routeMode": "corridor",
+   "readyBy": null,
+   "deliverBy": null,
+   "truncated": false
+  },
+  "summary": {
+   "count": 6,
+   "totalCf": 1800,
+   "withCf": 6,
+   "priced": 1,
+   "medianPricePerCf": 3.25,
+   "readyNow": "<measured against the wall clock; not asserted>",
+   "freshToday": "<measured against the wall clock; not asserted>"
+  },
+  "rows": [
+   {
+    "id": 61,
+    "off_route_miles": 0,
+    "detour_miles": 0,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 07102"
+   },
+   {
+    "id": 59,
+    "off_route_miles": 0,
+    "detour_miles": 2,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 07032"
+   },
+   {
+    "id": 60,
+    "off_route_miles": 0,
+    "detour_miles": 6,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 08234"
+   },
+   {
+    "id": 62,
+    "off_route_miles": 0,
+    "detour_miles": 13,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NY 11217"
+   },
+   {
+    "id": 58,
+    "off_route_miles": 0,
+    "detour_miles": 90,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NC 28202"
+   },
+   {
+    "id": 63,
+    "off_route_miles": 0,
+    "detour_miles": 137,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "CT 06511"
+   }
+  ]
+ },
+ {
+  "case": "Miami -> North Jersey, default width",
+  "total": 5,
+  "applied": {
+   "origin": {
+    "lat": 25.7617,
+    "lng": -80.1918,
+    "label": "Miami, FL",
+    "precision": "city"
+   },
+   "destination": {
+    "lat": 40.7357,
+    "lng": -74.1724,
+    "label": "Newark, NJ",
+    "precision": "city"
+   },
+   "corridorMiles": 75,
+   "routeMode": "corridor",
+   "readyBy": null,
+   "deliverBy": null,
+   "truncated": false
+  },
+  "summary": {
+   "count": 5,
+   "totalCf": 1500,
+   "withCf": 5,
+   "priced": 1,
+   "medianPricePerCf": 3.25,
+   "readyNow": "<measured against the wall clock; not asserted>",
+   "freshToday": "<measured against the wall clock; not asserted>"
+  },
+  "rows": [
+   {
+    "id": 61,
+    "off_route_miles": 0,
+    "detour_miles": 0,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 07102"
+   },
+   {
+    "id": 59,
+    "off_route_miles": 0,
+    "detour_miles": 2,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 07032"
+   },
+   {
+    "id": 60,
+    "off_route_miles": 0,
+    "detour_miles": 6,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 08234"
+   },
+   {
+    "id": 62,
+    "off_route_miles": 0,
+    "detour_miles": 13,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NY 11217"
+   },
+   {
+    "id": 63,
+    "off_route_miles": 0,
+    "detour_miles": 137,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "CT 06511"
+   }
+  ]
+ },
+ {
+  "case": "North Jersey -> Miami, 75 mi (the other direction)",
+  "total": 5,
+  "applied": {
+   "origin": {
+    "lat": 40.7357,
+    "lng": -74.1724,
+    "label": "Newark, NJ",
+    "precision": "city"
+   },
+   "destination": {
+    "lat": 25.7617,
+    "lng": -80.1918,
+    "label": "Miami, FL",
+    "precision": "city"
+   },
+   "corridorMiles": 75,
+   "routeMode": "corridor",
+   "readyBy": null,
+   "deliverBy": null,
+   "truncated": false
+  },
+  "summary": {
+   "count": 5,
+   "totalCf": 1600,
+   "withCf": 5,
+   "priced": 0,
+   "medianPricePerCf": null,
+   "readyNow": "<measured against the wall clock; not asserted>",
+   "freshToday": "<measured against the wall clock; not asserted>"
+  },
+  "rows": [
+   {
+    "id": 64,
+    "off_route_miles": 0,
+    "detour_miles": 0,
+    "route_progress": 0,
+    "pickup_label": "Newark, NJ",
+    "delivery_label": "Miami, FL 33101"
+   },
+   {
+    "id": 71,
+    "off_route_miles": 3,
+    "detour_miles": 5,
+    "route_progress": 0,
+    "pickup_label": "Kearny, NJ",
+    "delivery_label": "FL 33180"
+   },
+   {
+    "id": 65,
+    "off_route_miles": 7,
+    "detour_miles": 51,
+    "route_progress": 0.017,
+    "pickup_label": "Edison, NJ",
+    "delivery_label": "Orlando, FL 32801"
+   },
+   {
+    "id": 72,
+    "off_route_miles": 3,
+    "detour_miles": 104,
+    "route_progress": 0,
+    "pickup_label": "Kearny, NJ",
+    "delivery_label": "FL 33909"
+   },
+   {
+    "id": 70,
+    "off_route_miles": 3,
+    "detour_miles": 104,
+    "route_progress": 0,
+    "pickup_label": "Kearny, NJ",
+    "delivery_label": "FL 33982"
+   }
+  ]
+ },
+ {
+  "case": "Los Angeles -> Chicago, 100 mi",
+  "total": 5,
+  "applied": {
+   "origin": {
+    "lat": 34.0522,
+    "lng": -118.2437,
+    "label": "Los Angeles, CA",
+    "precision": "city"
+   },
+   "destination": {
+    "lat": 41.8781,
+    "lng": -87.6298,
+    "label": "Chicago, IL",
+    "precision": "city"
+   },
+   "corridorMiles": 100,
+   "routeMode": "corridor",
+   "readyBy": null,
+   "deliverBy": null,
+   "truncated": false
+  },
+  "summary": {
+   "count": 5,
+   "totalCf": 1450,
+   "withCf": 5,
+   "priced": 0,
+   "medianPricePerCf": null,
+   "readyNow": "<measured against the wall clock; not asserted>",
+   "freshToday": "<measured against the wall clock; not asserted>"
+  },
+  "rows": [
+   {
+    "id": 101,
+    "off_route_miles": 0,
+    "detour_miles": 2,
+    "route_progress": 0,
+    "pickup_label": "Los Angeles, CA",
+    "delivery_label": "IA 50613"
+   },
+   {
+    "id": 100,
+    "off_route_miles": 0,
+    "detour_miles": 6,
+    "route_progress": 0,
+    "pickup_label": "Los Angeles, CA",
+    "delivery_label": "CO Denver"
+   },
+   {
+    "id": 99,
+    "off_route_miles": 0,
+    "detour_miles": 6,
+    "route_progress": 0,
+    "pickup_label": "Los Angeles, CA",
+    "delivery_label": "CO 80216"
+   },
+   {
+    "id": 98,
+    "off_route_miles": 0,
+    "detour_miles": 7,
+    "route_progress": 0,
+    "pickup_label": "Los Angeles, CA",
+    "delivery_label": "NV 89101"
+   },
+   {
+    "id": 5,
+    "off_route_miles": 16,
+    "detour_miles": 104,
+    "route_progress": 0.337,
+    "pickup_label": "Cortez, CO 81321",
+    "delivery_label": "NM 87825"
+   }
+  ]
+ },
+ {
+  "case": "Miami -> North Jersey, 75 mi, paged",
+  "total": 5,
+  "applied": {
+   "origin": {
+    "lat": 25.7617,
+    "lng": -80.1918,
+    "label": "Miami, FL",
+    "precision": "city"
+   },
+   "destination": {
+    "lat": 40.7357,
+    "lng": -74.1724,
+    "label": "Newark, NJ",
+    "precision": "city"
+   },
+   "corridorMiles": 75,
+   "routeMode": "corridor",
+   "readyBy": null,
+   "deliverBy": null,
+   "truncated": false
+  },
+  "summary": {
+   "count": 5,
+   "totalCf": 1500,
+   "withCf": 5,
+   "priced": 1,
+   "medianPricePerCf": 3.25,
+   "readyNow": "<measured against the wall clock; not asserted>",
+   "freshToday": "<measured against the wall clock; not asserted>"
+  },
+  "rows": [
+   {
+    "id": 60,
+    "off_route_miles": 0,
+    "detour_miles": 6,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 08234"
+   },
+   {
+    "id": 62,
+    "off_route_miles": 0,
+    "detour_miles": 13,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NY 11217"
+   },
+   {
+    "id": 63,
+    "off_route_miles": 0,
+    "detour_miles": 137,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "CT 06511"
+   }
+  ]
+ },
+ {
+  "case": "Miami -> North Jersey, 75 mi, sized 300..500",
+  "total": 3,
+  "applied": {
+   "origin": {
+    "lat": 25.7617,
+    "lng": -80.1918,
+    "label": "Miami, FL",
+    "precision": "city"
+   },
+   "destination": {
+    "lat": 40.7357,
+    "lng": -74.1724,
+    "label": "Newark, NJ",
+    "precision": "city"
+   },
+   "corridorMiles": 75,
+   "routeMode": "corridor",
+   "readyBy": null,
+   "deliverBy": null,
+   "truncated": false
+  },
+  "summary": {
+   "count": 3,
+   "totalCf": 1050,
+   "withCf": 3,
+   "priced": 1,
+   "medianPricePerCf": 3.25,
+   "readyNow": "<measured against the wall clock; not asserted>",
+   "freshToday": "<measured against the wall clock; not asserted>"
+  },
+  "rows": [
+   {
+    "id": 61,
+    "off_route_miles": 0,
+    "detour_miles": 0,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 07102"
+   },
+   {
+    "id": 59,
+    "off_route_miles": 0,
+    "detour_miles": 2,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NJ 07032"
+   },
+   {
+    "id": 62,
+    "off_route_miles": 0,
+    "detour_miles": 13,
+    "route_progress": 0,
+    "pickup_label": "Miami, FL",
+    "delivery_label": "NY 11217"
+   }
+  ]
+ }
+]

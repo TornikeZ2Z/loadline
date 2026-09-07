@@ -1,0 +1,5297 @@
+{
+ "jobs": 98,
+ "pickup": {
+  "plotted": 98,
+  "groups": [
+   {
+    "key": "-74.145,40.768",
+    "lng": -74.1454,
+    "lat": 40.7684,
+    "ids": [
+     75,
+     74,
+     73,
+     72,
+     71,
+     70,
+     69,
+     68
+    ],
+    "cf": 2550,
+    "unsized": 0,
+    "label": "Kearny, NJ",
+    "state": "NJ",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-74.14540,40.76840",
+      "lng": -74.1454,
+      "lat": 40.7684,
+      "ids": [
+       75,
+       74,
+       73,
+       72,
+       71,
+       70,
+       69,
+       68
+      ],
+      "cf": 2550,
+      "unsized": 0,
+      "label": "Kearny, NJ",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-80.137,26.122",
+    "lng": -80.1373,
+    "lat": 26.1224,
+    "ids": [
+     111,
+     110,
+     109,
+     108,
+     107,
+     106,
+     105,
+     104
+    ],
+    "cf": 2700,
+    "unsized": 0,
+    "label": "Fort Lauderdale, FL",
+    "state": "FL",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-80.13730,26.12240",
+      "lng": -80.1373,
+      "lat": 26.1224,
+      "ids": [
+       111,
+       110,
+       109,
+       108,
+       107,
+       106,
+       105,
+       104
+      ],
+      "cf": 2700,
+      "unsized": 0,
+      "label": "Fort Lauderdale, FL",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-80.843,35.227",
+    "lng": -80.8431,
+    "lat": 35.2271,
+    "ids": [
+     103
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "Charlotte, NC",
+    "state": "NC",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-80.84310,35.22710",
+      "lng": -80.8431,
+      "lat": 35.2271,
+      "ids": [
+       103
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "Charlotte, NC",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-118.244,34.052",
+    "lng": -118.2437,
+    "lat": 34.0522,
+    "ids": [
+     102,
+     101,
+     100,
+     99,
+     98,
+     67,
+     66,
+     34,
+     33,
+     32,
+     31,
+     30,
+     29,
+     97,
+     96
+    ],
+    "cf": 7850,
+    "unsized": 0,
+    "label": "Los Angeles, CA",
+    "state": "CA",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-118.24370,34.05220",
+      "lng": -118.2437,
+      "lat": 34.0522,
+      "ids": [
+       102,
+       101,
+       100,
+       99,
+       98,
+       67,
+       66,
+       34,
+       33,
+       32,
+       31,
+       30,
+       29,
+       97,
+       96
+      ],
+      "cf": 7850,
+      "unsized": 0,
+      "label": "Los Angeles, CA",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-121.494,38.582",
+    "lng": -121.4944,
+    "lat": 38.5816,
+    "ids": [
+     89,
+     86,
+     42,
+     41,
+     40,
+     39,
+     38,
+     37,
+     36,
+     35,
+     88,
+     87
+    ],
+    "cf": 5800,
+    "unsized": 0,
+    "label": "Sacramento, CA",
+    "state": "CA",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-121.49440,38.58160",
+      "lng": -121.4944,
+      "lat": 38.5816,
+      "ids": [
+       89,
+       86,
+       42,
+       41,
+       40,
+       39,
+       38,
+       37,
+       36,
+       35,
+       88,
+       87
+      ],
+      "cf": 5800,
+      "unsized": 0,
+      "label": "Sacramento, CA",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-74.172,40.736",
+    "lng": -74.1724,
+    "lat": 40.7357,
+    "ids": [
+     64
+    ],
+    "cf": 350,
+    "unsized": 0,
+    "label": "Newark, NJ",
+    "state": "NJ",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-74.17240,40.73570",
+      "lng": -74.1724,
+      "lat": 40.7357,
+      "ids": [
+       64
+      ],
+      "cf": 350,
+      "unsized": 0,
+      "label": "Newark, NJ",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-80.192,25.762",
+    "lng": -80.1918,
+    "lat": 25.7617,
+    "ids": [
+     63,
+     60,
+     58,
+     62,
+     61,
+     59,
+     57
+    ],
+    "cf": 2200,
+    "unsized": 0,
+    "label": "Miami, FL",
+    "state": "FL",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-80.19180,25.76170",
+      "lng": -80.1918,
+      "lat": 25.7617,
+      "ids": [
+       63,
+       60,
+       58,
+       62,
+       61,
+       59,
+       57
+      ],
+      "cf": 2200,
+      "unsized": 0,
+      "label": "Miami, FL",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-82.765,40.389",
+    "lng": -82.765,
+    "lat": 40.389,
+    "ids": [
+     56
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "Springfield, OH",
+    "state": "OH",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-82.76500,40.38900",
+      "lng": -82.765,
+      "lat": 40.389,
+      "ids": [
+       56
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "Springfield, OH",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-82.999,39.961",
+    "lng": -82.9988,
+    "lat": 39.9612,
+    "ids": [
+     55,
+     54
+    ],
+    "cf": 700,
+    "unsized": 0,
+    "label": "Columbus, OH",
+    "state": "OH",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-82.99880,39.96120",
+      "lng": -82.9988,
+      "lat": 39.9612,
+      "ids": [
+       55,
+       54
+      ],
+      "cf": 700,
+      "unsized": 0,
+      "label": "Columbus, OH",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-92.480,44.012",
+    "lng": -92.4802,
+    "lat": 44.0121,
+    "ids": [
+     53,
+     52,
+     51,
+     50,
+     49,
+     48,
+     47,
+     46,
+     45,
+     44,
+     43
+    ],
+    "cf": 6006,
+    "unsized": 0,
+    "label": "Rochester, MN",
+    "state": "MN",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-92.48020,44.01210",
+      "lng": -92.4802,
+      "lat": 44.0121,
+      "ids": [
+       53,
+       52,
+       51,
+       50,
+       49,
+       48,
+       47,
+       46,
+       45,
+       44,
+       43
+      ],
+      "cf": 6006,
+      "unsized": 0,
+      "label": "Rochester, MN",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-81.458,41.519",
+    "lng": -81.4579,
+    "lat": 41.519,
+    "ids": [
+     17
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "Mayfield Heights, OH",
+    "state": "OH",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-81.45790,41.51900",
+      "lng": -81.4579,
+      "lat": 41.519,
+      "ids": [
+       17
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "Mayfield Heights, OH",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-111.891,40.761",
+    "lng": -111.891,
+    "lat": 40.7608,
+    "ids": [
+     16,
+     15,
+     14,
+     13
+    ],
+    "cf": 1800,
+    "unsized": 0,
+    "label": "Salt Lake City, UT",
+    "state": "UT",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-111.89100,40.76080",
+      "lng": -111.891,
+      "lat": 40.7608,
+      "ids": [
+       16,
+       15,
+       14,
+       13
+      ],
+      "cf": 1800,
+      "unsized": 0,
+      "label": "Salt Lake City, UT",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-71.059,42.360",
+    "lng": -71.0589,
+    "lat": 42.3601,
+    "ids": [
+     12
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "Boston, MA",
+    "state": "MA",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-71.05890,42.36010",
+      "lng": -71.0589,
+      "lat": 42.3601,
+      "ids": [
+       12
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "Boston, MA",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-77.693,43.210",
+    "lng": -77.6931,
+    "lat": 43.2098,
+    "ids": [
+     11
+    ],
+    "cf": 250,
+    "unsized": 0,
+    "label": "Greece, NY",
+    "state": "NY",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-77.69310,43.20980",
+      "lng": -77.6931,
+      "lat": 43.2098,
+      "ids": [
+       11
+      ],
+      "cf": 250,
+      "unsized": 0,
+      "label": "Greece, NY",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-106.650,35.084",
+    "lng": -106.6504,
+    "lat": 35.0844,
+    "ids": [
+     10
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "Albuquerque, NM",
+    "state": "NM",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-106.65040,35.08440",
+      "lng": -106.6504,
+      "lat": 35.0844,
+      "ids": [
+       10
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "Albuquerque, NM",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-106.733,34.806",
+    "lng": -106.7334,
+    "lat": 34.8062,
+    "ids": [
+     9
+    ],
+    "cf": 700,
+    "unsized": 0,
+    "label": "Los Lunas, NM",
+    "state": "NM",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-106.73340,34.80620",
+      "lng": -106.7334,
+      "lat": 34.8062,
+      "ids": [
+       9
+      ],
+      "cf": 700,
+      "unsized": 0,
+      "label": "Los Lunas, NM",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-105.938,35.687",
+    "lng": -105.9378,
+    "lat": 35.687,
+    "ids": [
+     8,
+     7
+    ],
+    "cf": 900,
+    "unsized": 0,
+    "label": "Santa Fe, NM",
+    "state": "NM",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-105.93780,35.68700",
+      "lng": -105.9378,
+      "lat": 35.687,
+      "ids": [
+       8,
+       7
+      ],
+      "cf": 900,
+      "unsized": 0,
+      "label": "Santa Fe, NM",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-106.956,44.797",
+    "lng": -106.9562,
+    "lat": 44.7972,
+    "ids": [
+     6
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "Sheridan, WY",
+    "state": "WY",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-106.95620,44.79720",
+      "lng": -106.9562,
+      "lat": 44.7972,
+      "ids": [
+       6
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "Sheridan, WY",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-108.586,37.349",
+    "lng": -108.5859,
+    "lat": 37.3489,
+    "ids": [
+     5
+    ],
+    "cf": 250,
+    "unsized": 0,
+    "label": "Cortez, CO",
+    "state": "CO",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-108.58590,37.34890",
+      "lng": -108.5859,
+      "lat": 37.3489,
+      "ids": [
+       5
+      ],
+      "cf": 250,
+      "unsized": 0,
+      "label": "Cortez, CO",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-108.551,39.064",
+    "lng": -108.5506,
+    "lat": 39.0639,
+    "ids": [
+     4,
+     3
+    ],
+    "cf": 850,
+    "unsized": 0,
+    "label": "Grand Junction, CO",
+    "state": "CO",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-108.55060,39.06390",
+      "lng": -108.5506,
+      "lat": 39.0639,
+      "ids": [
+       4,
+       3
+      ],
+      "cf": 850,
+      "unsized": 0,
+      "label": "Grand Junction, CO",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-121.886,37.338",
+    "lng": -121.8863,
+    "lat": 37.3382,
+    "ids": [
+     95,
+     94,
+     93,
+     92,
+     91,
+     90
+    ],
+    "cf": 1850,
+    "unsized": 0,
+    "label": "San Jose, CA",
+    "state": "CA",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-121.88630,37.33820",
+      "lng": -121.8863,
+      "lat": 37.3382,
+      "ids": [
+       95,
+       94,
+       93,
+       92,
+       91,
+       90
+      ],
+      "cf": 1850,
+      "unsized": 0,
+      "label": "San Jose, CA",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-96.797,32.777",
+    "lng": -96.797,
+    "lat": 32.7767,
+    "ids": [
+     85,
+     84,
+     83,
+     82,
+     81
+    ],
+    "cf": 2550,
+    "unsized": 0,
+    "label": "Dallas, TX",
+    "state": "TX",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-96.79700,32.77670",
+      "lng": -96.797,
+      "lat": 32.7767,
+      "ids": [
+       85,
+       84,
+       83,
+       82,
+       81
+      ],
+      "cf": 2550,
+      "unsized": 0,
+      "label": "Dallas, TX",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-122.855,45.144",
+    "lng": -122.8554,
+    "lat": 45.1437,
+    "ids": [
+     80,
+     79,
+     78,
+     77
+    ],
+    "cf": 2800,
+    "unsized": 0,
+    "label": "Woodburn, OR",
+    "state": "OR",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-122.85540,45.14370",
+      "lng": -122.8554,
+      "lat": 45.1437,
+      "ids": [
+       80,
+       79,
+       78,
+       77
+      ],
+      "cf": 2800,
+      "unsized": 0,
+      "label": "Woodburn, OR",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-122.235,47.381",
+    "lng": -122.2348,
+    "lat": 47.3809,
+    "ids": [
+     76
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "Kent, WA",
+    "state": "WA",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-122.23480,47.38090",
+      "lng": -122.2348,
+      "lat": 47.3809,
+      "ids": [
+       76
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "Kent, WA",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-74.412,40.519",
+    "lng": -74.4121,
+    "lat": 40.5187,
+    "ids": [
+     65
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "Edison, NJ",
+    "state": "NJ",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-74.41210,40.51870",
+      "lng": -74.4121,
+      "lat": 40.5187,
+      "ids": [
+       65
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "Edison, NJ",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   }
+  ],
+  "features": {
+   "type": "FeatureCollection",
+   "features": [
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -74.1454,
+       40.7684
+      ]
+     },
+     "properties": {
+      "key": "-74.145,40.768",
+      "label": "Kearny, NJ",
+      "count": 8,
+      "cf": 2550,
+      "unsized": 0,
+      "approx": false,
+      "ids": "75,74,73,72,71,70,69,68"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.1373,
+       26.1224
+      ]
+     },
+     "properties": {
+      "key": "-80.137,26.122",
+      "label": "Fort Lauderdale, FL",
+      "count": 8,
+      "cf": 2700,
+      "unsized": 0,
+      "approx": false,
+      "ids": "111,110,109,108,107,106,105,104"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.8431,
+       35.2271
+      ]
+     },
+     "properties": {
+      "key": "-80.843,35.227",
+      "label": "Charlotte, NC",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": false,
+      "ids": "103"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -118.2437,
+       34.0522
+      ]
+     },
+     "properties": {
+      "key": "-118.244,34.052",
+      "label": "Los Angeles, CA",
+      "count": 15,
+      "cf": 7850,
+      "unsized": 0,
+      "approx": false,
+      "ids": "102,101,100,99,98,67,66,34,33,32,31,30,29,97,96"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -121.4944,
+       38.5816
+      ]
+     },
+     "properties": {
+      "key": "-121.494,38.582",
+      "label": "Sacramento, CA",
+      "count": 12,
+      "cf": 5800,
+      "unsized": 0,
+      "approx": false,
+      "ids": "89,86,42,41,40,39,38,37,36,35,88,87"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -74.1724,
+       40.7357
+      ]
+     },
+     "properties": {
+      "key": "-74.172,40.736",
+      "label": "Newark, NJ",
+      "count": 1,
+      "cf": 350,
+      "unsized": 0,
+      "approx": false,
+      "ids": "64"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.1918,
+       25.7617
+      ]
+     },
+     "properties": {
+      "key": "-80.192,25.762",
+      "label": "Miami, FL",
+      "count": 7,
+      "cf": 2200,
+      "unsized": 0,
+      "approx": false,
+      "ids": "63,60,58,62,61,59,57"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -82.765,
+       40.389
+      ]
+     },
+     "properties": {
+      "key": "-82.765,40.389",
+      "label": "Springfield, OH",
+      "count": 1,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "56"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -82.9988,
+       39.9612
+      ]
+     },
+     "properties": {
+      "key": "-82.999,39.961",
+      "label": "Columbus, OH",
+      "count": 2,
+      "cf": 700,
+      "unsized": 0,
+      "approx": false,
+      "ids": "55,54"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -92.4802,
+       44.0121
+      ]
+     },
+     "properties": {
+      "key": "-92.480,44.012",
+      "label": "Rochester, MN",
+      "count": 11,
+      "cf": 6006,
+      "unsized": 0,
+      "approx": false,
+      "ids": "53,52,51,50,49,48,47,46,45,44,43"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -81.4579,
+       41.519
+      ]
+     },
+     "properties": {
+      "key": "-81.458,41.519",
+      "label": "Mayfield Heights, OH",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": false,
+      "ids": "17"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -111.891,
+       40.7608
+      ]
+     },
+     "properties": {
+      "key": "-111.891,40.761",
+      "label": "Salt Lake City, UT",
+      "count": 4,
+      "cf": 1800,
+      "unsized": 0,
+      "approx": false,
+      "ids": "16,15,14,13"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -71.0589,
+       42.3601
+      ]
+     },
+     "properties": {
+      "key": "-71.059,42.360",
+      "label": "Boston, MA",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": false,
+      "ids": "12"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -77.6931,
+       43.2098
+      ]
+     },
+     "properties": {
+      "key": "-77.693,43.210",
+      "label": "Greece, NY",
+      "count": 1,
+      "cf": 250,
+      "unsized": 0,
+      "approx": false,
+      "ids": "11"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -106.6504,
+       35.0844
+      ]
+     },
+     "properties": {
+      "key": "-106.650,35.084",
+      "label": "Albuquerque, NM",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": false,
+      "ids": "10"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -106.7334,
+       34.8062
+      ]
+     },
+     "properties": {
+      "key": "-106.733,34.806",
+      "label": "Los Lunas, NM",
+      "count": 1,
+      "cf": 700,
+      "unsized": 0,
+      "approx": false,
+      "ids": "9"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -105.9378,
+       35.687
+      ]
+     },
+     "properties": {
+      "key": "-105.938,35.687",
+      "label": "Santa Fe, NM",
+      "count": 2,
+      "cf": 900,
+      "unsized": 0,
+      "approx": false,
+      "ids": "8,7"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -106.9562,
+       44.7972
+      ]
+     },
+     "properties": {
+      "key": "-106.956,44.797",
+      "label": "Sheridan, WY",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": false,
+      "ids": "6"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -108.5859,
+       37.3489
+      ]
+     },
+     "properties": {
+      "key": "-108.586,37.349",
+      "label": "Cortez, CO",
+      "count": 1,
+      "cf": 250,
+      "unsized": 0,
+      "approx": false,
+      "ids": "5"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -108.5506,
+       39.0639
+      ]
+     },
+     "properties": {
+      "key": "-108.551,39.064",
+      "label": "Grand Junction, CO",
+      "count": 2,
+      "cf": 850,
+      "unsized": 0,
+      "approx": false,
+      "ids": "4,3"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -121.8863,
+       37.3382
+      ]
+     },
+     "properties": {
+      "key": "-121.886,37.338",
+      "label": "San Jose, CA",
+      "count": 6,
+      "cf": 1850,
+      "unsized": 0,
+      "approx": false,
+      "ids": "95,94,93,92,91,90"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -96.797,
+       32.7767
+      ]
+     },
+     "properties": {
+      "key": "-96.797,32.777",
+      "label": "Dallas, TX",
+      "count": 5,
+      "cf": 2550,
+      "unsized": 0,
+      "approx": false,
+      "ids": "85,84,83,82,81"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -122.8554,
+       45.1437
+      ]
+     },
+     "properties": {
+      "key": "-122.855,45.144",
+      "label": "Woodburn, OR",
+      "count": 4,
+      "cf": 2800,
+      "unsized": 0,
+      "approx": false,
+      "ids": "80,79,78,77"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -122.2348,
+       47.3809
+      ]
+     },
+     "properties": {
+      "key": "-122.235,47.381",
+      "label": "Kent, WA",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": false,
+      "ids": "76"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -74.4121,
+       40.5187
+      ]
+     },
+     "properties": {
+      "key": "-74.412,40.519",
+      "label": "Edison, NJ",
+      "count": 1,
+      "cf": 500,
+      "unsized": 0,
+      "approx": false,
+      "ids": "65"
+     }
+    }
+   ]
+  },
+  "keyByJob": [
+   [
+    75,
+    "-74.145,40.768"
+   ],
+   [
+    74,
+    "-74.145,40.768"
+   ],
+   [
+    73,
+    "-74.145,40.768"
+   ],
+   [
+    72,
+    "-74.145,40.768"
+   ],
+   [
+    71,
+    "-74.145,40.768"
+   ],
+   [
+    70,
+    "-74.145,40.768"
+   ],
+   [
+    69,
+    "-74.145,40.768"
+   ],
+   [
+    68,
+    "-74.145,40.768"
+   ],
+   [
+    111,
+    "-80.137,26.122"
+   ],
+   [
+    110,
+    "-80.137,26.122"
+   ],
+   [
+    109,
+    "-80.137,26.122"
+   ],
+   [
+    108,
+    "-80.137,26.122"
+   ],
+   [
+    107,
+    "-80.137,26.122"
+   ],
+   [
+    106,
+    "-80.137,26.122"
+   ],
+   [
+    105,
+    "-80.137,26.122"
+   ],
+   [
+    104,
+    "-80.137,26.122"
+   ],
+   [
+    103,
+    "-80.843,35.227"
+   ],
+   [
+    102,
+    "-118.244,34.052"
+   ],
+   [
+    101,
+    "-118.244,34.052"
+   ],
+   [
+    100,
+    "-118.244,34.052"
+   ],
+   [
+    99,
+    "-118.244,34.052"
+   ],
+   [
+    98,
+    "-118.244,34.052"
+   ],
+   [
+    89,
+    "-121.494,38.582"
+   ],
+   [
+    86,
+    "-121.494,38.582"
+   ],
+   [
+    67,
+    "-118.244,34.052"
+   ],
+   [
+    66,
+    "-118.244,34.052"
+   ],
+   [
+    64,
+    "-74.172,40.736"
+   ],
+   [
+    63,
+    "-80.192,25.762"
+   ],
+   [
+    60,
+    "-80.192,25.762"
+   ],
+   [
+    58,
+    "-80.192,25.762"
+   ],
+   [
+    56,
+    "-82.765,40.389"
+   ],
+   [
+    55,
+    "-82.999,39.961"
+   ],
+   [
+    54,
+    "-82.999,39.961"
+   ],
+   [
+    53,
+    "-92.480,44.012"
+   ],
+   [
+    52,
+    "-92.480,44.012"
+   ],
+   [
+    51,
+    "-92.480,44.012"
+   ],
+   [
+    50,
+    "-92.480,44.012"
+   ],
+   [
+    49,
+    "-92.480,44.012"
+   ],
+   [
+    48,
+    "-92.480,44.012"
+   ],
+   [
+    47,
+    "-92.480,44.012"
+   ],
+   [
+    46,
+    "-92.480,44.012"
+   ],
+   [
+    45,
+    "-92.480,44.012"
+   ],
+   [
+    44,
+    "-92.480,44.012"
+   ],
+   [
+    43,
+    "-92.480,44.012"
+   ],
+   [
+    42,
+    "-121.494,38.582"
+   ],
+   [
+    41,
+    "-121.494,38.582"
+   ],
+   [
+    40,
+    "-121.494,38.582"
+   ],
+   [
+    39,
+    "-121.494,38.582"
+   ],
+   [
+    38,
+    "-121.494,38.582"
+   ],
+   [
+    37,
+    "-121.494,38.582"
+   ],
+   [
+    36,
+    "-121.494,38.582"
+   ],
+   [
+    35,
+    "-121.494,38.582"
+   ],
+   [
+    34,
+    "-118.244,34.052"
+   ],
+   [
+    33,
+    "-118.244,34.052"
+   ],
+   [
+    32,
+    "-118.244,34.052"
+   ],
+   [
+    31,
+    "-118.244,34.052"
+   ],
+   [
+    30,
+    "-118.244,34.052"
+   ],
+   [
+    29,
+    "-118.244,34.052"
+   ],
+   [
+    17,
+    "-81.458,41.519"
+   ],
+   [
+    16,
+    "-111.891,40.761"
+   ],
+   [
+    15,
+    "-111.891,40.761"
+   ],
+   [
+    14,
+    "-111.891,40.761"
+   ],
+   [
+    13,
+    "-111.891,40.761"
+   ],
+   [
+    12,
+    "-71.059,42.360"
+   ],
+   [
+    11,
+    "-77.693,43.210"
+   ],
+   [
+    10,
+    "-106.650,35.084"
+   ],
+   [
+    9,
+    "-106.733,34.806"
+   ],
+   [
+    8,
+    "-105.938,35.687"
+   ],
+   [
+    7,
+    "-105.938,35.687"
+   ],
+   [
+    6,
+    "-106.956,44.797"
+   ],
+   [
+    5,
+    "-108.586,37.349"
+   ],
+   [
+    4,
+    "-108.551,39.064"
+   ],
+   [
+    3,
+    "-108.551,39.064"
+   ],
+   [
+    97,
+    "-118.244,34.052"
+   ],
+   [
+    96,
+    "-118.244,34.052"
+   ],
+   [
+    95,
+    "-121.886,37.338"
+   ],
+   [
+    94,
+    "-121.886,37.338"
+   ],
+   [
+    93,
+    "-121.886,37.338"
+   ],
+   [
+    92,
+    "-121.886,37.338"
+   ],
+   [
+    91,
+    "-121.886,37.338"
+   ],
+   [
+    90,
+    "-121.886,37.338"
+   ],
+   [
+    88,
+    "-121.494,38.582"
+   ],
+   [
+    87,
+    "-121.494,38.582"
+   ],
+   [
+    85,
+    "-96.797,32.777"
+   ],
+   [
+    84,
+    "-96.797,32.777"
+   ],
+   [
+    83,
+    "-96.797,32.777"
+   ],
+   [
+    82,
+    "-96.797,32.777"
+   ],
+   [
+    81,
+    "-96.797,32.777"
+   ],
+   [
+    80,
+    "-122.855,45.144"
+   ],
+   [
+    79,
+    "-122.855,45.144"
+   ],
+   [
+    78,
+    "-122.855,45.144"
+   ],
+   [
+    77,
+    "-122.855,45.144"
+   ],
+   [
+    76,
+    "-122.235,47.381"
+   ],
+   [
+    65,
+    "-74.412,40.519"
+   ],
+   [
+    62,
+    "-80.192,25.762"
+   ],
+   [
+    61,
+    "-80.192,25.762"
+   ],
+   [
+    59,
+    "-80.192,25.762"
+   ],
+   [
+    57,
+    "-80.192,25.762"
+   ]
+  ]
+ },
+ "delivery": {
+  "plotted": 98,
+  "groups": [
+   {
+    "key": "-82.394,34.853",
+    "lng": -82.394,
+    "lat": 34.8526,
+    "ids": [
+     75,
+     11
+    ],
+    "cf": 750,
+    "unsized": 0,
+    "label": "SC 29588",
+    "state": "SC",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-82.39400,34.85260",
+      "lng": -82.394,
+      "lat": 34.8526,
+      "ids": [
+       75,
+       11
+      ],
+      "cf": 750,
+      "unsized": 0,
+      "label": "SC 29588",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-82.140,29.187",
+    "lng": -82.1401,
+    "lat": 29.1872,
+    "ids": [
+     74
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "FL 34957",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-82.14010,29.18720",
+      "lng": -82.1401,
+      "lat": 29.1872,
+      "ids": [
+       74
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "FL 34957",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-81.656,30.332",
+    "lng": -81.6557,
+    "lat": 30.3322,
+    "ids": [
+     73,
+     46,
+     80
+    ],
+    "cf": 2756,
+    "unsized": 0,
+    "label": "FL 32218",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-81.65570,30.33220",
+      "lng": -81.6557,
+      "lat": 30.3322,
+      "ids": [
+       73,
+       46,
+       80
+      ],
+      "cf": 2756,
+      "unsized": 0,
+      "label": "FL 32218",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-81.872,26.641",
+    "lng": -81.8723,
+    "lat": 26.6406,
+    "ids": [
+     72,
+     70
+    ],
+    "cf": 550,
+    "unsized": 0,
+    "label": "FL 33909",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-81.87230,26.64060",
+      "lng": -81.8723,
+      "lat": 26.6406,
+      "ids": [
+       72,
+       70
+      ],
+      "cf": 550,
+      "unsized": 0,
+      "label": "FL 33909",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-80.192,25.762",
+    "lng": -80.1918,
+    "lat": 25.7617,
+    "ids": [
+     71,
+     64
+    ],
+    "cf": 550,
+    "unsized": 0,
+    "label": "FL 33180",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-80.19180,25.76170",
+      "lng": -80.1918,
+      "lat": 25.7617,
+      "ids": [
+       71,
+       64
+      ],
+      "cf": 550,
+      "unsized": 0,
+      "label": "FL 33180",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-90.072,29.951",
+    "lng": -90.0715,
+    "lat": 29.9511,
+    "ids": [
+     69
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "LA 70119",
+    "state": "LA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-90.07150,29.95110",
+      "lng": -90.0715,
+      "lat": 29.9511,
+      "ids": [
+       69
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "LA 70119",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-84.555,42.733",
+    "lng": -84.5555,
+    "lat": 42.7325,
+    "ids": [
+     68
+    ],
+    "cf": 400,
+    "unsized": 0,
+    "label": "MI 48864",
+    "state": "MI",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-84.55550,42.73250",
+      "lng": -84.5555,
+      "lat": 42.7325,
+      "ids": [
+       68
+      ],
+      "cf": 400,
+      "unsized": 0,
+      "label": "MI 48864",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-117.161,32.716",
+    "lng": -117.1611,
+    "lat": 32.7157,
+    "ids": [
+     111
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "CA 91977",
+    "state": "CA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-117.16110,32.71570",
+      "lng": -117.1611,
+      "lat": 32.7157,
+      "ids": [
+       111
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "CA 91977",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-111.832,33.415",
+    "lng": -111.8315,
+    "lat": 33.4152,
+    "ids": [
+     110,
+     49,
+     48
+    ],
+    "cf": 1100,
+    "unsized": 0,
+    "label": "AZ 85281",
+    "state": "AZ",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-111.83150,33.41520",
+      "lng": -111.8315,
+      "lat": 33.4152,
+      "ids": [
+       110,
+       49,
+       48
+      ],
+      "cf": 1100,
+      "unsized": 0,
+      "label": "AZ 85281",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-77.693,43.210",
+    "lng": -77.6931,
+    "lat": 43.2098,
+    "ids": [
+     109,
+     90
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "NY 14850",
+    "state": "NY",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-77.69310,43.20980",
+      "lng": -77.6931,
+      "lat": 43.2098,
+      "ids": [
+       109,
+       90
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "NY 14850",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-78.878,42.886",
+    "lng": -78.8784,
+    "lat": 42.8864,
+    "ids": [
+     108,
+     10
+    ],
+    "cf": 600,
+    "unsized": 0,
+    "label": "NY 14075",
+    "state": "NY",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-78.87840,42.88640",
+      "lng": -78.8784,
+      "lat": 42.8864,
+      "ids": [
+       108,
+       10
+      ],
+      "cf": 600,
+      "unsized": 0,
+      "label": "NY 14075",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-85.668,42.963",
+    "lng": -85.6681,
+    "lat": 42.9634,
+    "ids": [
+     107
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "MI 49456",
+    "state": "MI",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-85.66810,42.96340",
+      "lng": -85.6681,
+      "lat": 42.9634,
+      "ids": [
+       107
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "MI 49456",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-80.650,41.100",
+    "lng": -80.6495,
+    "lat": 41.0998,
+    "ids": [
+     106
+    ],
+    "cf": 400,
+    "unsized": 0,
+    "label": "OH 44473",
+    "state": "OH",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-80.64950,41.09980",
+      "lng": -80.6495,
+      "lat": 41.0998,
+      "ids": [
+       106
+      ],
+      "cf": 400,
+      "unsized": 0,
+      "label": "OH 44473",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-122.332,47.606",
+    "lng": -122.3321,
+    "lat": 47.6062,
+    "ids": [
+     105
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "WA 98109",
+    "state": "WA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-122.33210,47.60620",
+      "lng": -122.3321,
+      "lat": 47.6062,
+      "ids": [
+       105
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "WA 98109",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-123.035,44.943",
+    "lng": -123.0351,
+    "lat": 44.9429,
+    "ids": [
+     104
+    ],
+    "cf": 700,
+    "unsized": 0,
+    "label": "OR 97396",
+    "state": "OR",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-123.03510,44.94290",
+      "lng": -123.0351,
+      "lat": 44.9429,
+      "ids": [
+       104
+      ],
+      "cf": 700,
+      "unsized": 0,
+      "label": "OR 97396",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-117.651,34.063",
+    "lng": -117.6509,
+    "lat": 34.0633,
+    "ids": [
+     103
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "CA 91916",
+    "state": "CA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-117.65090,34.06330",
+      "lng": -117.6509,
+      "lat": 34.0633,
+      "ids": [
+       103
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "CA 91916",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-81.795,26.142",
+    "lng": -81.7948,
+    "lat": 26.142,
+    "ids": [
+     102,
+     12
+    ],
+    "cf": 400,
+    "unsized": 0,
+    "label": "FL 34113",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-81.79480,26.14200",
+      "lng": -81.7948,
+      "lat": 26.142,
+      "ids": [
+       102,
+       12
+      ],
+      "cf": 400,
+      "unsized": 0,
+      "label": "FL 34113",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-93.625,41.587",
+    "lng": -93.625,
+    "lat": 41.5868,
+    "ids": [
+     101
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "IA 50613",
+    "state": "IA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-93.62500,41.58680",
+      "lng": -93.625,
+      "lat": 41.5868,
+      "ids": [
+       101
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "IA 50613",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-104.990,39.739",
+    "lng": -104.9903,
+    "lat": 39.7392,
+    "ids": [
+     100,
+     99,
+     85,
+     84
+    ],
+    "cf": 2350,
+    "unsized": 0,
+    "label": "Denver, CO",
+    "state": "CO",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-104.99030,39.73920",
+      "lng": -104.9903,
+      "lat": 39.7392,
+      "ids": [
+       100,
+       99,
+       85,
+       84
+      ],
+      "cf": 2350,
+      "unsized": 0,
+      "label": "Denver, CO",
+      "approx": false,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-115.140,36.170",
+    "lng": -115.1398,
+    "lat": 36.1699,
+    "ids": [
+     98
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "NV 89101",
+    "state": "NV",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-115.13980,36.16990",
+      "lng": -115.1398,
+      "lat": 36.1699,
+      "ids": [
+       98
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "NV 89101",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-99.480,27.531",
+    "lng": -99.4803,
+    "lat": 27.5306,
+    "ids": [
+     89
+    ],
+    "cf": 350,
+    "unsized": 0,
+    "label": "TX 77979",
+    "state": "TX",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-99.48030,27.53060",
+      "lng": -99.4803,
+      "lat": 27.5306,
+      "ids": [
+       89
+      ],
+      "cf": 350,
+      "unsized": 0,
+      "label": "TX 77979",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-104.821,38.834",
+    "lng": -104.8214,
+    "lat": 38.8339,
+    "ids": [
+     86
+    ],
+    "cf": 1000,
+    "unsized": 0,
+    "label": "CO 80906",
+    "state": "CO",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-104.82140,38.83390",
+      "lng": -104.8214,
+      "lat": 38.8339,
+      "ids": [
+       86
+      ],
+      "cf": 1000,
+      "unsized": 0,
+      "label": "CO 80906",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-84.388,33.749",
+    "lng": -84.388,
+    "lat": 33.749,
+    "ids": [
+     67,
+     55,
+     57
+    ],
+    "cf": 1200,
+    "unsized": 0,
+    "label": "GA 30303",
+    "state": "GA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-84.38800,33.74900",
+      "lng": -84.388,
+      "lat": 33.749,
+      "ids": [
+       67,
+       55,
+       57
+      ],
+      "cf": 1200,
+      "unsized": 0,
+      "label": "GA 30303",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-80.053,26.715",
+    "lng": -80.0534,
+    "lat": 26.7153,
+    "ids": [
+     66,
+     54,
+     3
+    ],
+    "cf": 1000,
+    "unsized": 0,
+    "label": "FL 33435",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-80.05340,26.71530",
+      "lng": -80.0534,
+      "lat": 26.7153,
+      "ids": [
+       66,
+       54,
+       3
+      ],
+      "cf": 1000,
+      "unsized": 0,
+      "label": "FL 33435",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-72.928,41.308",
+    "lng": -72.9279,
+    "lat": 41.3083,
+    "ids": [
+     63
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "CT 06511",
+    "state": "CT",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-72.92790,41.30830",
+      "lng": -72.9279,
+      "lat": 41.3083,
+      "ids": [
+       63
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "CT 06511",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-75.120,39.926",
+    "lng": -75.1196,
+    "lat": 39.9259,
+    "ids": [
+     60,
+     36
+    ],
+    "cf": 450,
+    "unsized": 0,
+    "label": "NJ 08234",
+    "state": "NJ",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-75.11960,39.92590",
+      "lng": -75.1196,
+      "lat": 39.9259,
+      "ids": [
+       60,
+       36
+      ],
+      "cf": 450,
+      "unsized": 0,
+      "label": "NJ 08234",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-80.843,35.227",
+    "lng": -80.8431,
+    "lat": 35.2271,
+    "ids": [
+     58
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "NC 28202",
+    "state": "NC",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-80.84310,35.22710",
+      "lng": -80.8431,
+      "lat": 35.2271,
+      "ids": [
+       58
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "NC 28202",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-96.797,32.777",
+    "lng": -96.797,
+    "lat": 32.7767,
+    "ids": [
+     56
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "TX 75201",
+    "state": "TX",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-96.79700,32.77670",
+      "lng": -96.797,
+      "lat": 32.7767,
+      "ids": [
+       56
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "TX 75201",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-76.286,36.851",
+    "lng": -76.2859,
+    "lat": 36.8508,
+    "ids": [
+     53
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "VA 23503",
+    "state": "VA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-76.28590,36.85080",
+      "lng": -76.2859,
+      "lat": 36.8508,
+      "ids": [
+       53
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "VA 23503",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-77.091,38.882",
+    "lng": -77.091,
+    "lat": 38.8816,
+    "ids": [
+     52,
+     14
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "VA 20132",
+    "state": "VA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-77.09100,38.88160",
+      "lng": -77.091,
+      "lat": 38.8816,
+      "ids": [
+       52,
+       14
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "VA 20132",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-105.938,35.687",
+    "lng": -105.9378,
+    "lat": 35.687,
+    "ids": [
+     51,
+     5
+    ],
+    "cf": 1050,
+    "unsized": 0,
+    "label": "NM 87935",
+    "state": "NM",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-105.93780,35.68700",
+      "lng": -105.9378,
+      "lat": 35.687,
+      "ids": [
+       51,
+       5
+      ],
+      "cf": 1050,
+      "unsized": 0,
+      "label": "NM 87935",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-121.494,38.582",
+    "lng": -121.4944,
+    "lat": 38.5816,
+    "ids": [
+     50
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "CA 95961",
+    "state": "CA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-121.49440,38.58160",
+      "lng": -121.4944,
+      "lat": 38.5816,
+      "ids": [
+       50
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "CA 95961",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-81.379,28.538",
+    "lng": -81.3792,
+    "lat": 28.5383,
+    "ids": [
+     47,
+     7,
+     65
+    ],
+    "cf": 1450,
+    "unsized": 0,
+    "label": "FL 32606",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-81.37920,28.53830",
+      "lng": -81.3792,
+      "lat": 28.5383,
+      "ids": [
+       47,
+       7,
+       65
+      ],
+      "cf": 1450,
+      "unsized": 0,
+      "label": "FL 32606",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-78.638,35.780",
+    "lng": -78.6382,
+    "lat": 35.7796,
+    "ids": [
+     45
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "NC 27520",
+    "state": "NC",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-78.63820,35.77960",
+      "lng": -78.6382,
+      "lat": 35.7796,
+      "ids": [
+       45
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "NC 27520",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-108.501,45.783",
+    "lng": -108.5007,
+    "lat": 45.7833,
+    "ids": [
+     44,
+     43,
+     33,
+     97
+    ],
+    "cf": 2950,
+    "unsized": 0,
+    "label": "MT 59901",
+    "state": "MT",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-108.50070,45.78330",
+      "lng": -108.5007,
+      "lat": 45.7833,
+      "ids": [
+       44,
+       43,
+       33,
+       97
+      ],
+      "cf": 2950,
+      "unsized": 0,
+      "label": "MT 59901",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-86.782,36.163",
+    "lng": -86.7816,
+    "lat": 36.1627,
+    "ids": [
+     42,
+     79
+    ],
+    "cf": 1200,
+    "unsized": 0,
+    "label": "TN 37064",
+    "state": "TN",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-86.78160,36.16270",
+      "lng": -86.7816,
+      "lat": 36.1627,
+      "ids": [
+       42,
+       79
+      ],
+      "cf": 1200,
+      "unsized": 0,
+      "label": "TN 37064",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-97.516,35.468",
+    "lng": -97.5164,
+    "lat": 35.4676,
+    "ids": [
+     41,
+     31
+    ],
+    "cf": 1600,
+    "unsized": 0,
+    "label": "OK 73071",
+    "state": "OK",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-97.51640,35.46760",
+      "lng": -97.5164,
+      "lat": 35.4676,
+      "ids": [
+       41,
+       31
+      ],
+      "cf": 1600,
+      "unsized": 0,
+      "label": "OK 73071",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-85.310,35.046",
+    "lng": -85.3097,
+    "lat": 35.0456,
+    "ids": [
+     40,
+     6
+    ],
+    "cf": 1300,
+    "unsized": 0,
+    "label": "TN 37343",
+    "state": "TN",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-85.30970,35.04560",
+      "lng": -85.3097,
+      "lat": 35.0456,
+      "ids": [
+       40,
+       6
+      ],
+      "cf": 1300,
+      "unsized": 0,
+      "label": "TN 37343",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-97.331,32.755",
+    "lng": -97.3308,
+    "lat": 32.7555,
+    "ids": [
+     39
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "TX 76010",
+    "state": "TX",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-97.33080,32.75550",
+      "lng": -97.3308,
+      "lat": 32.7555,
+      "ids": [
+       39
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "TX 76010",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-76.612,39.290",
+    "lng": -76.6122,
+    "lat": 39.2904,
+    "ids": [
+     38
+    ],
+    "cf": 50,
+    "unsized": 0,
+    "label": "MD 21210",
+    "state": "MD",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-76.61220,39.29040",
+      "lng": -76.6122,
+      "lat": 39.2904,
+      "ids": [
+       38
+      ],
+      "cf": 50,
+      "unsized": 0,
+      "label": "MD 21210",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-87.630,41.878",
+    "lng": -87.6298,
+    "lat": 41.8781,
+    "ids": [
+     37,
+     95
+    ],
+    "cf": 650,
+    "unsized": 0,
+    "label": "IL 60657",
+    "state": "IL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-87.62980,41.87810",
+      "lng": -87.6298,
+      "lat": 41.8781,
+      "ids": [
+       37,
+       95
+      ],
+      "cf": 650,
+      "unsized": 0,
+      "label": "IL 60657",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-79.941,37.271",
+    "lng": -79.9414,
+    "lat": 37.271,
+    "ids": [
+     35
+    ],
+    "cf": 450,
+    "unsized": 0,
+    "label": "VA 24040",
+    "state": "VA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-79.94140,37.27100",
+      "lng": -79.9414,
+      "lat": 37.271,
+      "ids": [
+       35
+      ],
+      "cf": 450,
+      "unsized": 0,
+      "label": "VA 24040",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-90.049,35.150",
+    "lng": -90.049,
+    "lat": 35.1495,
+    "ids": [
+     34
+    ],
+    "cf": 1700,
+    "unsized": 0,
+    "label": "TN 38558",
+    "state": "TN",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-90.04900,35.14950",
+      "lng": -90.049,
+      "lat": 35.1495,
+      "ids": [
+       34
+      ],
+      "cf": 1700,
+      "unsized": 0,
+      "label": "TN 38558",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-83.046,42.331",
+    "lng": -83.0458,
+    "lat": 42.3314,
+    "ids": [
+     32
+    ],
+    "cf": 350,
+    "unsized": 0,
+    "label": "MI 48118",
+    "state": "MI",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-83.04580,42.33140",
+      "lng": -83.0458,
+      "lat": 42.3314,
+      "ids": [
+       32
+      ],
+      "cf": 350,
+      "unsized": 0,
+      "label": "MI 48118",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-81.633,38.350",
+    "lng": -81.6326,
+    "lat": 38.3498,
+    "ids": [
+     30
+    ],
+    "cf": 1000,
+    "unsized": 0,
+    "label": "WV 25276",
+    "state": "WV",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-81.63260,38.34980",
+      "lng": -81.6326,
+      "lat": 38.3498,
+      "ids": [
+       30
+      ],
+      "cf": 1000,
+      "unsized": 0,
+      "label": "WV 25276",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-73.944,40.678",
+    "lng": -73.9442,
+    "lat": 40.6782,
+    "ids": [
+     29,
+     62
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "NY 11217",
+    "state": "NY",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-73.94420,40.67820",
+      "lng": -73.9442,
+      "lat": 40.6782,
+      "ids": [
+       29,
+       62
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "NY 11217",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-84.281,30.438",
+    "lng": -84.2807,
+    "lat": 30.4383,
+    "ids": [
+     17
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "FL 32446",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-84.28070,30.43830",
+      "lng": -84.2807,
+      "lat": 30.4383,
+      "ids": [
+       17
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "FL 32446",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-85.139,41.079",
+    "lng": -85.1394,
+    "lat": 41.0793,
+    "ids": [
+     16
+    ],
+    "cf": 1000,
+    "unsized": 0,
+    "label": "IN 46845",
+    "state": "IN",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-85.13940,41.07930",
+      "lng": -85.1394,
+      "lat": 41.0793,
+      "ids": [
+       16
+      ],
+      "cf": 1000,
+      "unsized": 0,
+      "label": "IN 46845",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-95.993,36.154",
+    "lng": -95.9928,
+    "lat": 36.154,
+    "ids": [
+     15
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "OK 74014",
+    "state": "OK",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-95.99280,36.15400",
+      "lng": -95.9928,
+      "lat": 36.154,
+      "ids": [
+       15
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "OK 74014",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-71.468,42.765",
+    "lng": -71.4676,
+    "lat": 42.7654,
+    "ids": [
+     13
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "NH 03031",
+    "state": "NH",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-71.46760,42.76540",
+      "lng": -71.4676,
+      "lat": 42.7654,
+      "ids": [
+       13
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "NH 03031",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-83.921,35.961",
+    "lng": -83.9207,
+    "lat": 35.9606,
+    "ids": [
+     9,
+     93
+    ],
+    "cf": 1000,
+    "unsized": 0,
+    "label": "TN 37921",
+    "state": "TN",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-83.92070,35.96060",
+      "lng": -83.9207,
+      "lat": 35.9606,
+      "ids": [
+       9,
+       93
+      ],
+      "cf": 1000,
+      "unsized": 0,
+      "label": "TN 37921",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-77.047,38.805",
+    "lng": -77.0469,
+    "lat": 38.8048,
+    "ids": [
+     8
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "VA 22314",
+    "state": "VA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-77.04690,38.80480",
+      "lng": -77.0469,
+      "lat": 38.8048,
+      "ids": [
+       8
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "VA 22314",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-71.059,42.360",
+    "lng": -71.0589,
+    "lat": 42.3601,
+    "ids": [
+     4,
+     94
+    ],
+    "cf": 800,
+    "unsized": 0,
+    "label": "MA 02072",
+    "state": "MA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-71.05890,42.36010",
+      "lng": -71.0589,
+      "lat": 42.3601,
+      "ids": [
+       4,
+       94
+      ],
+      "cf": 800,
+      "unsized": 0,
+      "label": "MA 02072",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-116.202,43.615",
+    "lng": -116.2023,
+    "lat": 43.615,
+    "ids": [
+     96,
+     83
+    ],
+    "cf": 600,
+    "unsized": 0,
+    "label": "ID 83664",
+    "state": "ID",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-116.20230,43.61500",
+      "lng": -116.2023,
+      "lat": 43.615,
+      "ids": [
+       96,
+       83
+      ],
+      "cf": 600,
+      "unsized": 0,
+      "label": "ID 83664",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-90.199,38.627",
+    "lng": -90.1994,
+    "lat": 38.627,
+    "ids": [
+     92
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "MO 63043",
+    "state": "MO",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-90.19940,38.62700",
+      "lng": -90.1994,
+      "lat": 38.627,
+      "ids": [
+       92
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "MO 63043",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-93.090,44.954",
+    "lng": -93.09,
+    "lat": 44.9537,
+    "ids": [
+     91,
+     87
+    ],
+    "cf": 1200,
+    "unsized": 0,
+    "label": "MN 55128",
+    "state": "MN",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-93.09000,44.95370",
+      "lng": -93.09,
+      "lat": 44.9537,
+      "ids": [
+       91,
+       87
+      ],
+      "cf": 1200,
+      "unsized": 0,
+      "label": "MN 55128",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-86.252,41.676",
+    "lng": -86.252,
+    "lat": 41.6764,
+    "ids": [
+     88
+    ],
+    "cf": 650,
+    "unsized": 0,
+    "label": "IN 46619",
+    "state": "IN",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-86.25200,41.67640",
+      "lng": -86.252,
+      "lat": 41.6764,
+      "ids": [
+       88
+      ],
+      "cf": 650,
+      "unsized": 0,
+      "label": "IN 46619",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-122.235,47.381",
+    "lng": -122.2348,
+    "lat": 47.3809,
+    "ids": [
+     82
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "WA 98034",
+    "state": "WA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-122.23480,47.38090",
+      "lng": -122.2348,
+      "lat": 47.3809,
+      "ids": [
+       82
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "WA 98034",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-111.891,40.761",
+    "lng": -111.891,
+    "lat": 40.7608,
+    "ids": [
+     81
+    ],
+    "cf": 400,
+    "unsized": 0,
+    "label": "UT 84110",
+    "state": "UT",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-111.89100,40.76080",
+      "lng": -111.891,
+      "lat": 40.7608,
+      "ids": [
+       81
+      ],
+      "cf": 400,
+      "unsized": 0,
+      "label": "UT 84110",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-77.945,34.226",
+    "lng": -77.9447,
+    "lat": 34.2257,
+    "ids": [
+     78
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "NC 28463",
+    "state": "NC",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-77.94470,34.22570",
+      "lng": -77.9447,
+      "lat": 34.2257,
+      "ids": [
+       78
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "NC 28463",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-84.504,38.041",
+    "lng": -84.5037,
+    "lat": 38.0406,
+    "ids": [
+     77
+    ],
+    "cf": 400,
+    "unsized": 0,
+    "label": "KY 40741",
+    "state": "KY",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-84.50370,38.04060",
+      "lng": -84.5037,
+      "lat": 38.0406,
+      "ids": [
+       77
+      ],
+      "cf": 400,
+      "unsized": 0,
+      "label": "KY 40741",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-88.040,30.695",
+    "lng": -88.0399,
+    "lat": 30.6954,
+    "ids": [
+     76
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "AL 36561",
+    "state": "AL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-88.03990,30.69540",
+      "lng": -88.0399,
+      "lat": 30.6954,
+      "ids": [
+       76
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "AL 36561",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-74.172,40.736",
+    "lng": -74.1724,
+    "lat": 40.7357,
+    "ids": [
+     61
+    ],
+    "cf": 350,
+    "unsized": 0,
+    "label": "NJ 07102",
+    "state": "NJ",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-74.17240,40.73570",
+      "lng": -74.1724,
+      "lat": 40.7357,
+      "ids": [
+       61
+      ],
+      "cf": 350,
+      "unsized": 0,
+      "label": "NJ 07102",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-74.114,40.669",
+    "lng": -74.1143,
+    "lat": 40.6687,
+    "ids": [
+     59
+    ],
+    "cf": 400,
+    "unsized": 0,
+    "label": "NJ 07032",
+    "state": "NJ",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-74.11430,40.66870",
+      "lng": -74.1143,
+      "lat": 40.6687,
+      "ids": [
+       59
+      ],
+      "cf": 400,
+      "unsized": 0,
+      "label": "NJ 07032",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   }
+  ],
+  "features": {
+   "type": "FeatureCollection",
+   "features": [
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -82.394,
+       34.8526
+      ]
+     },
+     "properties": {
+      "key": "-82.394,34.853",
+      "label": "SC 29588",
+      "count": 2,
+      "cf": 750,
+      "unsized": 0,
+      "approx": true,
+      "ids": "75,11"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -82.1401,
+       29.1872
+      ]
+     },
+     "properties": {
+      "key": "-82.140,29.187",
+      "label": "FL 34957",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "74"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -81.6557,
+       30.3322
+      ]
+     },
+     "properties": {
+      "key": "-81.656,30.332",
+      "label": "FL 32218",
+      "count": 3,
+      "cf": 2756,
+      "unsized": 0,
+      "approx": true,
+      "ids": "73,46,80"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -81.8723,
+       26.6406
+      ]
+     },
+     "properties": {
+      "key": "-81.872,26.641",
+      "label": "FL 33909",
+      "count": 2,
+      "cf": 550,
+      "unsized": 0,
+      "approx": true,
+      "ids": "72,70"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.1918,
+       25.7617
+      ]
+     },
+     "properties": {
+      "key": "-80.192,25.762",
+      "label": "FL 33180",
+      "count": 2,
+      "cf": 550,
+      "unsized": 0,
+      "approx": true,
+      "ids": "71,64"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -90.0715,
+       29.9511
+      ]
+     },
+     "properties": {
+      "key": "-90.072,29.951",
+      "label": "LA 70119",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "69"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -84.5555,
+       42.7325
+      ]
+     },
+     "properties": {
+      "key": "-84.555,42.733",
+      "label": "MI 48864",
+      "count": 1,
+      "cf": 400,
+      "unsized": 0,
+      "approx": true,
+      "ids": "68"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -117.1611,
+       32.7157
+      ]
+     },
+     "properties": {
+      "key": "-117.161,32.716",
+      "label": "CA 91977",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "111"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -111.8315,
+       33.4152
+      ]
+     },
+     "properties": {
+      "key": "-111.832,33.415",
+      "label": "AZ 85281",
+      "count": 3,
+      "cf": 1100,
+      "unsized": 0,
+      "approx": true,
+      "ids": "110,49,48"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -77.6931,
+       43.2098
+      ]
+     },
+     "properties": {
+      "key": "-77.693,43.210",
+      "label": "NY 14850",
+      "count": 2,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "109,90"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -78.8784,
+       42.8864
+      ]
+     },
+     "properties": {
+      "key": "-78.878,42.886",
+      "label": "NY 14075",
+      "count": 2,
+      "cf": 600,
+      "unsized": 0,
+      "approx": true,
+      "ids": "108,10"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -85.6681,
+       42.9634
+      ]
+     },
+     "properties": {
+      "key": "-85.668,42.963",
+      "label": "MI 49456",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "107"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.6495,
+       41.0998
+      ]
+     },
+     "properties": {
+      "key": "-80.650,41.100",
+      "label": "OH 44473",
+      "count": 1,
+      "cf": 400,
+      "unsized": 0,
+      "approx": true,
+      "ids": "106"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -122.3321,
+       47.6062
+      ]
+     },
+     "properties": {
+      "key": "-122.332,47.606",
+      "label": "WA 98109",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "105"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -123.0351,
+       44.9429
+      ]
+     },
+     "properties": {
+      "key": "-123.035,44.943",
+      "label": "OR 97396",
+      "count": 1,
+      "cf": 700,
+      "unsized": 0,
+      "approx": true,
+      "ids": "104"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -117.6509,
+       34.0633
+      ]
+     },
+     "properties": {
+      "key": "-117.651,34.063",
+      "label": "CA 91916",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "103"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -81.7948,
+       26.142
+      ]
+     },
+     "properties": {
+      "key": "-81.795,26.142",
+      "label": "FL 34113",
+      "count": 2,
+      "cf": 400,
+      "unsized": 0,
+      "approx": true,
+      "ids": "102,12"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -93.625,
+       41.5868
+      ]
+     },
+     "properties": {
+      "key": "-93.625,41.587",
+      "label": "IA 50613",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "101"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -104.9903,
+       39.7392
+      ]
+     },
+     "properties": {
+      "key": "-104.990,39.739",
+      "label": "Denver, CO",
+      "count": 4,
+      "cf": 2350,
+      "unsized": 0,
+      "approx": false,
+      "ids": "100,99,85,84"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -115.1398,
+       36.1699
+      ]
+     },
+     "properties": {
+      "key": "-115.140,36.170",
+      "label": "NV 89101",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "98"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -99.4803,
+       27.5306
+      ]
+     },
+     "properties": {
+      "key": "-99.480,27.531",
+      "label": "TX 77979",
+      "count": 1,
+      "cf": 350,
+      "unsized": 0,
+      "approx": true,
+      "ids": "89"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -104.8214,
+       38.8339
+      ]
+     },
+     "properties": {
+      "key": "-104.821,38.834",
+      "label": "CO 80906",
+      "count": 1,
+      "cf": 1000,
+      "unsized": 0,
+      "approx": true,
+      "ids": "86"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -84.388,
+       33.749
+      ]
+     },
+     "properties": {
+      "key": "-84.388,33.749",
+      "label": "GA 30303",
+      "count": 3,
+      "cf": 1200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "67,55,57"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.0534,
+       26.7153
+      ]
+     },
+     "properties": {
+      "key": "-80.053,26.715",
+      "label": "FL 33435",
+      "count": 3,
+      "cf": 1000,
+      "unsized": 0,
+      "approx": true,
+      "ids": "66,54,3"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -72.9279,
+       41.3083
+      ]
+     },
+     "properties": {
+      "key": "-72.928,41.308",
+      "label": "CT 06511",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "63"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -75.1196,
+       39.9259
+      ]
+     },
+     "properties": {
+      "key": "-75.120,39.926",
+      "label": "NJ 08234",
+      "count": 2,
+      "cf": 450,
+      "unsized": 0,
+      "approx": true,
+      "ids": "60,36"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.8431,
+       35.2271
+      ]
+     },
+     "properties": {
+      "key": "-80.843,35.227",
+      "label": "NC 28202",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "58"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -96.797,
+       32.7767
+      ]
+     },
+     "properties": {
+      "key": "-96.797,32.777",
+      "label": "TX 75201",
+      "count": 1,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "56"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -76.2859,
+       36.8508
+      ]
+     },
+     "properties": {
+      "key": "-76.286,36.851",
+      "label": "VA 23503",
+      "count": 1,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "53"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -77.091,
+       38.8816
+      ]
+     },
+     "properties": {
+      "key": "-77.091,38.882",
+      "label": "VA 20132",
+      "count": 2,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "52,14"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -105.9378,
+       35.687
+      ]
+     },
+     "properties": {
+      "key": "-105.938,35.687",
+      "label": "NM 87935",
+      "count": 2,
+      "cf": 1050,
+      "unsized": 0,
+      "approx": true,
+      "ids": "51,5"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -121.4944,
+       38.5816
+      ]
+     },
+     "properties": {
+      "key": "-121.494,38.582",
+      "label": "CA 95961",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "50"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -81.3792,
+       28.5383
+      ]
+     },
+     "properties": {
+      "key": "-81.379,28.538",
+      "label": "FL 32606",
+      "count": 3,
+      "cf": 1450,
+      "unsized": 0,
+      "approx": true,
+      "ids": "47,7,65"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -78.6382,
+       35.7796
+      ]
+     },
+     "properties": {
+      "key": "-78.638,35.780",
+      "label": "NC 27520",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "45"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -108.5007,
+       45.7833
+      ]
+     },
+     "properties": {
+      "key": "-108.501,45.783",
+      "label": "MT 59901",
+      "count": 4,
+      "cf": 2950,
+      "unsized": 0,
+      "approx": true,
+      "ids": "44,43,33,97"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -86.7816,
+       36.1627
+      ]
+     },
+     "properties": {
+      "key": "-86.782,36.163",
+      "label": "TN 37064",
+      "count": 2,
+      "cf": 1200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "42,79"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -97.5164,
+       35.4676
+      ]
+     },
+     "properties": {
+      "key": "-97.516,35.468",
+      "label": "OK 73071",
+      "count": 2,
+      "cf": 1600,
+      "unsized": 0,
+      "approx": true,
+      "ids": "41,31"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -85.3097,
+       35.0456
+      ]
+     },
+     "properties": {
+      "key": "-85.310,35.046",
+      "label": "TN 37343",
+      "count": 2,
+      "cf": 1300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "40,6"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -97.3308,
+       32.7555
+      ]
+     },
+     "properties": {
+      "key": "-97.331,32.755",
+      "label": "TX 76010",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "39"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -76.6122,
+       39.2904
+      ]
+     },
+     "properties": {
+      "key": "-76.612,39.290",
+      "label": "MD 21210",
+      "count": 1,
+      "cf": 50,
+      "unsized": 0,
+      "approx": true,
+      "ids": "38"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -87.6298,
+       41.8781
+      ]
+     },
+     "properties": {
+      "key": "-87.630,41.878",
+      "label": "IL 60657",
+      "count": 2,
+      "cf": 650,
+      "unsized": 0,
+      "approx": true,
+      "ids": "37,95"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -79.9414,
+       37.271
+      ]
+     },
+     "properties": {
+      "key": "-79.941,37.271",
+      "label": "VA 24040",
+      "count": 1,
+      "cf": 450,
+      "unsized": 0,
+      "approx": true,
+      "ids": "35"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -90.049,
+       35.1495
+      ]
+     },
+     "properties": {
+      "key": "-90.049,35.150",
+      "label": "TN 38558",
+      "count": 1,
+      "cf": 1700,
+      "unsized": 0,
+      "approx": true,
+      "ids": "34"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -83.0458,
+       42.3314
+      ]
+     },
+     "properties": {
+      "key": "-83.046,42.331",
+      "label": "MI 48118",
+      "count": 1,
+      "cf": 350,
+      "unsized": 0,
+      "approx": true,
+      "ids": "32"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -81.6326,
+       38.3498
+      ]
+     },
+     "properties": {
+      "key": "-81.633,38.350",
+      "label": "WV 25276",
+      "count": 1,
+      "cf": 1000,
+      "unsized": 0,
+      "approx": true,
+      "ids": "30"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -73.9442,
+       40.6782
+      ]
+     },
+     "properties": {
+      "key": "-73.944,40.678",
+      "label": "NY 11217",
+      "count": 2,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "29,62"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -84.2807,
+       30.4383
+      ]
+     },
+     "properties": {
+      "key": "-84.281,30.438",
+      "label": "FL 32446",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "17"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -85.1394,
+       41.0793
+      ]
+     },
+     "properties": {
+      "key": "-85.139,41.079",
+      "label": "IN 46845",
+      "count": 1,
+      "cf": 1000,
+      "unsized": 0,
+      "approx": true,
+      "ids": "16"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -95.9928,
+       36.154
+      ]
+     },
+     "properties": {
+      "key": "-95.993,36.154",
+      "label": "OK 74014",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "15"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -71.4676,
+       42.7654
+      ]
+     },
+     "properties": {
+      "key": "-71.468,42.765",
+      "label": "NH 03031",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "13"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -83.9207,
+       35.9606
+      ]
+     },
+     "properties": {
+      "key": "-83.921,35.961",
+      "label": "TN 37921",
+      "count": 2,
+      "cf": 1000,
+      "unsized": 0,
+      "approx": true,
+      "ids": "9,93"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -77.0469,
+       38.8048
+      ]
+     },
+     "properties": {
+      "key": "-77.047,38.805",
+      "label": "VA 22314",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "8"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -71.0589,
+       42.3601
+      ]
+     },
+     "properties": {
+      "key": "-71.059,42.360",
+      "label": "MA 02072",
+      "count": 2,
+      "cf": 800,
+      "unsized": 0,
+      "approx": true,
+      "ids": "4,94"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -116.2023,
+       43.615
+      ]
+     },
+     "properties": {
+      "key": "-116.202,43.615",
+      "label": "ID 83664",
+      "count": 2,
+      "cf": 600,
+      "unsized": 0,
+      "approx": true,
+      "ids": "96,83"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -90.1994,
+       38.627
+      ]
+     },
+     "properties": {
+      "key": "-90.199,38.627",
+      "label": "MO 63043",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "92"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -93.09,
+       44.9537
+      ]
+     },
+     "properties": {
+      "key": "-93.090,44.954",
+      "label": "MN 55128",
+      "count": 2,
+      "cf": 1200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "91,87"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -86.252,
+       41.6764
+      ]
+     },
+     "properties": {
+      "key": "-86.252,41.676",
+      "label": "IN 46619",
+      "count": 1,
+      "cf": 650,
+      "unsized": 0,
+      "approx": true,
+      "ids": "88"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -122.2348,
+       47.3809
+      ]
+     },
+     "properties": {
+      "key": "-122.235,47.381",
+      "label": "WA 98034",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "82"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -111.891,
+       40.7608
+      ]
+     },
+     "properties": {
+      "key": "-111.891,40.761",
+      "label": "UT 84110",
+      "count": 1,
+      "cf": 400,
+      "unsized": 0,
+      "approx": true,
+      "ids": "81"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -77.9447,
+       34.2257
+      ]
+     },
+     "properties": {
+      "key": "-77.945,34.226",
+      "label": "NC 28463",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "78"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -84.5037,
+       38.0406
+      ]
+     },
+     "properties": {
+      "key": "-84.504,38.041",
+      "label": "KY 40741",
+      "count": 1,
+      "cf": 400,
+      "unsized": 0,
+      "approx": true,
+      "ids": "77"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -88.0399,
+       30.6954
+      ]
+     },
+     "properties": {
+      "key": "-88.040,30.695",
+      "label": "AL 36561",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "76"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -74.1724,
+       40.7357
+      ]
+     },
+     "properties": {
+      "key": "-74.172,40.736",
+      "label": "NJ 07102",
+      "count": 1,
+      "cf": 350,
+      "unsized": 0,
+      "approx": true,
+      "ids": "61"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -74.1143,
+       40.6687
+      ]
+     },
+     "properties": {
+      "key": "-74.114,40.669",
+      "label": "NJ 07032",
+      "count": 1,
+      "cf": 400,
+      "unsized": 0,
+      "approx": true,
+      "ids": "59"
+     }
+    }
+   ]
+  },
+  "keyByJob": [
+   [
+    75,
+    "-82.394,34.853"
+   ],
+   [
+    74,
+    "-82.140,29.187"
+   ],
+   [
+    73,
+    "-81.656,30.332"
+   ],
+   [
+    72,
+    "-81.872,26.641"
+   ],
+   [
+    71,
+    "-80.192,25.762"
+   ],
+   [
+    70,
+    "-81.872,26.641"
+   ],
+   [
+    69,
+    "-90.072,29.951"
+   ],
+   [
+    68,
+    "-84.555,42.733"
+   ],
+   [
+    111,
+    "-117.161,32.716"
+   ],
+   [
+    110,
+    "-111.832,33.415"
+   ],
+   [
+    109,
+    "-77.693,43.210"
+   ],
+   [
+    108,
+    "-78.878,42.886"
+   ],
+   [
+    107,
+    "-85.668,42.963"
+   ],
+   [
+    106,
+    "-80.650,41.100"
+   ],
+   [
+    105,
+    "-122.332,47.606"
+   ],
+   [
+    104,
+    "-123.035,44.943"
+   ],
+   [
+    103,
+    "-117.651,34.063"
+   ],
+   [
+    102,
+    "-81.795,26.142"
+   ],
+   [
+    101,
+    "-93.625,41.587"
+   ],
+   [
+    100,
+    "-104.990,39.739"
+   ],
+   [
+    99,
+    "-104.990,39.739"
+   ],
+   [
+    98,
+    "-115.140,36.170"
+   ],
+   [
+    89,
+    "-99.480,27.531"
+   ],
+   [
+    86,
+    "-104.821,38.834"
+   ],
+   [
+    67,
+    "-84.388,33.749"
+   ],
+   [
+    66,
+    "-80.053,26.715"
+   ],
+   [
+    64,
+    "-80.192,25.762"
+   ],
+   [
+    63,
+    "-72.928,41.308"
+   ],
+   [
+    60,
+    "-75.120,39.926"
+   ],
+   [
+    58,
+    "-80.843,35.227"
+   ],
+   [
+    56,
+    "-96.797,32.777"
+   ],
+   [
+    55,
+    "-84.388,33.749"
+   ],
+   [
+    54,
+    "-80.053,26.715"
+   ],
+   [
+    53,
+    "-76.286,36.851"
+   ],
+   [
+    52,
+    "-77.091,38.882"
+   ],
+   [
+    51,
+    "-105.938,35.687"
+   ],
+   [
+    50,
+    "-121.494,38.582"
+   ],
+   [
+    49,
+    "-111.832,33.415"
+   ],
+   [
+    48,
+    "-111.832,33.415"
+   ],
+   [
+    47,
+    "-81.379,28.538"
+   ],
+   [
+    46,
+    "-81.656,30.332"
+   ],
+   [
+    45,
+    "-78.638,35.780"
+   ],
+   [
+    44,
+    "-108.501,45.783"
+   ],
+   [
+    43,
+    "-108.501,45.783"
+   ],
+   [
+    42,
+    "-86.782,36.163"
+   ],
+   [
+    41,
+    "-97.516,35.468"
+   ],
+   [
+    40,
+    "-85.310,35.046"
+   ],
+   [
+    39,
+    "-97.331,32.755"
+   ],
+   [
+    38,
+    "-76.612,39.290"
+   ],
+   [
+    37,
+    "-87.630,41.878"
+   ],
+   [
+    36,
+    "-75.120,39.926"
+   ],
+   [
+    35,
+    "-79.941,37.271"
+   ],
+   [
+    34,
+    "-90.049,35.150"
+   ],
+   [
+    33,
+    "-108.501,45.783"
+   ],
+   [
+    32,
+    "-83.046,42.331"
+   ],
+   [
+    31,
+    "-97.516,35.468"
+   ],
+   [
+    30,
+    "-81.633,38.350"
+   ],
+   [
+    29,
+    "-73.944,40.678"
+   ],
+   [
+    17,
+    "-84.281,30.438"
+   ],
+   [
+    16,
+    "-85.139,41.079"
+   ],
+   [
+    15,
+    "-95.993,36.154"
+   ],
+   [
+    14,
+    "-77.091,38.882"
+   ],
+   [
+    13,
+    "-71.468,42.765"
+   ],
+   [
+    12,
+    "-81.795,26.142"
+   ],
+   [
+    11,
+    "-82.394,34.853"
+   ],
+   [
+    10,
+    "-78.878,42.886"
+   ],
+   [
+    9,
+    "-83.921,35.961"
+   ],
+   [
+    8,
+    "-77.047,38.805"
+   ],
+   [
+    7,
+    "-81.379,28.538"
+   ],
+   [
+    6,
+    "-85.310,35.046"
+   ],
+   [
+    5,
+    "-105.938,35.687"
+   ],
+   [
+    4,
+    "-71.059,42.360"
+   ],
+   [
+    3,
+    "-80.053,26.715"
+   ],
+   [
+    97,
+    "-108.501,45.783"
+   ],
+   [
+    96,
+    "-116.202,43.615"
+   ],
+   [
+    95,
+    "-87.630,41.878"
+   ],
+   [
+    94,
+    "-71.059,42.360"
+   ],
+   [
+    93,
+    "-83.921,35.961"
+   ],
+   [
+    92,
+    "-90.199,38.627"
+   ],
+   [
+    91,
+    "-93.090,44.954"
+   ],
+   [
+    90,
+    "-77.693,43.210"
+   ],
+   [
+    88,
+    "-86.252,41.676"
+   ],
+   [
+    87,
+    "-93.090,44.954"
+   ],
+   [
+    85,
+    "-104.990,39.739"
+   ],
+   [
+    84,
+    "-104.990,39.739"
+   ],
+   [
+    83,
+    "-116.202,43.615"
+   ],
+   [
+    82,
+    "-122.235,47.381"
+   ],
+   [
+    81,
+    "-111.891,40.761"
+   ],
+   [
+    80,
+    "-81.656,30.332"
+   ],
+   [
+    79,
+    "-86.782,36.163"
+   ],
+   [
+    78,
+    "-77.945,34.226"
+   ],
+   [
+    77,
+    "-84.504,38.041"
+   ],
+   [
+    76,
+    "-88.040,30.695"
+   ],
+   [
+    65,
+    "-81.379,28.538"
+   ],
+   [
+    62,
+    "-73.944,40.678"
+   ],
+   [
+    61,
+    "-74.172,40.736"
+   ],
+   [
+    59,
+    "-74.114,40.669"
+   ],
+   [
+    57,
+    "-84.388,33.749"
+   ]
+  ]
+ }
+}

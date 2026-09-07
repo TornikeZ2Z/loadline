@@ -13,6 +13,7 @@
     "score": "tsx scripts/score-fixture.ts",
     "check:redact": "tsx scripts/check-redact.ts",
     "check:routes": "tsx scripts/check-routes.ts",
+    "check:equiv": "tsx scripts/check-equivalence.ts",
     "admin:grant": "tsx scripts/grant-admin.ts",
     "rules:export": "tsx scripts/rules-export.ts",
     "zips:warm": "tsx scripts/warm-zips.ts",
