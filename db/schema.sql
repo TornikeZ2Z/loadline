@@ -366,3 +366,37 @@ ALTER TABLE loads ADD COLUMN IF NOT EXISTS contact_phone_source text;
 ALTER TABLE loads DROP CONSTRAINT IF EXISTS loads_contact_phone_source_check;
 ALTER TABLE loads ADD CONSTRAINT loads_contact_phone_source_check
   CHECK (contact_phone_source IS NULL OR contact_phone_source IN ('post', 'sender'));
+
+-- ---------------------------------------------------------------------------
+-- Authorization v3: a demo marker, and posting as a capability.
+-- Additive only; safe to replay.
+-- ---------------------------------------------------------------------------
+
+-- Is this one of the seeded demo identities?
+--
+-- The demo signs a stranger in as an admin in one click, and that much is the
+-- point: the pipeline, the needs-attention queue and the consoles are what
+-- there is to show. What it must NOT hand over is the power to destroy the
+-- board. Before this column `requireRole("admin")` compared a role string and
+-- nothing else, so POST /api/test/reset -- a TRUNCATE over ten tables,
+-- including the warmed geocode cache -- was two clicks from the public URL.
+--
+-- The marker sits on the ROW, not on the session, so it holds however the
+-- person signed in: one-click demo, or the ordinary e-mail form with the demo
+-- password. A real admin is a row where this is false, which only somebody with
+-- database access (or scripts/grant-admin.ts) can produce.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false;
+UPDATE users SET is_demo = true
+ WHERE is_demo = false
+   AND email IN ('driver@example.com', 'poster@example.com', 'admin@example.com');
+
+-- May this account publish a job from the website?
+--
+-- Posting used to BE the `poster` role, which made it exclusive: a company that
+-- both hauls and posts needed two accounts, and a driver who later wanted to
+-- post had to start over. It was never a security boundary either -- anyone can
+-- pick "poster" on the registration form in ten seconds -- so the role bought
+-- friction and nothing else. Posting is now a capability every account has by
+-- default and an admin can withdraw from one that abuses it. `role` keeps admin
+-- separate; for everyone else it only records which door they came in through.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_post boolean NOT NULL DEFAULT true;

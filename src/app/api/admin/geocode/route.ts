@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireRole, requireWriteRole } from "@/lib/auth";
 import {
   hereStatus,
   surveyBoardZips,
@@ -35,7 +35,7 @@ export const GET = handler(async () => {
 });
 
 export const POST = handler(async (req: Request) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const sp = new URL(req.url).searchParams;
 
   const raw = Number(sp.get("limit"));

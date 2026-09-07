@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, notFound } from "@/lib/api";
-import { HttpError, requireRole } from "@/lib/auth";
+import { HttpError, isAdminActor, requireUser } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import { setManualStatus, type ManualStatus } from "@/lib/pipeline/reconcile";
 
@@ -17,12 +17,16 @@ const DERIVED = ["expired", "delisted"];
  * keeps it taken through later reposts, because the person who marked it knows
  * something the post does not.
  *
- * A poster may only touch rows they posted. Batch jobs extracted from a group
- * have `posted_by` NULL and belong to nobody but an admin -- a poster marking a
- * rival's WhatsApp job taken would be vandalism with a nice button.
+ * Ownership, not role: a person may only touch rows they posted. Batch jobs
+ * extracted from a group have `posted_by` NULL and belong to nobody but a real
+ * admin -- somebody marking a rival's WhatsApp job taken would be vandalism
+ * with a nice button. `isAdminActor` is the test rather than `role === "admin"`
+ * because the demo hands an admin session to anyone with the URL, and delisting
+ * 98 jobs one button at a time destroys the board just as thoroughly as the
+ * TRUNCATE behind /api/test/reset.
  */
 export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
-  const user = await requireRole("poster", "admin");
+  const user = await requireUser();
   const { id } = await ctx.params;
   const { status } = (await req.json().catch(() => ({}))) as { status?: string };
 
@@ -39,7 +43,7 @@ export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ id: s
   );
   if (!load) notFound("Job not found");
 
-  if (user.role === "poster" && load.posted_by !== user.id) {
+  if (!isAdminActor(user) && load.posted_by !== user.id) {
     throw new HttpError(403, "You can only update jobs you posted");
   }
 

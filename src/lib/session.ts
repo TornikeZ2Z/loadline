@@ -8,8 +8,10 @@
  */
 
 /**
- * driver exists only to pass the contact gate (see the phone number on a job);
- * poster posts jobs from the website; admin runs the consoles.
+ * admin runs the consoles. driver and poster are both ordinary members -- the
+ * word records which door they came in through, not what they may do: posting
+ * is `canPost`, a capability every account has, and both kinds pass the contact
+ * gate. Nothing outside the admin case should branch on this.
  */
 export type Role = "driver" | "poster" | "admin";
 
@@ -20,6 +22,22 @@ export interface SessionUser {
   role: Role;
   phone: string | null;
   company: string | null;
+  /** May publish a job from the website. See `users.can_post`. */
+  canPost: boolean;
+  /** One of the seeded demo identities. See `users.is_demo`. */
+  isDemo: boolean;
+}
+
+/**
+ * Admin power over rows this person does not own, and over shared state.
+ *
+ * A demo admin is deliberately NOT one: the demo hands admin to anyone with the
+ * URL, so an account it can reach may read every console and may not rewrite
+ * what the next visitor sees. Everything that mutates asks this question, or
+ * `requireWriteRole` in src/lib/auth.ts, which is this test plus a 403.
+ */
+export function isAdminActor(user: SessionUser): boolean {
+  return user.role === "admin" && !user.isDemo;
 }
 
 export const ROLE_LABEL: Record<Role, string> = {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { reprocessMessages } from "@/lib/pipeline/process";
 
@@ -11,7 +11,7 @@ import { reprocessMessages } from "@/lib/pipeline/process";
  * endpoint reprocesses on its own and reports the count.
  */
 export const POST = handler(async (req: Request) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const sp = new URL(req.url).searchParams;
   const message = sp.get("message");
   const attention = sp.get("attention");

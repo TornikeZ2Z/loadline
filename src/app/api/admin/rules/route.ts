@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireRole, requireWriteRole } from "@/lib/auth";
 import { normalizeRuleKey } from "@/lib/extract";
 import { reprocessMessages } from "@/lib/pipeline/process";
 import { listRules, messagesAffectedBy, NORMALIZED_KEY_KINDS, RULE_KINDS, saveRule, type RuleKind } from "@/lib/pipeline/rules";
@@ -19,7 +19,7 @@ export const GET = handler(async () => {
  * the console never needs a second call to /api/admin/reprocess.
  */
 export const POST = handler(async (req: Request) => {
-  const user = await requireRole("admin");
+  const user = await requireWriteRole("admin");
   const body = (await req.json()) as {
     kind?: string; scope?: string; key?: string; value?: unknown; note?: string; source_message_id?: number;
   };

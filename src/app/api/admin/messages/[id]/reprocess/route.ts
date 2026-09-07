@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { handler } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { reprocessMessage } from "@/lib/pipeline/process";
 
 /**
@@ -9,7 +9,7 @@ import { reprocessMessage } from "@/lib/pipeline/process";
  * over historical traffic without re-ingesting anything.
  */
 export const POST = handler(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { id } = await ctx.params;
   return NextResponse.json(await reprocessMessage(Number(id)));
 });

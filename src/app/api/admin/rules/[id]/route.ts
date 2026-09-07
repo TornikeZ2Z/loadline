@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { handler, notFound } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { reprocessMessages } from "@/lib/pipeline/process";
 import { deleteRule, getRule, messagesAffectedBy, updateRule } from "@/lib/pipeline/rules";
 
@@ -10,7 +10,7 @@ interface Ctx {
 
 /** Deactivate / edit a rule, then re-run the messages it touched. */
 export const PATCH = handler(async (req: Request, ctx: Ctx) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { id } = await ctx.params;
   const body = (await req.json()) as { active?: boolean; value?: unknown; note?: string | null };
   const before = await getRule(Number(id));
@@ -22,7 +22,7 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
 });
 
 export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { id } = await ctx.params;
   const before = await getRule(Number(id));
   if (!before) notFound("Rule not found");

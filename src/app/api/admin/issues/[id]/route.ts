@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { badRequest, handler, notFound } from "@/lib/api";
-import { requireRole } from "@/lib/auth";
+import { requireWriteRole } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 
 export const PATCH = handler(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
-  await requireRole("admin");
+  await requireWriteRole("admin");
   const { id } = await ctx.params;
   const body = (await req.json()) as { status?: string; resolution?: unknown };
   if (!["resolved", "ignored", "open"].includes(body.status ?? "")) badRequest("status must be resolved | ignored | open");
