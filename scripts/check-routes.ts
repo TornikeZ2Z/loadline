@@ -99,6 +99,22 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
     guard: "user",
     why: "ownership, not role: booked/cancelled/available on your own truck. departed and expired are the sweep's conclusions and are refused by name",
   },
+  "GET /api/notifications": {
+    guard: "user",
+    why: "own rows only: listNotifications is WHERE user_id = $1 with the id off the signed cookie, and there is no user_id parameter anywhere in the request to forge",
+  },
+  "POST /api/notifications/read": {
+    guard: "user",
+    why: "own rows only: dismissal is an UPDATE led by the session's own user_id, so somebody else's notification id matches nothing and answers 0 rather than 403 — a 403 would confirm the row exists",
+  },
+  "GET /api/notification-prefs": {
+    guard: "user",
+    why: "own row only; returns notify_inapp, notify_email and whether an e-mail channel exists at all",
+  },
+  "PUT /api/notification-prefs": {
+    guard: "user",
+    why: "own row only, and exactly one writable field: `email` is REFUSED with a 400 rather than ignored, so no account can be left holding a setting that promises mail this product cannot send",
+  },
 
   // --- the posting capability -----------------------------------------------
   "POST /api/loads": { guard: "posting", why: "users.can_post, not the poster role" },
@@ -114,6 +130,10 @@ const DECLARED: Record<string, { guard: string; why: string }> = {
   // --- a machine with a secret ----------------------------------------------
   "POST /api/cron/expire": { guard: "cron-secret", why: "scheduled sweep; bearer token" },
   "POST /api/cron/process": { guard: "cron-secret", why: "scheduled extraction; bearer token" },
+  "POST /api/cron/match": {
+    guard: "cron-secret",
+    why: "scheduled matching over a match_runs watermark; a THIRD route rather than a step inside process, because a listing posted through the form never passes through the WhatsApp queue and would otherwise notify nobody",
+  },
   "GET /api/webhooks/whatsapp": { guard: "webhook", why: "Meta's subscription handshake; verify token" },
   "POST /api/webhooks/whatsapp": { guard: "webhook", why: "message delivery; X-Hub-Signature-256 HMAC" },
 

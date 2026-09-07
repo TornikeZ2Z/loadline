@@ -803,6 +803,22 @@ export async function updateWebTruck(
   sets.push(`expires_at = $${columns.length + 2}`);
   sets.push(`updated_at = now()`);
 
+  // THE TEN-MINUTE QUIET WINDOW (SPEC 12.1.3).
+  //
+  // One owner changing one departure date can flip dozens of pairings at once,
+  // and each flip is a match the sweep has never seen before. Without this the
+  // next run turns a single edit into a burst of alerts about the same truck.
+  // The sweep skips a truck while this is in the future and afterwards emits
+  // ONE digest for everything that moved -- acceptance N5.
+  //
+  // Stamped on any edit that changed anything, not only on a date: a corridor
+  // widened from 60 to 300 miles flips as many pairings as a date does, and
+  // enumerating which fields are "matchy" is a list that would go stale. It is
+  // deliberately NOT part of `next`, so it never appears in the `edited` event's
+  // field list -- it is bookkeeping about the edit, not a thing the owner
+  // changed.
+  if (changed.length) sets.push(`quiet_until = now() + interval '10 minutes'`);
+
   await query(`UPDATE trucks SET ${sets.join(", ")} WHERE id = $1`, [
     truckId,
     ...columns.map((c) => next[c]),
