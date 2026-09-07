@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { REPORT_PROBLEM_HREF } from "@/lib/support";
 import { Logo } from "./Logo";
 
 /**
@@ -34,6 +35,7 @@ export const SITE_SECTIONS: SiteSection[] = [
     heading: "Product",
     links: [
       { href: "/", label: "Board" },
+      { href: "/for-movers", label: "For movers" },
       { href: "/how-it-works", label: "How it works" },
       { href: "/post", label: "Post a job" },
     ],
@@ -43,6 +45,11 @@ export const SITE_SECTIONS: SiteSection[] = [
     links: [
       { href: "/about", label: "About" },
       { href: "/contact", label: "Contact" },
+      // Named as the thing a person is trying to do, not as the page it lands
+      // on: somebody who has just found a job that does not match its post is
+      // looking for "report", not for "contact". It is the same page, and this
+      // is the only route to a human that is worded like the problem.
+      { href: REPORT_PROBLEM_HREF, label: "Report a problem" },
     ],
   },
   {
@@ -59,10 +66,20 @@ export const SITE_SECTIONS: SiteSection[] = [
 export const SITE_TAGLINE =
   "A backhaul board for movers: jobs posted in WhatsApp groups, read by rules and put on a map.";
 
-/** The links a one-line bar has room for. */
+/**
+ * The links a one-line bar has room for.
+ *
+ * "Contact" is on this list and did not used to be, which was the one real hole
+ * in the route to a human: the board is the front door and its footer is this
+ * bar, so on the busiest page of the site the only way to reach a person was to
+ * open the More menu and know that "Company" is where support lives. A visitor
+ * who wants to tell somebody that a job is wrong should not have to guess that.
+ */
 const BAR_LINKS: SiteLink[] = [
-  { href: "/about", label: "About" },
+  { href: "/for-movers", label: "For movers" },
   { href: "/how-it-works", label: "How it works" },
+  { href: "/about", label: "About" },
+  { href: "/contact", label: "Contact" },
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
   { href: "/cookies", label: "Cookies" },
@@ -164,7 +181,11 @@ export function FooterBar() {
     <footer className="bg-surface border-t border-border">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-[var(--sp-4)] gap-y-[var(--sp-1)] px-[var(--sp-4)] py-[var(--sp-2)] text-(length:--fs-sm)">
         <Copyright />
-        <span className="hidden lg:inline" style={{ color: "var(--muted-2)" }}>
+        {/* From `xl`, not `lg`, and that is the seventh link's doing: at 1024
+            the copyright, this sentence and seven links measure past the row and
+            the bar wraps to 56 px, taking 22 px off the board's map. Measured at
+            1024 / 1280 / 1440 / 1600 -- one row at every width from 1280 up. */}
+        <span className="hidden xl:inline" style={{ color: "var(--muted-2)" }}>
           {SITE_TAGLINE}
         </span>
         <nav aria-label="Site" className="ml-auto flex flex-wrap items-center gap-x-[var(--sp-4)]">

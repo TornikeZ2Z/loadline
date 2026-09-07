@@ -319,6 +319,59 @@ column for it on the user row, signed in or not.
 
 ---
 
+## The public pages
+
+Seven routes wrap the board, all server-rendered, all inside the same `AppShell`, all built
+from `SitePage` except the first:
+
+| Route | What it is for |
+|---|---|
+| `/for-movers` | The marketing page. **Two** actions, not three — see below. |
+| `/how-it-works` | The customer's four steps (search, inspect, contact, confirm), then the message-to-job path including the parts that fail |
+| `/about` | Why the product exists, who it is for, and what it is not |
+| `/contact` | The one route to a human, and the destination of every "Report a problem" link |
+| `/privacy` | Written from `db/schema.sql`, not from a template |
+| `/terms` | Deliberately short; carries a visible draft notice |
+| `/cookies` | The complete inventory of the one cookie and the five browser keys |
+
+**`/for-movers` advertises two actions on purpose.** The brief that asked for it named three
+— post a load, find a load, offer truck space. The third does not exist: there is no `kind`
+column, no second table, and `src/lib/extract/lines.ts` deliberately discards "have room" /
+"going empty" lines as chatter. The page names it as something MoverMesh does not do, with
+no date attached, rather than selling it. It carries no testimonial, customer count, logo
+wall or metric, because every one of those would have to be invented today — on the
+marketing page of a product whose entire pitch is that it does not invent. It is a *sibling*
+route: the board stays the home page, which is the decision recorded at `src/app/page.tsx`.
+
+**No page claims anything the service does not do.** No guaranteed availability, no verified
+or vetted companies, no protected payments or escrow, no booking speed, no response time.
+`/about`, `/terms` and `/for-movers` each state the opposite explicitly, and those
+disclaimers are load-bearing: shipping a verification badge or a payments flow means
+changing them in the same commit, not afterwards.
+
+**Reporting a problem.** `src/lib/support.ts` holds the route to a human and deliberately
+not the address:
+
+```ts
+import { reportProblemHref } from "@/lib/support";
+<Link href={reportProblemHref(`/jobs/${load.id}`)}>Report a problem</Link>
+```
+
+That lands on `/contact#report`, which echoes the job back so the reporter can copy it. The
+`?about=` value is attacker-controlled, so `/contact` renders it only when it matches
+`/jobs/<digits>` and drops anything else. There is no form and no endpoint: a form with
+nowhere to post is worse than an address, because the sender believes they have been heard.
+
+**The `[[PLACEHOLDER]]` values are not oversights.** `[[SUPPORT EMAIL]]`,
+`[[COMPANY LEGAL NAME]]`, `[[REGISTERED ADDRESS]]`, `[[EFFECTIVE DATE]]` and
+`[[GOVERNING LAW]]` are real-world facts nobody has told this codebase, and the draft
+notices on `/terms` and `/privacy` say so where a reader can see it. Filling them in is a
+find-and-replace once the values and the legal review exist; removing the notices *without*
+the review would turn an honest disclaimer into an implied claim. See
+`.design/impl/legal-placeholders.md`.
+
+---
+
 ## The consoles
 
 `/admin/test` is the **WhatsApp console** (admin only). The app currently runs on a

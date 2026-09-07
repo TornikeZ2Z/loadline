@@ -83,8 +83,18 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
        screen has to subtract the chrome above it by hand. */
     <div className={shellClass}>
       <MenuAutoClose />
+      {/* z-40, not z-30, and this is a real bug rather than a tidy-up.
+          `sticky` + a z-index makes this header its own stacking context, so
+          the More menu's z-50 is capped at the header's own layer -- and at
+          z-30 that tied with the board's bottom sheet (BottomSheet.tsx:156),
+          which comes later in the document and therefore painted OVER the open
+          menu. On a 390 px board the panel reaches y=450 and the sheet's peek
+          starts around y=375, so the bottom of the menu was covered by the job
+          list. z-40 is the layer the cookie notice already uses to clear that
+          same sheet (CookieNotice.tsx:67); the filter popovers stay at z-50 in
+          the root context, so they still win over the header, as before. */}
       <header
-        className="bg-surface sticky top-0 z-30 shrink-0 border-b border-border"
+        className="bg-surface sticky top-0 z-40 shrink-0 border-b border-border"
         style={{ height: "var(--header-h)" }}
       >
         {/* What a narrow header drops, in order: the word mark, the account name
@@ -221,7 +231,14 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
               </summary>
               {/* Full width under the header on a phone, a panel under the
                   trigger from `sm` up. */}
-              <div className="popover fixed inset-x-[var(--sp-2)] top-[var(--header-h)] z-50 grid grid-cols-2 gap-[var(--sp-3)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-[380px] sm:grid-cols-3">
+              {/* Capped at the space between the header and the bottom of the
+                  window, and scrollable inside that. Ten links in two columns
+                  is 394 px, which fits a phone held upright and does not fit
+                  one lying down (390 px tall, where the footer bar is already
+                  hidden for the same reason). A menu that runs off the screen
+                  with no way to reach the last item is worse than one that
+                  scrolls. `dvh` so the browser's own retracting toolbar counts. */}
+              <div className="popover fixed inset-x-[var(--sp-2)] top-[var(--header-h)] z-50 grid max-h-[calc(100dvh-var(--header-h)-var(--sp-3))] grid-cols-2 gap-[var(--sp-3)] overflow-y-auto sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-[380px] sm:grid-cols-3">
                 {SITE_SECTIONS.map((section) => (
                   <div key={section.heading}>
                     <div className="label">{section.heading}</div>

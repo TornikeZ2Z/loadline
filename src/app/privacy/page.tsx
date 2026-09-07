@@ -140,10 +140,10 @@ export default async function PrivacyPage() {
 
         <Section title="How long it is kept">
           <p>
-            Honestly: there is no automatic deletion schedule in this software today. Messages,
-            jobs, accounts and reveal records stay in the database until an operator removes them.
-            We are not going to print a retention period the code does not implement — when one is
-            implemented, it will be described here.
+            There is no automatic deletion schedule in this software today: messages, jobs, accounts
+            and reveal records stay in the database until an operator removes them. So removal is
+            something you ask for, and the next section says exactly how and what can be done. When
+            a retention period is implemented, the period will be printed here.
           </p>
         </Section>
 
@@ -159,6 +159,10 @@ export default async function PrivacyPage() {
             </li>
             <li>Tell you what is held about a particular sender or account.</li>
           </ul>
+          <p>
+            <Link href="/contact">Contact</Link> sets out what to put in the message for each of
+            those, so a request can be acted on without a round of questions first.
+          </p>
         </Section>
 
         <Note tone="warn" title="This is a description, not a compliance statement">
