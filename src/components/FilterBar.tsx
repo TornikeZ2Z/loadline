@@ -17,7 +17,7 @@
  * coordinates do travel.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BoundsInput, MapEnd, SortKey } from "@/lib/loads/types";
 import type { StoredLocation } from "@/lib/location";
 import { homeQuery, useViewerLocation, viewerQuery } from "@/lib/location";
@@ -960,6 +960,7 @@ function LaneSheet({
   onSwap(): void;
 }) {
   const [end, setEnd] = useState<"pickup" | "delivery">("pickup");
+  const tabId = useId();
   const selected = end === "pickup" ? filters.pickupState : filters.deliveryState;
   const key = end === "pickup" ? "pickupState" : "deliveryState";
   const ghost = end === "pickup" ? pickupGhost : homeGhost;
@@ -970,11 +971,13 @@ function LaneSheet({
         {(["pickup", "delivery"] as const).map((e) => (
           <button
             key={e}
+            id={`${tabId}-${e}`}
             type="button"
             role="tab"
             className="seg-option min-w-0 flex-1 justify-center truncate"
             data-on={end === e || undefined}
             aria-selected={end === e}
+            aria-controls={`${tabId}-panel`}
             onClick={() => setEnd(e)}
           >
             {e === "pickup" ? "Pickup" : "Delivery"} ·{" "}
@@ -983,19 +986,21 @@ function LaneSheet({
         ))}
       </div>
 
-      {ghost && selected.length === 0 && (
-        <GhostButton text={ghost.text} onClick={() => set({ [key]: [ghost.state] })} />
-      )}
+      <div id={`${tabId}-panel`} role="tabpanel" aria-labelledby={`${tabId}-${end}`}>
+        {ghost && selected.length === 0 && (
+          <GhostButton text={ghost.text} onClick={() => set({ [key]: [ghost.state] })} />
+        )}
 
-      <StatePanel
-        selected={selected}
-        onToggle={(t) =>
-          set({
-            [key]: selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t],
-          })
-        }
-        onClear={() => set({ [key]: [] })}
-      />
+        <StatePanel
+          selected={selected}
+          onToggle={(t) =>
+            set({
+              [key]: selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t],
+            })
+          }
+          onClear={() => set({ [key]: [] })}
+        />
+      </div>
 
       <button
         type="button"
@@ -1635,6 +1640,9 @@ function PlaceField({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** Text that is not yet the committed place — the only state "Use" applies to. */
+  const pending = text.trim().length > 0 && text.trim() !== place?.label;
+
   const commit = async () => {
     const label = text.trim();
     if (!label) return onPlace(null);
@@ -1676,28 +1684,30 @@ function PlaceField({
           }
         />
       </div>
-      <div className="mt-[var(--sp-1)] flex items-center gap-[var(--sp-2)]">
-        <button
-          type="button"
-          className="btn btn-sm"
-          disabled={busy || (!text.trim() && !place)}
-          onClick={() => void commit()}
-        >
-          {busy ? "One moment…" : text.trim() ? "Use this place" : "Clear"}
-        </button>
-        {place && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => {
-              setText("");
-              onPlace(null);
-            }}
-          >
-            Clear
-          </button>
-        )}
-      </div>
+      {/* Only the two actions that mean something right now. A picked
+          suggestion has already committed itself; this is the way out for text
+          typed but never picked, which the geocoder still has to answer for. */}
+      {(pending || place) && (
+        <div className="mt-[var(--sp-1)] flex items-center gap-[var(--sp-2)]">
+          {pending && (
+            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void commit()}>
+              {busy ? "One moment…" : "Use this place"}
+            </button>
+          )}
+          {place && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                setText("");
+                onPlace(null);
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
       {error && (
         <p className="mt-[var(--sp-1)] text-(length:--fs-xs)" style={{ color: "var(--danger)" }}>
           {error}
