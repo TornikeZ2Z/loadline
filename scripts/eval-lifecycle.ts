@@ -50,10 +50,12 @@
  *       renews the clock from the NEW sighting.
  *   T6  `booked` is sticky at every horizon, and `status_source = 'manual'` is
  *       NOT a shield: a truck set back to available is still swept once its
- *       stated window has passed. And the door as well as the safety net: the
- *       API refuses to put a truck back on the board with a departure that has
- *       already happened, from either direction -- a relist carrying old dates,
- *       or an edit that drags an available truck's dates backwards.
+ *       stated window has passed. And the doors as well as the safety net: the
+ *       API refuses to put a truck on the board with a departure that has
+ *       already happened, from all three directions -- a relist carrying old
+ *       dates, an edit that drags an available truck's dates backwards, and a
+ *       POST of a window that was already behind us when it was typed. The
+ *       boundary is asserted with them: a window ending TODAY is not past.
  *   T8  the two sweeps cannot see each other's table.
  */
 process.env.PGLITE_DIR = "memory://";
@@ -916,7 +918,9 @@ async function truckLifecycle() {
   //
   // Driven through `updateWebTruck`, which is what BOTH truck write routes call,
   // so the refusal cannot be true of one route and false of the other.
-  const { updateWebTruck, WebTruckValidationError } = await import("../src/lib/pipeline/web");
+  const { insertWebTruck, updateWebTruck, WebTruckValidationError } = await import(
+    "../src/lib/pipeline/web"
+  );
   // `updateWebTruck` writes an `edited` event carrying `actor_id`, and that is a
   // real foreign key, so this section needs an account to act as. Nothing above
   // it does, which is why there is none yet.
@@ -1031,6 +1035,123 @@ async function truckLifecycle() {
   expect(
     (await statusOf(relistable)).status === "available",
     "T6: ...so the very next sweep does not delete the listing its owner just restored",
+  );
+
+  // --- T6, the THIRD door: POST /api/trucks --------------------------------
+  //
+  // `updateWebTruck` refused a past window from the day it shipped and
+  // `insertWebTruck` did not, so the board accepted through the front door
+  // exactly what it refused through the side one: `availMode: "between"` over
+  // two days last week returned 201 and the truck went onto the public board
+  // as `available`. Both writers now call the same predicate, and these cases
+  // are what stops them drifting apart again.
+  //
+  // Driven through `insertWebTruck` for the same reason the cases above are
+  // driven through `updateWebTruck`: it is the function BOTH the route and the
+  // form's round trip end in, so a refusal proved here cannot be true of one
+  // caller and false of the other.
+  const postBody = (avail: { availMode: string; availFrom?: string; availTo?: string }) => ({
+    // Coordinates supplied, so `placeFor` never reaches the geocoder: HERE is
+    // unconfigured in this run and the subject here is the calendar, not
+    // geocoding.
+    origin: "Kearny, NJ 07032",
+    originLat: "40.7684",
+    originLng: "-74.1454",
+    originState: "NJ",
+    originZip: "07032",
+    originPrecision: "zip",
+    destUndecided: "on" as const,
+    freeCf: "700",
+    availMode: avail.availMode,
+    availFrom: avail.availFrom ?? "",
+    availTo: avail.availTo ?? "",
+    contactName: "T6 Owner",
+    contactPhone: "+17865550128",
+  });
+  const poster = { id: owner!.id, name: "T6 Owner", phone: "+17865550128", isDemo: false };
+  const postedCount = async () =>
+    (await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM trucks WHERE posted_by = $1`, [
+      owner!.id,
+    ]))!.n;
+  const refusalFrom = async (body: ReturnType<typeof postBody>) => {
+    const before = await postedCount();
+    let err: unknown = null;
+    try {
+      await insertWebTruck(poster, body);
+    } catch (e) {
+      err = e;
+    }
+    return { err, wrote: (await postedCount()) - before };
+  };
+
+  const threeDaysAgo = localDay(day(-72));
+  const twoDaysAgo = localDay(day(-48));
+  const dayBefore = localDay(day(-24));
+
+  const wholly = await refusalFrom(
+    postBody({ availMode: "between", availFrom: threeDaysAgo, availTo: twoDaysAgo }),
+  );
+  expect(
+    wholly.err instanceof WebTruckValidationError &&
+      wholly.err.message === "That date has already passed — post a new departure",
+    `T6: POSTing a window entirely in the past is refused (${threeDaysAgo}..${twoDaysAgo}; got ${
+      wholly.err instanceof Error ? JSON.stringify(wholly.err.message) : "a 201"
+    })`,
+  );
+  expect(
+    wholly.err instanceof WebTruckValidationError && wholly.err.field === "availTo",
+    "T6: ...naming availTo, so the form can put the sentence under the date that has to change",
+  );
+  expect(wholly.wrote === 0, "T6: ...and nothing reached the trucks table on the way out");
+
+  // THE BOUNDARY, and it is the assertion this whole section is about. A window
+  // ending TODAY has not passed: the truck leaves this evening, a dispatcher can
+  // still ring it, and `expireTrucks` agrees -- it sweeps on `avail_to < today`,
+  // not `<=`. Refusing this would make the board unpostable for same-day
+  // capacity, which is the most valuable kind there is.
+  const endsToday = await insertWebTruck(
+    poster,
+    postBody({ availMode: "between", availFrom: dayBefore, availTo: localDay(T0) }),
+  );
+  const todayRow = await queryOne<{ status: string; avail_to: string }>(
+    `SELECT status, avail_to::text AS avail_to FROM trucks WHERE id = $1`,
+    [endsToday.id],
+  );
+  expect(
+    todayRow!.status === "available" && todayRow!.avail_to === localDay(T0),
+    `T6: a window ending TODAY is posted and goes on the board available (got ${JSON.stringify(todayRow)})`,
+  );
+
+  // One day the other side of the same line.
+  const endsYesterday = await refusalFrom(
+    postBody({ availMode: "between", availFrom: dayBefore, availTo: dayBefore }),
+  );
+  expect(
+    endsYesterday.err instanceof WebTruckValidationError && endsYesterday.wrote === 0,
+    `T6: a window ending YESTERDAY is refused (${dayBefore}; got ${
+      endsYesterday.err instanceof Error ? JSON.stringify(endsYesterday.err.message) : "a 201"
+    })`,
+  );
+
+  // A single open date is the same rule read off `availFrom`, and the message
+  // has to hang on the field the form is actually showing.
+  const openPast = await refusalFrom(postBody({ availMode: "from", availFrom: dayBefore }));
+  expect(
+    openPast.err instanceof WebTruckValidationError && openPast.err.field === "availFrom",
+    `T6: "empty from" a day that has gone is refused on availFrom (got ${
+      openPast.err instanceof WebTruckValidationError
+        ? `${openPast.err.field}: ${openPast.err.message}`
+        : "a 201"
+    })`,
+  );
+
+  // AND THE CHECK DOES NOT OVER-REACH. A truck that stated no date has nothing
+  // to be past; it runs on the 48-hour TTL. If the refusal ever caught this,
+  // "Not decided" would stop being postable at all.
+  const undated = await insertWebTruck(poster, postBody({ availMode: "unknown" }));
+  expect(
+    (await statusOf(undated.id)).status === "available",
+    "T6: a truck with no stated date is still postable -- an undated truck has nothing to be past",
   );
 
   // --- T8: the two sweeps cannot see each other's table ---------------------

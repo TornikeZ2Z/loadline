@@ -13,11 +13,12 @@
  * src/lib/loads/query.ts for the predicate that holds it.
  */
 import { query, queryOne } from "@/lib/db";
-import { DEFAULT_TZ, computeExpiry, isoOf, toLocalDate } from "@/lib/extract/dates";
+import { computeExpiry } from "@/lib/extract/dates";
 import { normalizePhone } from "@/lib/extract/phone";
 import { geocode, geocodeDestination } from "@/lib/geo/geocode";
 import { haversineMiles } from "@/lib/geo/math";
 import { truckExpiresAt } from "@/lib/pipeline/trucks";
+import { DEPARTURE_ALREADY_PASSED, departureHasPassed } from "@/lib/loads/truckPresent";
 import { DEFAULT_TRUCK_CORRIDOR_MILES, TRUCK_CORRIDOR_OPTIONS } from "@/lib/loads/constants";
 
 export interface WebJobBody {
@@ -537,6 +538,12 @@ export async function insertWebTruck(
 
   // --- when -----------------------------------------------------------------
   const { availNow, availFrom, availTo, availSource } = parseAvailability(body);
+  // A truck is posted `available`, so a window already behind us would go
+  // straight onto the public board as a departure that has been and gone --
+  // the stale listing SPEC 10.1 exists to prevent, arriving through the front
+  // door. The sweep would clear it within the hour, and an hour of a board
+  // saying something untrue is an hour of wasted phone calls.
+  refusePastDeparture(availFrom, availTo, now);
 
   // --- the one matcher knob -------------------------------------------------
   const corridorMiles = corridorOrDefault(body.corridorMiles);
@@ -793,20 +800,17 @@ export async function updateWebTruck(
   // The sweep would clear it on its next run, which is why this is a refusal and
   // not a repair: between the two the board is telling a dispatcher something
   // untrue, and the person who can fix it is the one making the request.
+  //
+  // `insertWebTruck` runs the SAME predicate on the way in. It did not always,
+  // and closing that gap is why the check is a shared function rather than the
+  // dozen lines that used to sit here: POST accepted a window entirely in the
+  // past and published the truck as `available`, which is this identical lie
+  // reached through the one door that had no lock on it.
   const statusAfter = ("status" in next ? next.status : before.status) as string;
   if (statusAfter === "available") {
     const fromAfter = (("avail_from" in next ? next.avail_from : before.avail_from) as string | null) ?? null;
     const toAfter = (("avail_to" in next ? next.avail_to : before.avail_to) as string | null) ?? null;
-    // The stated end of the window; a truck with only a start date is past once
-    // that day is. A truck that stated no date at all has nothing to be past --
-    // it runs on the 48-hour TTL below instead.
-    const stated = toAfter ?? fromAfter;
-    if (stated && stated < isoOf(toLocalDate(new Date(), DEFAULT_TZ))) {
-      throw new WebTruckValidationError(
-        "availTo",
-        "That date has already passed — post a new departure",
-      );
-    }
+    refusePastDeparture(fromAfter, toAfter, new Date());
   }
 
   // Only what actually moved. An "edited" event listing fields nobody touched
@@ -992,6 +996,24 @@ function parseAvailability(body: Pick<WebTruckBody, "availMode" | "availFrom" | 
     "availMode",
     'say when the truck is empty — "Now", a date, a range, or "Not decided"',
   );
+}
+
+/**
+ * The one refusal, over the one predicate, called by both writers.
+ *
+ * `departureHasPassed` decides WHAT is past -- the board's calendar, the end of
+ * the window, an undated truck exempt -- and lives in truckPresent.ts because
+ * the posting form has to say the same sentence before the request is even
+ * sent. This wrapper is the half that belongs to the writers: which field the
+ * message is hung on, so the form can put it under the input that has to change.
+ *
+ * `availTo` when there is one, `availFrom` when the driver gave a single open
+ * date -- naming the second date on a truck that never had one would point at a
+ * control the form is not showing.
+ */
+function refusePastDeparture(availFrom: string | null, availTo: string | null, now: Date): void {
+  if (!departureHasPassed({ availFrom, availTo }, now)) return;
+  throw new WebTruckValidationError(availTo ? "availTo" : "availFrom", DEPARTURE_ALREADY_PASSED);
 }
 
 function cfOrNull(v: string | undefined | null, field: keyof WebTruckBody): number | null {
