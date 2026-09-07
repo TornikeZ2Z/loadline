@@ -473,18 +473,22 @@ async function checkMapFeatures(): Promise<void> {
   const { searchLoads } = await import("../src/lib/loads/query");
   const { toPublicLoads } = await import("../src/lib/loads/publicView");
   const { buildGroups } = await import("../src/lib/geo/points");
+  const { jobMarks } = await import("../src/lib/geo/marks");
 
   const { rows } = await searchLoads({ limit: 500 });
   const jobs = toPublicLoads(rows);
 
   const out: Record<string, unknown> = { jobs: jobs.length };
   for (const end of ["pickup", "delivery"] as const) {
-    const built = buildGroups(jobs, end);
+    const built = buildGroups(jobMarks(jobs, end));
     out[end] = {
       plotted: built.plotted,
       groups: built.groups,
       features: built.features,
-      keyByJob: [...built.keyByJob.entries()],
+      // Frozen under the name it had before `buildGroups` was generalised.
+      // The field is `keyById` now because the function no longer knows it is
+      // looking at jobs; this snapshot does, and a rename is not a behaviour.
+      keyByJob: [...built.keyById.entries()],
     };
   }
   snapshot("map-features.json", JSON.stringify(out, null, 1) + "\n");
