@@ -42,6 +42,9 @@ export interface RoutePlace {
   /** address | zip | city | state | region, from the geocoder. */
   precision: string | null;
   state: string | null;
+  /** What an exact "this city only" match would be pinned to, when there is one. */
+  city: string | null;
+  zip: string | null;
 }
 
 /** "" no route search · "radius" point(s) and a radius · "corridor" along a line. */
@@ -58,7 +61,10 @@ export interface Filters {
   /** "pickup" (default) plots where jobs load; "delivery" where they drop. */
   mapEnd: MapEnd;
   pickupState: string[];
+  /** `pickupZip` — a 5-digit code, or a prefix ("070" is north Jersey). */
+  pickupZip: string;
   deliveryState: string[];
+  deliveryZip: string;
   minCf: string;
   maxCf: string;
   /** true (the default) keeps jobs whose post never stated a size. */
@@ -86,7 +92,9 @@ export const EMPTY_FILTERS: Filters = {
   // map opens on the loading end.
   mapEnd: "pickup",
   pickupState: [],
+  pickupZip: "",
   deliveryState: [],
+  deliveryZip: "",
   minCf: "",
   maxCf: "",
   unsized: true,
@@ -117,6 +125,12 @@ const CORRIDOR_MILES = 100;
 const DEFAULT_RADIUS = 50;
 
 /**
+ * The radius select's non-numeric option: `pickupCity` / `deliveryCity`, an
+ * exact match on the column rather than a circle around a point.
+ */
+const EXACT = "city";
+
+/**
  * Both route searches are straight-line geometry -- cross-track distance and
  * haversine, never a road network. Every number they produce is labelled with
  * this, because "38 mi off your route" read as road miles is a wrong turn.
@@ -137,7 +151,9 @@ const round5 = (n: number) => String(Math.round(n * 1e5) / 1e5);
 
 /** A stored slot, in the shape the route controls speak. */
 function placeFromStored(s: StoredLocation | null): RoutePlace | null {
-  return s ? { label: s.label, lat: s.lat, lng: s.lng, precision: s.precision, state: s.state } : null;
+  return s
+    ? { label: s.label, lat: s.lat, lng: s.lng, precision: s.precision, state: s.state, city: null, zip: null }
+    : null;
 }
 
 /**
@@ -182,7 +198,9 @@ export function filtersToQuery(
   // it -- which end is drawn changes nothing about which jobs match.
   if (f.mapEnd === "delivery") sp.set("map", "delivery");
   if (f.pickupState.length) sp.set("pickupState", f.pickupState.join(","));
+  if (f.pickupZip) sp.set("pickupZip", f.pickupZip);
   if (f.deliveryState.length) sp.set("deliveryState", f.deliveryState.join(","));
+  if (f.deliveryZip) sp.set("deliveryZip", f.deliveryZip);
   if (f.minCf) sp.set("minCf", f.minCf);
   if (f.maxCf) sp.set("maxCf", f.maxCf);
   if (!f.unsized) sp.set("unsized", "0");
@@ -224,13 +242,26 @@ export function filtersToQuery(
     if (f.dest) writePoint(f.dest, "dest", "destLat", "destLng");
     else for (const [k, v] of new URLSearchParams(homeQuery(ctx.home))) sp.set(k, v);
   } else if (f.routeMode === "radius") {
+    // "This city only" is `pickupCity`, an exact column match -- not a tiny
+    // circle. It is emitted ALONE, with no `origin`, so a link carrying it
+    // round-trips to exactly the search it describes and does not quietly
+    // acquire a distance sort the URL never asked for.
     if (f.origin) {
-      writePoint(f.origin, "origin", "originLat", "originLng");
-      sp.set("radius", f.radius || String(DEFAULT_RADIUS));
+      if (f.radius === EXACT && f.origin.city) sp.set("pickupCity", f.origin.city);
+      else {
+        writePoint(f.origin, "origin", "originLat", "originLng");
+        sp.set("radius", f.radius === EXACT || !f.radius ? String(DEFAULT_RADIUS) : f.radius);
+      }
     }
     if (f.dest) {
-      writePoint(f.dest, "dest", "destLat", "destLng");
-      sp.set("destRadius", f.destRadius || String(DEFAULT_RADIUS));
+      if (f.destRadius === EXACT && f.dest.city) sp.set("deliveryCity", f.dest.city);
+      else {
+        writePoint(f.dest, "dest", "destLat", "destLng");
+        sp.set(
+          "destRadius",
+          f.destRadius === EXACT || !f.destRadius ? String(DEFAULT_RADIUS) : f.destRadius,
+        );
+      }
     }
   }
 
@@ -259,7 +290,20 @@ function readPlace(
   // A point with no label is a *stored* slot round-tripping through the fetch
   // query, not something anybody typed. Only a labelled place is a filter.
   if (!label) return null;
-  return { label, lat: hasPoint ? lat : null, lng: hasPoint ? lng : null, precision: null, state: null };
+  return {
+    label,
+    lat: hasPoint ? lat : null,
+    lng: hasPoint ? lng : null,
+    precision: null,
+    state: null,
+    city: null,
+    zip: null,
+  };
+}
+
+/** A bare `pickupCity=Kearny` in a hand-written URL is still a place. */
+function cityPlace(city: string | null): RoutePlace | null {
+  return city ? { label: city, lat: null, lng: null, precision: "city", state: null, city, zip: null } : null;
 }
 
 /** Read a query string back into `Filters`. Unknown keys are ignored. */
@@ -267,10 +311,12 @@ export function hydrate(qs: string): Filters {
   const sp = new URLSearchParams(qs);
   const seen = sp.get("seenDays");
   const sort = sp.get("sort");
-  const origin = readPlace(sp, "origin", "originLat", "originLng");
-  const dest = readPlace(sp, "dest", "destLat", "destLng");
-  const radius = sp.get("radius") ?? "";
-  const destRadius = sp.get("destRadius") ?? "";
+  const pickupCity = sp.get("pickupCity")?.trim() || null;
+  const deliveryCity = sp.get("deliveryCity")?.trim() || null;
+  const origin = readPlace(sp, "origin", "originLat", "originLng") ?? cityPlace(pickupCity);
+  const dest = readPlace(sp, "dest", "destLat", "destLng") ?? cityPlace(deliveryCity);
+  const radius = sp.get("radius") ?? (pickupCity ? EXACT : "");
+  const destRadius = sp.get("destRadius") ?? (deliveryCity ? EXACT : "");
   const routeMode: RouteMode =
     sp.get("routeMode") === "corridor"
       ? "corridor"
@@ -280,7 +326,9 @@ export function hydrate(qs: string): Filters {
   return {
     mapEnd: sp.get("map") === "delivery" ? "delivery" : "pickup",
     pickupState: list(sp.get("pickupState")),
+    pickupZip: (sp.get("pickupZip") ?? "").replace(/\D/g, "").slice(0, 5),
     deliveryState: list(sp.get("deliveryState")),
+    deliveryZip: (sp.get("deliveryZip") ?? "").replace(/\D/g, "").slice(0, 5),
     minCf: sp.get("minCf") ?? "",
     maxCf: sp.get("maxCf") ?? "",
     unsized: sp.get("unsized") !== "0",
@@ -311,6 +359,8 @@ export function isDefault(f: Filters): boolean {
   return (
     f.pickupState.length === 0 &&
     f.deliveryState.length === 0 &&
+    !f.pickupZip &&
+    !f.deliveryZip &&
     !f.minCf &&
     !f.maxCf &&
     f.unsized &&
@@ -346,11 +396,18 @@ export function routePhrase(
   }
   if (f.routeMode === "radius") {
     const legs: string[] = [];
-    if (f.origin) legs.push(`${f.radius || DEFAULT_RADIUS} mi of ${f.origin.label}`);
-    if (f.dest) legs.push(`${f.destRadius || DEFAULT_RADIUS} mi of ${f.dest.label} on delivery`);
-    return legs.length ? legs.join(" and within ") : null;
+    if (f.origin) legs.push(radiusPhrase(f.origin, f.radius, "pickup"));
+    if (f.dest) legs.push(radiusPhrase(f.dest, f.destRadius, "delivery"));
+    return legs.length ? legs.join(", ") : null;
   }
   return null;
+}
+
+/** "50 mi of Newark, NJ" / "the city of Kearny" — one end of a radius search. */
+function radiusPhrase(place: RoutePlace, radius: string, end: "pickup" | "delivery"): string {
+  const where = end === "pickup" ? "pickup" : "delivery";
+  if (radius === EXACT && place.city) return `${where} in ${place.city}`;
+  return `${where} within ${radius === EXACT || !radius ? DEFAULT_RADIUS : radius} mi of ${place.label}`;
 }
 
 /** "No jobs from FL to NJ." — the empty state says what was actually asked. */
@@ -360,8 +417,10 @@ export function emptyStateTitle(f: Filters): string {
     return `No jobs${route}.`;
   }
   if (f.routeMode === "radius" && (f.origin || f.dest)) {
-    if (f.origin) return `No jobs within ${f.radius || DEFAULT_RADIUS} mi of ${f.origin.label}.`;
-    return `No jobs delivering within ${f.destRadius || DEFAULT_RADIUS} mi of ${f.dest!.label}.`;
+    const phrase = f.origin
+      ? radiusPhrase(f.origin, f.radius, "pickup")
+      : radiusPhrase(f.dest!, f.destRadius, "delivery");
+    return `No jobs with ${phrase}.`;
   }
   const from = f.pickupState.map(tokenLabel).join(", ");
   const to = f.deliveryState.map(tokenLabel).join(", ");
@@ -454,11 +513,27 @@ export function activeFilterChips(
       pickupState: f.pickupState.filter((t) => t !== token),
     });
   }
+  if (f.pickupZip) {
+    add(
+      "pickupZip",
+      `From ZIP ${f.pickupZip}${f.pickupZip.length < 5 ? "…" : ""}`,
+      { ...f, pickupZip: "" },
+      "Jobs whose post gave no ZIP are left out by this filter",
+    );
+  }
   for (const token of f.deliveryState) {
     add(`delivery:${token}`, `To ${tokenLabel(token)}`, {
       ...f,
       deliveryState: f.deliveryState.filter((t) => t !== token),
     });
+  }
+  if (f.deliveryZip) {
+    add(
+      "deliveryZip",
+      `To ZIP ${f.deliveryZip}${f.deliveryZip.length < 5 ? "…" : ""}`,
+      { ...f, deliveryZip: "" },
+      "Jobs whose post gave no ZIP are left out by this filter",
+    );
   }
 
   if (f.routeMode) {
@@ -467,7 +542,7 @@ export function activeFilterChips(
       "route",
       f.routeMode === "corridor"
         ? `Along ${phrase ?? "your route"} ±${f.corridor || CORRIDOR_MILES} mi`
-        : `Within ${phrase ?? "a point"}`,
+        : (phrase ?? "Somewhere in particular"),
       { ...f, routeMode: "", origin: null, dest: null },
       STRAIGHT_LINE_NOTE,
     );
@@ -550,7 +625,44 @@ export interface ResultStats {
   count: number;
   /** How many of them state a deliver-by date. */
   withDeliverBy: number;
+  /** How many carry a ZIP on each end -- pickups usually do not. */
+  withPickupZip: number;
+  withDeliveryZip: number;
   loading: boolean;
+}
+
+/**
+ * How much of the board a ZIP filter can even see.
+ *
+ * 84 of 98 jobs give a pickup city and no pickup ZIP, so "pickup ZIP 070"
+ * returning nothing is a fact about the posts, not about north Jersey. The
+ * control says which.
+ */
+function ZipCoverageNote({ stats, end }: { stats?: ResultStats; end: "pickup" | "delivery" }) {
+  const have = end === "pickup" ? stats?.withPickupZip : stats?.withDeliveryZip;
+  const noun = end === "pickup" ? "pickup" : "delivery";
+  if (!stats || stats.loading || stats.count === 0 || have == null) {
+    return (
+      <p className="mt-[5px] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+        Jobs whose post gave no {noun} ZIP are left out by this filter.
+      </p>
+    );
+  }
+  if (have === 0) {
+    return (
+      <p className="mt-[5px] text-(length:--fs-xs)" style={{ color: "var(--warn)" }} role="status">
+        None of the {stats.count.toLocaleString()} jobs on the board gives a {noun} ZIP, so this
+        filter can only return nothing. Use the state grid above instead.
+      </p>
+    );
+  }
+  return (
+    <p className="mt-[5px] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+      {have.toLocaleString()} of the {stats.count.toLocaleString()} jobs on the board give a {noun}{" "}
+      ZIP; the other {(stats.count - have).toLocaleString()} gave a city only, and{" "}
+      {stats.count - have === 1 ? "it is" : "they are"} left out by this filter.
+    </p>
+  );
 }
 
 export interface FilterBarProps {
@@ -626,7 +738,12 @@ export function FilterBar({
       : null;
 
   const swap = () =>
-    set({ pickupState: filters.deliveryState, deliveryState: filters.pickupState });
+    set({
+      pickupState: filters.deliveryState,
+      deliveryState: filters.pickupState,
+      pickupZip: filters.deliveryZip,
+      deliveryZip: filters.pickupZip,
+    });
 
   const swapButton = (
     <button
@@ -637,7 +754,7 @@ export function FilterBar({
       className="btn btn-ghost btn-square shrink-0"
       title="Swap pickup and delivery"
       aria-label="Swap pickup and delivery"
-      disabled={filters.pickupState.length === 0 && filters.deliveryState.length === 0}
+      disabled={isDefaultLane(filters)}
       onClick={swap}
     >
       ⇄
@@ -790,6 +907,9 @@ export function FilterBar({
           value={filters.pickupState}
           onChange={(v) => set({ pickupState: v })}
           ghost={pickupGhost}
+          zip={filters.pickupZip}
+          onZip={(v) => set({ pickupZip: v })}
+          zipNote={<ZipCoverageNote stats={stats} end="pickup" />}
         />
         {swapButton}
         <StatePicker
@@ -797,6 +917,9 @@ export function FilterBar({
           value={filters.deliveryState}
           onChange={(v) => set({ deliveryState: v })}
           ghost={homeGhost}
+          zip={filters.deliveryZip}
+          onZip={(v) => set({ deliveryZip: v })}
+          zipNote={<ZipCoverageNote stats={stats} end="delivery" />}
         />
 
         {routeTrigger}
@@ -892,9 +1015,9 @@ function LanePill({
   onSwap(): void;
   stats?: ResultStats;
 }) {
-  const from = laneEndLabel(filters.pickupState);
-  const to = laneEndLabel(filters.deliveryState);
-  const active = filters.pickupState.length > 0 || filters.deliveryState.length > 0;
+  const from = laneEndLabel(filters.pickupState, filters.pickupZip);
+  const to = laneEndLabel(filters.deliveryState, filters.deliveryZip);
+  const active = !isDefaultLane(filters);
 
   return (
     <span className="flex min-w-0 flex-1">
@@ -930,6 +1053,7 @@ function LanePill({
             pickupGhost={pickupGhost}
             homeGhost={homeGhost}
             onSwap={onSwap}
+            stats={stats}
           />
         )}
       </PopoverButton>
@@ -952,17 +1076,20 @@ function LaneSheet({
   pickupGhost,
   homeGhost,
   onSwap,
+  stats,
 }: {
   filters: Filters;
   set(p: Partial<Filters>): void;
   pickupGhost: { text: string; state: string } | null;
   homeGhost: { text: string; state: string } | null;
   onSwap(): void;
+  stats?: ResultStats;
 }) {
   const [end, setEnd] = useState<"pickup" | "delivery">("pickup");
   const tabId = useId();
   const selected = end === "pickup" ? filters.pickupState : filters.deliveryState;
   const key = end === "pickup" ? "pickupState" : "deliveryState";
+  const zipKey = end === "pickup" ? "pickupZip" : "deliveryZip";
   const ghost = end === "pickup" ? pickupGhost : homeGhost;
 
   return (
@@ -981,7 +1108,9 @@ function LaneSheet({
             onClick={() => setEnd(e)}
           >
             {e === "pickup" ? "Pickup" : "Delivery"} ·{" "}
-            {laneEndLabel(e === "pickup" ? filters.pickupState : filters.deliveryState)}
+            {e === "pickup"
+              ? laneEndLabel(filters.pickupState, filters.pickupZip)
+              : laneEndLabel(filters.deliveryState, filters.deliveryZip)}
           </button>
         ))}
       </div>
@@ -999,15 +1128,14 @@ function LaneSheet({
             })
           }
           onClear={() => set({ [key]: [] })}
+          zip={filters[zipKey]}
+          onZip={(v) => set({ [zipKey]: v })}
+          zipLabel={end === "pickup" ? "Pickup ZIP" : "Delivery ZIP"}
+          zipNote={<ZipCoverageNote stats={stats} end={end} />}
         />
       </div>
 
-      <button
-        type="button"
-        className="btn self-start"
-        disabled={filters.pickupState.length === 0 && filters.deliveryState.length === 0}
-        onClick={onSwap}
-      >
+      <button type="button" className="btn self-start" disabled={isDefaultLane(filters)} onClick={onSwap}>
         ⇄ Swap pickup and delivery
       </button>
 
@@ -1022,11 +1150,25 @@ function LaneSheet({
   );
 }
 
-/** "Any" / "FL" / "FL +2" — one end of the lane, short enough for a pill. */
-function laneEndLabel(tokens: string[]): string {
-  if (tokens.length === 0) return "Any";
-  const head = tokenLabel(tokens[0]).replace(" Area", "");
-  return tokens.length > 1 ? `${head} +${tokens.length - 1}` : head;
+/** Nothing is set on either end of the lane. */
+function isDefaultLane(f: Filters): boolean {
+  return (
+    f.pickupState.length === 0 &&
+    f.deliveryState.length === 0 &&
+    !f.pickupZip &&
+    !f.deliveryZip
+  );
+}
+
+/** "Any" / "FL" / "FL +2" / "07032" — one end of the lane, short enough for a pill. */
+function laneEndLabel(tokens: string[], zip = ""): string {
+  const parts: string[] = [];
+  if (tokens.length) {
+    const head = tokenLabel(tokens[0]).replace(" Area", "");
+    parts.push(tokens.length > 1 ? `${head} +${tokens.length - 1}` : head);
+  }
+  if (zip) parts.push(zip);
+  return parts.length ? parts.join(" ") : "Any";
 }
 
 function GhostButton({ text, onClick }: { text: string; onClick(): void }) {
@@ -1416,8 +1558,16 @@ function routeTriggerLabel(
     return phrase ? `${phrase} ±${f.corridor || CORRIDOR_MILES} mi` : "incomplete";
   }
   if (f.routeMode === "radius") {
-    if (f.origin) return `${f.radius || DEFAULT_RADIUS} mi of ${shortPlace(f.origin.label)}`;
-    if (f.dest) return `→ ${f.destRadius || DEFAULT_RADIUS} mi of ${shortPlace(f.dest.label)}`;
+    if (f.origin) {
+      return f.radius === EXACT && f.origin.city
+        ? f.origin.city
+        : `${f.radius === EXACT || !f.radius ? DEFAULT_RADIUS : f.radius} mi of ${shortPlace(f.origin.label)}`;
+    }
+    if (f.dest) {
+      return f.destRadius === EXACT && f.dest.city
+        ? `→ ${f.dest.city}`
+        : `→ ${f.destRadius === EXACT || !f.destRadius ? DEFAULT_RADIUS : f.destRadius} mi of ${shortPlace(f.dest.label)}`;
+    }
     return "incomplete";
   }
   return "Any";
@@ -1525,7 +1675,11 @@ function RoutePanel({
               <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
                 within
               </span>
-              <RadiusSelect value={filters.radius} onChange={(v) => set({ radius: v })} />
+              <RadiusSelect
+                value={filters.radius}
+                city={filters.origin?.city ?? null}
+                onChange={(v) => set({ radius: v })}
+              />
             </label>
             <ApproxPlaceWarning
               place={filters.origin}
@@ -1552,7 +1706,11 @@ function RoutePanel({
               <span className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
                 within
               </span>
-              <RadiusSelect value={filters.destRadius} onChange={(v) => set({ destRadius: v })} />
+              <RadiusSelect
+                value={filters.destRadius}
+                city={filters.dest?.city ?? null}
+                onChange={(v) => set({ destRadius: v })}
+              />
             </label>
             <ApproxPlaceWarning
               place={filters.dest}
@@ -1660,7 +1818,15 @@ function PlaceField({
         return;
       }
       const j = (await res.json()) as ResolvedPlace;
-      onPlace({ label: j.label, lat: j.lat, lng: j.lng, precision: j.precision, state: j.state });
+      onPlace({
+        label: j.label,
+        lat: j.lat,
+        lng: j.lng,
+        precision: j.precision,
+        state: j.state,
+        city: j.city,
+        zip: j.zip,
+      });
     } catch {
       setError("We could not reach the place lookup — try again.");
     } finally {
@@ -1680,7 +1846,15 @@ function PlaceField({
           value={text}
           onChange={setText}
           onPick={(p) =>
-            onPlace({ label: p.label, lat: p.lat, lng: p.lng, precision: p.precision, state: p.state })
+            onPlace({
+              label: p.label,
+              lat: p.lat,
+              lng: p.lng,
+              precision: p.precision,
+              state: p.state,
+              city: p.city,
+              zip: p.zip,
+            })
           }
         />
       </div>
@@ -1722,15 +1896,32 @@ function PlaceField({
   );
 }
 
-function RadiusSelect({ value, onChange }: { value: string; onChange(v: string): void }) {
+/**
+ * How near "near" is — and the one non-numeric answer.
+ *
+ * "This city only" is `pickupCity` / `deliveryCity`: an exact match on the city
+ * the extractor recorded, not a small circle. The two are genuinely different
+ * searches and a driver should be able to ask for either, which is what the API
+ * has always allowed and nothing ever offered.
+ */
+function RadiusSelect({
+  value,
+  city,
+  onChange,
+}: {
+  value: string;
+  city: string | null;
+  onChange(v: string): void;
+}) {
   return (
     <span className="select-pill">
       <select
         className="pill"
-        aria-label="Radius in straight-line miles"
+        aria-label="How near, in straight-line miles"
         value={value || String(DEFAULT_RADIUS)}
         onChange={(e) => onChange(e.target.value)}
       >
+        {city && <option value={EXACT}>{city} only</option>}
         {RADIUS_OPTIONS.map((r) => (
           <option key={r} value={r}>
             {r} mi

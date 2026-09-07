@@ -355,10 +355,17 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
    * carries neither figure — so it is described as "the jobs on the board",
    * never as a claim about every job that exists.
    */
-  const deliverByCount = useMemo(
-    () => rows.reduce((n, r) => n + (r.deliver_by != null ? 1 : 0), 0),
-    [rows],
-  );
+  const resultStats = useMemo(() => {
+    let withDeliverBy = 0;
+    let withPickupZip = 0;
+    let withDeliveryZip = 0;
+    for (const r of rows) {
+      if (r.deliver_by != null) withDeliverBy += 1;
+      if (r.pickup_zip) withPickupZip += 1;
+      if (r.delivery_zip) withDeliveryZip += 1;
+    }
+    return { withDeliverBy, withPickupZip, withDeliveryZip };
+  }, [rows]);
 
   const corridorStats = useMemo<CorridorStats | null>(() => {
     if (filters.routeMode !== "corridor") return null;
@@ -700,7 +707,7 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
         home={home}
         isAdmin={isAdmin}
         compact={mobile || shortScreen}
-        stats={{ count: shown.count, withDeliverBy: deliverByCount, loading: firstLoad }}
+        stats={{ count: shown.count, ...resultStats, loading: firstLoad }}
       />
     </div>
   );
