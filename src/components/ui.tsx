@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { LoadStatus } from "@/lib/loads/types";
-import type { Tone } from "@/lib/loads/present";
+import { isApproxPlace, type Tone } from "@/lib/loads/present";
 
 /**
  * `delisted` is the status the lifecycle produces most often, and it is not a
@@ -133,7 +133,7 @@ export function EmptyState({
  * is how a board loses a driver's trust the first time they drive to it.
  */
 export function PrecisionNote({ precision }: { precision: string | null }) {
-  if (precision !== "state" && precision !== "region") return null;
+  if (!isApproxPlace(precision)) return null;
   return (
     <Chip tone="approx" title="The post did not give a specific city, so this location is approximate.">
       approximate location

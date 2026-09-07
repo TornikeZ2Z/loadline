@@ -121,6 +121,18 @@ type PlaceJob = Pick<
   | "delivery_precision"
 >;
 
+/**
+ * The two precisions that are not a real place: the coordinate is a state or
+ * region centroid, chosen because the post never named a city.
+ *
+ * One definition, because three surfaces test it — the label's `approx` flag,
+ * the "approximate location" chip, and the distance caveat below — and they
+ * must never disagree about which end of a job is a guess.
+ */
+export function isApproxPlace(precision: string | null | undefined): boolean {
+  return precision === "state" || precision === "region";
+}
+
 /** "NJ → FL" — the two-letter lane, which is how these posts are scanned. */
 export function laneLabel(job: Pick<LoadRow, "pickup_state" | "delivery_state">): string {
   return `${job.pickup_state ?? "?"} → ${job.delivery_state ?? "?"}`;
@@ -154,7 +166,41 @@ export function placeLabel(
 
   return {
     text: label?.trim() || composed || "Location not stated",
-    approx: precision === "state" || precision === "region",
+    approx: isApproxPlace(precision),
+  };
+}
+
+/**
+ * Why a distance measured between these ends cannot be stated to the mile.
+ *
+ * Deliberately NOT the same statement as "no road route was returned". Those
+ * are two different failures and the brief asks for them kept apart: a job with
+ * two exact ZIPs can still have no route (the provider was down), and a job with
+ * a perfect HERE route can still be measured to the middle of South Carolina
+ * because that is all the post gave. So this returns only the caveat, and the
+ * caller keeps its own "by road / straight line / not available" ladder — the
+ * two compose, in any of the four combinations.
+ *
+ * `span` says which ends the number spans: a viewer-to-pickup leg never touches
+ * the delivery, so a vague delivery must not cast doubt on it.
+ */
+export function distanceCaveat(
+  job: Pick<LoadRow, "pickup_precision" | "delivery_precision">,
+  span: "trip" | "toPickup",
+): { note: string; title: string } | null {
+  const pickup = isApproxPlace(job.pickup_precision);
+  const delivery = span === "trip" && isApproxPlace(job.delivery_precision);
+  if (!pickup && !delivery) return null;
+
+  const which = pickup && delivery ? "both ends" : pickup ? "the pickup" : "the delivery";
+  return {
+    note:
+      pickup && delivery
+        ? "between two approximate points"
+        : pickup
+          ? "from an approximate pickup"
+          : "to an approximate delivery",
+    title: `The post did not name a city, so ${which} sits on a state centroid rather than an address. The distance is measured to that point — treat it as a rough figure, not a route you can plan on.`,
   };
 }
 
@@ -163,12 +209,23 @@ export function placeLabel(
 type PricedJob = Pick<LoadRow, "price_per_cf" | "price_flat" | "cubic_feet">;
 
 /**
- * "$3.75/cf" + "est. $7,500", or "$1,500 flat" + "$5.00/cf", or "No price".
+ * "$3.75/cf" + "est. $7,500", or "$1,500 flat" + "$5.00/cf", or
+ * "Price not stated".
  *
  * Movers quote per cubic foot, so that is the headline whenever the post gave
- * one; the estimated total is the derived number and stays subordinate. When
- * only a flat price exists the two swap, because the per-cf figure is then ours,
- * not the sender's.
+ * one; the estimated total is the derived number and stays subordinate, always
+ * prefixed "est." so a figure we calculated is never read as one the sender
+ * quoted. When only a flat price exists the two swap, because the per-cf figure
+ * is then ours, not the sender's.
+ *
+ * The empty case reads "Price not stated" and not "No price". 96 of 98 live jobs
+ * are unpriced, so this is the string on nearly every card, and "No price" is a
+ * claim about the JOB -- it can be read as "this one pays nothing". "Not stated"
+ * is a claim about the POST, which is the only thing we know. It also matches
+ * the two neighbours it will be read beside, "size not stated" and "Location not
+ * stated". What it must never become is "Negotiable", "Make offer" or "Auction":
+ * those are three real business states a sender can be in, and we have no
+ * evidence for any of them.
  */
 export function formatPrice(job: PricedJob): { headline: string; sub: string | null; tone: Tone } {
   if (job.price_per_cf != null) {
@@ -187,7 +244,18 @@ export function formatPrice(job: PricedJob): { headline: string; sub: string | n
       tone: "ok",
     };
   }
-  return { headline: "No price", sub: null, tone: "muted" };
+  return { headline: "Price not stated", sub: null, tone: "muted" };
+}
+
+/**
+ * "$3.38/cf" — a bare rate, for the board header's median.
+ *
+ * Its caller must print it beside the count it was taken over: two of 98 jobs
+ * carry a price today, and "median $3.38/cf" on its own would read as the going
+ * rate on this board when it is the midpoint of two numbers.
+ */
+export function formatRate(perCf: number): string {
+  return `${money(perCf)}/cf`;
 }
 
 // --- ready / deliver by ------------------------------------------------------
@@ -308,6 +376,33 @@ export function senderLine(job: Pick<PublicLoadRow, "contact_name" | "group_name
   if (job.is_web) return "via MoverMesh";
   const name = job.contact_name?.trim() || "Unnamed sender";
   return job.group_name ? `${name} · via ${job.group_name}` : name;
+}
+
+/**
+ * "posted by 2 senders" — the cross-sender twin badge, or null for the normal
+ * case of one posting.
+ *
+ * Read straight off `dup_count`, which the server computes from `dup_group_id`
+ * (`query.ts`, and the same grouping `findCrossSenderTwins` was written for).
+ * It is NOT recomputed in the browser. A second copy of the rule over the public
+ * row would have to guess at the sender difference the SQL tests directly --
+ * `sender_key` is null on the public wire by design -- and the day the two
+ * copies disagreed, the board and the admin console would be telling a driver
+ * different things about the same two rows. One rule, one answer.
+ *
+ * How loud: a chip, in the same quiet register as "Unverified" and
+ * "approximate", and both rows carry it. Not a merge and not a hidden row --
+ * the two postings can differ on price, readiness and requirements, and picking
+ * one for the driver would be the board making a call it has no basis for. But
+ * loud enough that nobody rings two brokers about one truckload, or reads two
+ * rows as two jobs.
+ */
+export function twinLabel(dupCount: number): { label: string; title: string } | null {
+  if (!Number.isFinite(dupCount) || dupCount < 2) return null;
+  return {
+    label: `posted by ${dupCount} senders`,
+    title: `${dupCount} senders posted a job with the same pickup, delivery ZIP and size within a week of each other. They are shown separately, as posted — MoverMesh does not merge them, and has no way to confirm they are the same freight.`,
+  };
 }
 
 const REQUIREMENT_RULES: Array<{ re: RegExp; label: string }> = [
