@@ -17,6 +17,10 @@ public, and browsing it never asks for an account.
 > connection. Everything downstream of them — extraction, geocoding, supersession, expiry,
 > search — is the real implementation running on that data.
 
+If you want the pitch rather than the tour, `/for-movers` is the marketing page: the two
+things the product actually does, and a plain list of the things it does not. `/how-it-works`
+covers the same ground for a customer who wants to know why the board can be trusted.
+
 ---
 
 ## 1. The board

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { ClearStorageButton } from "@/components/CookieNotice";
 import { Note, Section, SitePage, StoredItem } from "@/components/SitePage";
+import { reportProblemHref } from "@/lib/support";
 
 export const dynamic = "force-dynamic";
 
@@ -125,8 +126,12 @@ export default async function CookiesPage() {
         </Section>
 
         <Note title="If this list ever goes out of date, that is a bug">
-          Tell us at <strong>[[SUPPORT EMAIL]]</strong>. Every key above is written in one place in
-          the source, and this page is meant to be the mirror of it.
+          Every key above is written in one place in the source, and this page is meant to be the
+          mirror of it. Tell us at <strong>[[SUPPORT EMAIL]]</strong> — or through{" "}
+          <Link href={reportProblemHref()} className="underline">
+            Report a problem
+          </Link>
+          , which is the same address and says what to include.
         </Note>
       </SitePage>
     </AppShell>
