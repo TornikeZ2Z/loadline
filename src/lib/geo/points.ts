@@ -21,6 +21,9 @@ import type { PublicLoadRow } from "@/lib/loads/publicView";
 import type { MapEnd } from "@/lib/loads/types";
 import { STATE_BY_ABBR } from "@/lib/geo/states";
 import { formatCf, placeLabel } from "@/lib/loads/present";
+// Type-only, so the projection helpers in ./marks can go on importing
+// `endPoint` and `endLabelText` from here without a runtime cycle.
+import type { MapMark } from "./marks";
 
 /**
  * One real position inside a marker: every job whose end resolved to the SAME
@@ -89,9 +92,15 @@ export interface BuiltPoints {
   groups: PointGroup[];
   byKey: Map<string, PointGroup>;
   features: FeatureCollection<GeoPoint, PointProps>;
-  /** group key for a job id, so hover and selection can sync both ways. */
-  keyByJob: Map<number, string>;
-  /** How many jobs could be placed at all; the rest are counted out loud. */
+  /**
+   * Group key for a mark's id, so hover and selection can sync both ways.
+   *
+   * Ids are unique within one population, which is the other reason
+   * `buildGroups` is called once per kind: job 12 and truck 12 in one map would
+   * be one entry here.
+   */
+  keyById: Map<number, string>;
+  /** How many marks were placed; what could not be placed is counted out loud. */
   plotted: number;
 }
 
@@ -183,30 +192,34 @@ export function endLabelText(job: PublicLoadRow, end: MapEnd): string {
 }
 
 /**
- * Jobs -> markers.
+ * Marks -> markers.
  *
  * Grouped on three decimal places (~110 m): five decimals would split a city
  * from its own ZIP centroid into two dots sitting on each other, which is the
  * pile this view exists to remove.
+ *
+ * Takes marks rather than jobs so the truck source can be built by the same
+ * code -- `jobMarks(rows, end)` and, later, `truckMarks(rows, end)` in
+ * `./marks` do the projecting. Call it ONCE PER POPULATION and never over a
+ * mixed array: `cf` is freight on a job and free space on a truck, and a
+ * marker holding both would carry one number where there are two.
  */
-export function buildGroups(jobs: PublicLoadRow[], end: MapEnd): BuiltPoints {
+export function buildGroups(marks: MapMark[]): BuiltPoints {
   const byKey = new Map<string, PointGroup>();
   const spotsByKey = new Map<string, Map<string, PointSpot>>();
-  const keyByJob = new Map<number, string>();
+  const keyById = new Map<number, string>();
   let plotted = 0;
 
-  for (const job of jobs) {
-    const at = endPoint(job, end);
-    if (!at) continue;
+  for (const mark of marks) {
     plotted += 1;
 
-    const key = `${at.lng.toFixed(3)},${at.lat.toFixed(3)}`;
-    keyByJob.set(job.id, key);
+    const key = `${mark.lng.toFixed(3)},${mark.lat.toFixed(3)}`;
+    keyById.set(mark.id, key);
 
     /* Five decimals -- about a metre. Finer than that is not a distinction any
      * geocoder is making, and two rows differing in the ninth decimal are one
      * place with a floating-point history, not two addresses. */
-    const spotKey = `${at.lng.toFixed(5)},${at.lat.toFixed(5)}`;
+    const spotKey = `${mark.lng.toFixed(5)},${mark.lat.toFixed(5)}`;
     let spots = spotsByKey.get(key);
     if (!spots) {
       spots = new Map();
@@ -214,48 +227,48 @@ export function buildGroups(jobs: PublicLoadRow[], end: MapEnd): BuiltPoints {
     }
     const spot = spots.get(spotKey);
     if (spot) {
-      spot.ids.push(job.id);
-      spot.cf += job.cubic_feet ?? 0;
-      if (job.cubic_feet == null) spot.unsized += 1;
-      spot.approx &&= at.approx;
-      spot.precision = coarser(spot.precision, at.precision);
+      spot.ids.push(mark.id);
+      spot.cf += mark.cf ?? 0;
+      if (mark.cf == null) spot.unsized += 1;
+      spot.approx &&= mark.approx;
+      spot.precision = coarser(spot.precision, mark.precision);
     } else {
       spots.set(spotKey, {
         key: spotKey,
-        lng: at.lng,
-        lat: at.lat,
-        ids: [job.id],
-        cf: job.cubic_feet ?? 0,
-        unsized: job.cubic_feet == null ? 1 : 0,
-        label: endLabelText(job, end),
-        approx: at.approx,
-        precision: at.precision,
+        lng: mark.lng,
+        lat: mark.lat,
+        ids: [mark.id],
+        cf: mark.cf ?? 0,
+        unsized: mark.cf == null ? 1 : 0,
+        label: mark.label,
+        approx: mark.approx,
+        precision: mark.precision,
       });
     }
 
     const existing = byKey.get(key);
     if (existing) {
-      existing.ids.push(job.id);
-      existing.cf += job.cubic_feet ?? 0;
-      if (job.cubic_feet == null) existing.unsized += 1;
+      existing.ids.push(mark.id);
+      existing.cf += mark.cf ?? 0;
+      if (mark.cf == null) existing.unsized += 1;
       // Only a group where EVERY member is a guess is drawn as one.
-      existing.approx &&= at.approx;
-      existing.precision = coarser(existing.precision, at.precision);
+      existing.approx &&= mark.approx;
+      existing.precision = coarser(existing.precision, mark.precision);
       continue;
     }
 
     byKey.set(key, {
       key,
-      lng: at.lng,
-      lat: at.lat,
-      ids: [job.id],
-      cf: job.cubic_feet ?? 0,
-      unsized: job.cubic_feet == null ? 1 : 0,
-      label: endLabelText(job, end),
-      state: end === "pickup" ? job.pickup_state : job.delivery_state,
-      approx: at.approx,
+      lng: mark.lng,
+      lat: mark.lat,
+      ids: [mark.id],
+      cf: mark.cf ?? 0,
+      unsized: mark.cf == null ? 1 : 0,
+      label: mark.label,
+      state: mark.state,
+      approx: mark.approx,
       spots: [],
-      precision: at.precision,
+      precision: mark.precision,
     });
   }
 
@@ -285,7 +298,7 @@ export function buildGroups(jobs: PublicLoadRow[], end: MapEnd): BuiltPoints {
     groups,
     byKey,
     features: { type: "FeatureCollection", features },
-    keyByJob,
+    keyById,
     plotted,
   };
 }

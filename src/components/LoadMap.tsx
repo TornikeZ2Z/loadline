@@ -93,6 +93,7 @@ import {
   type PointGroup,
   type PointSpot,
 } from "@/lib/geo/points";
+import { jobMarks } from "@/lib/geo/marks";
 
 export interface LoadMapProps {
   jobs: PublicLoadRow[];
@@ -807,7 +808,7 @@ export function LoadMap({
     };
   }, [fitKey, towardHome, viewer, home]);
 
-  const built = useMemo(() => buildGroups(jobs, end), [jobs, end]);
+  const built = useMemo(() => buildGroups(jobMarks(jobs, end)), [jobs, end]);
 
   /**
    * What a click on a marker opened, resolved against the CURRENT result set.
@@ -847,8 +848,7 @@ export function LoadMap({
     if (focused?.mode !== "outward") return null;
     const wanted = new Set(focused.ids);
     return buildGroups(
-      jobs.filter((j) => wanted.has(j.id)),
-      end === "pickup" ? "delivery" : "pickup",
+      jobMarks(jobs.filter((j) => wanted.has(j.id)), end === "pickup" ? "delivery" : "pickup"),
     );
   }, [focused, jobs, end]);
 
@@ -1915,7 +1915,7 @@ export function LoadMap({
     const m = map.current;
     if (!ready || !m) return;
     const focusId = hoveredId ?? selectedId;
-    const focusKey = hoverKey ?? (focusId != null ? drawn.keyByJob.get(focusId) : undefined);
+    const focusKey = hoverKey ?? (focusId != null ? drawn.keyById.get(focusId) : undefined);
 
     // Whichever source is carrying the marks right now: while a place is open
     // outward, the board's own dots are hidden and the far ends are the map.
@@ -1973,7 +1973,7 @@ export function LoadMap({
       const single = spot.ids.length === 1 ? (jobs.find((j) => j.id === spot.ids[0]) ?? null) : null;
       return { key: spot.key, group: spot, single, at: hoverLeaf.at };
     }
-    const key = hoverKey ?? (hoveredId != null ? drawn.keyByJob.get(hoveredId) : undefined);
+    const key = hoverKey ?? (hoveredId != null ? drawn.keyById.get(hoveredId) : undefined);
     const group = key ? drawn.byKey.get(key) : undefined;
     if (!group) return null;
     // One job gets its own line -- lane, size, price, readiness -- because that
