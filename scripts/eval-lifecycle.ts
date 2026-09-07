@@ -26,6 +26,11 @@
  *   S8  a sender whose number is known from one post is reachable from ALL of
  *       their jobs, the rows say which number came from where, an attached
  *       number reaches the same rows, and nothing borrows another sender's.
+ *   S9  the 50-99 % band: an explicit "still available" makes a post partial at
+ *       60 %, at 90 %, above 100 % and with no previous list at all, delisting
+ *       nothing; the same bodies without the phrase, and "UPDATED LIST", are
+ *       still full and still retire what they omit; a truncated post delists
+ *       nothing either.
  */
 process.env.PGLITE_DIR = "memory://";
 
@@ -418,6 +423,103 @@ async function main() {
 
   const orphanEvents = await query<{ n: number }>(`SELECT count(*)::int AS n FROM load_events WHERE kind = 'viewed_contact'`);
   expect(orphanEvents[0].n === 0, "no contact reveals were logged by the pipeline");
+
+  // ------------------------------------------------------------------ S9
+  // The 50-99 % band. S2 and S6 only ever exercise a 1-job partial, far under
+  // the old `small` gate, so nothing here was covered: a 10-job sender posting
+  // "STILL AVAILABLE:" over 6 of those jobs produced a `full` snapshot and
+  // silently delisted the other 4, while the same post naming 4 delisted none.
+  console.log(`\n${DIM}S9: an explicit partial phrase is decisive at any size${RESET}`);
+  const TEN = [
+    "FROM FORT LAUDERDALE FL:",
+    "700 - OR 97396", "200 - WA 98109", "400 - OH 44473", "300 - MI 49456", "400 - NY 14075",
+    "200 - NY 14850", "300 - AZ 85281", "200 - CA 91977", "250 - TX 75201", "350 - CO 80202",
+  ];
+  /** The header plus the first `n` of the ten lanes -- verbatim, so the job keys match. */
+  const subset = (n: number) => [TEN[0], ...TEN.slice(1, 1 + n)].join("\n");
+
+  let s9seq = 0;
+  /** A fresh sender with the full 10-job list at T0-1d, then `body` at T0. */
+  const band = async (body: string) => {
+    const phone = `+178655590${String(++s9seq).padStart(2, "0")}`;
+    await post(phone, subset(10), new Date(T0.getTime() - DAY), T0);
+    const base = await counts(phone);
+    if (base.available !== 10) throw new Error(`S9 setup: wanted 10 available, got ${base.available}`);
+    const id = await post(phone, body, T0, T0);
+    return { ...(await kindOf(id)), ...(await counts(phone)) };
+  };
+
+  const marked6 = await band("STILL AVAILABLE:\n" + subset(6));
+  expect(
+    marked6.kind === "partial" && marked6.kind_reason === "partial:phrase" &&
+      marked6.available === 10 && marked6.delisted === 0 && marked6.total === 10,
+    `60 % with a marker delists NOTHING (${marked6.kind}/${marked6.kind_reason}, ` +
+      `${marked6.available} available / ${marked6.delisted} delisted / ${marked6.total} rows)`,
+  );
+
+  const bare6 = await band(subset(6));
+  expect(
+    bare6.kind === "full" && bare6.available === 6 && bare6.delisted === 4,
+    `the same 60 % body with no marker still retires the 4 it omits (${bare6.kind}/${bare6.kind_reason}, ` +
+      `${bare6.available} available / ${bare6.delisted} delisted)`,
+  );
+
+  const marked9 = await band("STILL AVAILABLE:\n" + subset(9));
+  expect(
+    marked9.kind === "partial" && marked9.available === 10 && marked9.delisted === 0,
+    `90 % with a marker delists NOTHING (${marked9.kind}/${marked9.kind_reason}, ` +
+      `${marked9.available} available / ${marked9.delisted} delisted)`,
+  );
+
+  // The decision this fix must not reverse (D §0.10 / D25): "updated" is a
+  // TITLE word, never a PARTIAL one, so a daily UPDATED LIST is still a full
+  // list that retires what it omits.
+  const updated6 = await band("UPDATED LIST\n" + subset(6));
+  expect(
+    updated6.kind === "full" && updated6.available === 6 && updated6.delisted === 4,
+    `"UPDATED LIST" over 60 % is still full and retires the other 4 (${updated6.kind}/${updated6.kind_reason}, ` +
+      `${updated6.available} available / ${updated6.delisted} delisted)`,
+  );
+
+  // Below the gate, unchanged: shape-only heuristics still decide a post that
+  // says nothing about itself.
+  const bare4 = await band(subset(4));
+  expect(
+    bare4.kind === "full" && bare4.kind_reason === "full:small" && bare4.available === 4 && bare4.delisted === 6,
+    `40 % with no marker is still full:small (${bare4.kind}/${bare4.kind_reason}, ` +
+      `${bare4.available} available / ${bare4.delisted} delisted)`,
+  );
+
+  // A post WhatsApp cut off is classified before any of this and never delists.
+  const cut = await band(subset(6) + "\nRead more");
+  expect(
+    cut.kind === "truncated" && cut.available === 10 && cut.delisted === 0,
+    `a truncated post delists nothing (${cut.kind}/${cut.kind_reason}, ` +
+      `${cut.available} available / ${cut.delisted} delisted)`,
+  );
+
+  // Over 100 %: "also have" means in addition to, not instead of.
+  const S9grow = "+17865559080";
+  await post(S9grow, subset(4), new Date(T0.getTime() - DAY), T0);
+  const growId = await post(S9grow, "ALSO HAVE:\n" + subset(10), T0, T0);
+  const grow = { ...(await kindOf(growId)), ...(await counts(S9grow)) };
+  expect(
+    grow.kind === "partial" && grow.available === 10 && grow.delisted === 0,
+    `a marked post naming MORE than the previous full list keeps all 10 (${grow.kind}/${grow.kind_reason}, ` +
+      `${grow.available} available / ${grow.delisted} delisted)`,
+  );
+
+  // No previous full snapshot at all: a marked first post is partial, and a
+  // sender whose only snapshots are partial still has available jobs --
+  // `rebuildSender` delists against `latestFull`, which is null here.
+  const S9first = "+17865559081";
+  const firstId = await post(S9first, "STILL AVAILABLE:\n" + subset(3), T0, T0);
+  const first = { ...(await kindOf(firstId)), ...(await counts(S9first)) };
+  expect(
+    first.kind === "partial" && first.available === 3 && first.delisted === 0,
+    `a marked first post still lists its jobs (${first.kind}/${first.kind_reason}, ` +
+      `${first.available} available / ${first.delisted} delisted)`,
+  );
 
   console.log("");
   if (failures.length) {

@@ -121,11 +121,17 @@ export async function upsertSender(key: string, msg: RawMessageRow, outcome: Ext
 }
 
 /**
- * One snapshot per message with jobs. `partial` only when the post is
- * quantitatively small (< 50 % of the sender's previous full list) AND looks
- * partial (a "still available" phrase, an inherited origin, a lane-only post);
- * `truncated` when WhatsApp cut it. Everything else is `full` -- including a
- * daily post titled "UPDATED LIST", because the latest post wins.
+ * One snapshot per message with jobs.
+ *
+ * `truncated` when WhatsApp cut it; `partial` when the post says it is one, or
+ * when it is quantitatively small (< 50 % of the sender's previous full list)
+ * AND looks partial in shape (an inherited origin, a lane-only post).
+ * Everything else is `full` -- including a daily post titled "UPDATED LIST",
+ * because the latest post wins.
+ *
+ * Only a `full` snapshot delists (see `rebuildSender`), so this classification
+ * is the only thing standing between a sender's wording and a live job
+ * disappearing from the board.
  */
 export async function recordSnapshot(
   key: string,
@@ -141,6 +147,46 @@ export async function recordSnapshot(
   if (outcome.truncated) {
     kind = "truncated";
     reason = outcome.flags.includes("read_more") ? "truncated:read_more" : "truncated:tail";
+  } else if (outcome.partial_marker) {
+    // An EXPLICIT partial phrase is decisive, at any size.
+    //
+    // The sender told us this post is a subset, so believe them and delist
+    // nothing. This used to be consulted only inside the `small` gate below,
+    // which meant a 10-job sender posting "STILL AVAILABLE:" over 6 of those
+    // jobs produced a `full` snapshot and silently delisted the other 4 --
+    // while the byte-identical post naming 4 delisted none. Size cannot decide
+    // this, because the sender's own words already did.
+    //
+    // Safe to make decisive because the vocabulary behind `partial_marker` is
+    // narrow, explicit and positional: only the PARTIAL list in
+    // `extract/lexicon.ts` ("still available", "still have", "also have",
+    // "added", "new job(s)", "new load(s)", "just got", "just added",
+    // "one more", "1 more"), matched only in the first three non-blank lines.
+    // It contains NO title words. "UPDATED LIST" therefore sets no marker and
+    // still lands below as `full` that retires what it omits -- the D §0.10 /
+    // D25 decision this must not reverse.
+    //
+    // The two boundaries the size gate used to hide:
+    //
+    //   * naming MORE jobs than the previous full list ("ALSO HAVE:" over 10
+    //     after a 4-job list) -- still `partial`. "Also have" means "in
+    //     addition to", not "instead of"; a growing list is the least likely
+    //     post to be a complete replacement, and classifying it `full` would
+    //     delist any of the old 4 it happens not to repeat.
+    //   * naming EXACTLY the previous set -- still `partial`. Both readings
+    //     produce identical statuses (nothing is omitted, so nothing is
+    //     delisted), so `partial` costs nothing and avoids advancing
+    //     `last_full_at`, which is the reference point every delisting is
+    //     measured against.
+    //
+    // Chosen because the two failure modes are not symmetric. Trusting the
+    // phrase can leave a job listed after it is gone: a driver calls and is
+    // told it is taken, and the 4-day expiry sweep clears it anyway. Ignoring
+    // the phrase removes a live job from the board: nobody calls, the mover
+    // loses the booking, and no one ever learns it happened. Only the second
+    // one is silent, so ambiguity resolves toward keeping the job listed.
+    kind = "partial";
+    reason = "partial:phrase";
   } else {
     const prevFull = await queryOne<{ job_count: number }>(
       `SELECT job_count FROM sender_snapshots
@@ -149,12 +195,13 @@ export async function recordSnapshot(
         ORDER BY sent_at DESC, id DESC LIMIT 1`,
       [key, msg.id, sentAt],
     );
+    // Unchanged: with no marker to go on, shape is all we have, and it is only
+    // trustworthy on a post far smaller than the sender's usual list.
     const small = !!prevFull && jobKeys.length < 0.5 * prevFull.job_count;
     if (small) {
       const laneOnly =
         outcome.lines.every((l) => l.class !== "HEADER") && outcome.lines.some((l) => l.class === "LANE");
-      if (outcome.partial_marker) { kind = "partial"; reason = "partial:phrase"; }
-      else if (outcome.flags.includes("origin_inherited") || outcome.flags.includes("origin_default")) { kind = "partial"; reason = "partial:inherited"; }
+      if (outcome.flags.includes("origin_inherited") || outcome.flags.includes("origin_default")) { kind = "partial"; reason = "partial:inherited"; }
       else if (laneOnly && jobKeys.length <= 2) { kind = "partial"; reason = "partial:lane"; }
       else reason = "full:small";
     }
