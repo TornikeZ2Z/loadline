@@ -29,7 +29,7 @@ export default function GlobalError({
   return (
     <html lang="en">
       <body>
-        <title>Something went wrong · LoadLine</title>
+        <title>Something went wrong · MoverMesh</title>
         <main
           style={{
             minHeight: "100dvh",
@@ -43,7 +43,7 @@ export default function GlobalError({
         >
           <div className="card" style={{ maxWidth: "440px", padding: "var(--sp-6)", textAlign: "center" }}>
             <div className="big" style={{ fontSize: "var(--fs-2xl)" }}>
-              LoadLine hit an error
+              MoverMesh hit an error
             </div>
             <p
               style={{
