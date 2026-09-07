@@ -406,9 +406,9 @@ Rules · Groups.
    so extraction never runs inline.
 3. Delivery is idempotent on `wa_message_id`, because Meta redelivers.
 
-Set `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_APP_SECRET`, point the Meta dashboard at
-`https://your-host/api/webhooks/whatsapp`, and schedule `POST /api/cron/process` (bearer
-`CRON_SECRET`) every minute.
+Set `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_APP_SECRET` and point the Meta dashboard at
+`https://your-host/api/webhooks/whatsapp`. Draining the queue is already scheduled — see
+[Scheduled sweeps](#scheduled-sweeps) below.
 
 **The constraint to plan around:** the Cloud API delivers messages to *your own business
 number*. It is not a mechanism for reading arbitrary third-party WhatsApp groups — that
@@ -420,6 +420,78 @@ the source touches only the caller.
 
 Until then, `/admin → Try a message` runs pasted text through the identical pipeline, and
 `npm run seed` populates a realistic board.
+
+---
+
+## Scheduled sweeps
+
+Three things have to happen on a clock or the board quietly stops being true:
+
+| Sweep | Every | What it does |
+|---|---|---|
+| `process` | 60 s | Drains pending WhatsApp messages through the extractor |
+| `match` | 3 min | Pairs trucks with jobs and writes the digests behind the bell |
+| `expire` | 1 h | Retires jobs whose sender went silent, and trucks that departed |
+
+**They run inside the app process**, started once per server from Next's
+`register()` hook in [`src/instrumentation.ts`](src/instrumentation.ts). The
+scheduler calls the sweep functions directly — it never makes an HTTP request to
+itself, so it needs no port, no base path and no copy of `CRON_SECRET`.
+
+That is a deliberate second-best. The deployment design deferred scheduling — *"An
+EventBridge Scheduler is a later addition"* — and the later addition never arrived,
+because `infra/` cannot be applied from the machine this is developed on. Three
+bearer-guarded routes sat here with nothing calling them: jobs never expired, trucks
+never departed, the bell rendered a permanent zero. A scheduler that ships inside the
+container is live the moment the next image deploys and needs no AWS step at all.
+
+```
+CRON_IN_PROCESS unset   on when NODE_ENV=production, off everywhere else
+CRON_IN_PROCESS=off     never — hand the job to an external scheduler
+CRON_IN_PROCESS=on      always, including locally
+```
+
+`CRON_IN_PROCESS=on npm run dev` prints one line per run:
+
+```
+[cron] in-process scheduler ON (CRON_IN_PROCESS=on) runner=host/1 db=pglite —
+  process every PROCESS_EVERY_MS=60000ms first at +15000ms; match every
+  MATCH_EVERY_MS=180000ms first at +30000ms; expire every EXPIRE_EVERY_MS=3600000ms
+  first at +45000ms
+[cron] process ok started=…T20:40:58.954Z in 1757ms — processed=0 loadsCreated=0
+  duplicates=0 — lock=advisory-pglite PROCESS_EVERY_MS=60000ms runner=host/1
+```
+
+**The three `POST /api/cron/*` routes are untouched and still bearer-guarded**, so an
+EventBridge rule can take the job over the day somebody can apply Terraform: set
+`CRON_IN_PROCESS=off` and point the rule at them. [`infra/README.md`](infra/README.md)
+has the recipe. Nothing has to be rewritten to make the switch, which is the whole
+reason the switch exists.
+
+### Safe with more than one task
+
+`desired_count` is 1 today and will not stay 1. Each sweep takes a Postgres advisory
+lock (`pg_try_advisory_lock`, one stable key per sweep) on a dedicated connection —
+never a pooled one, because an advisory lock belongs to the *session* that took it and
+unlocking from a different pooled connection silently leaks it. A task that cannot get
+the lock **skips and records why**; it does not queue up behind work that is already
+being done, and the lock dies with the connection if the task is killed mid-sweep.
+
+Locally there is no second task to exclude: PGlite allows one session per data
+directory, so the advisory lock can never be refused there and an in-process guard is
+what stops a second scheduler. `npm run check:cron` proves each on the backend that
+can actually demonstrate it.
+
+The three sweeps are staggered to 15 s, 30 s and 45 s past the minute and every
+interval is a multiple of a minute, so they can never fire in the same second.
+
+### Reading it without CloudWatch
+
+Every run appends to `cron_runs` — sweep, start, finish, duration, `ok`/`error`/
+`skipped`, and that sweep's own counters — and `/admin` opens with a strip showing the
+last run of each, in red when a sweep has not *completed* within twice its interval. A
+silent expiry sweep does not look broken from the board; it looks like a board full of
+jobs. The ledger keeps 14 days and the hourly expiry sweep prunes it.
 
 ---
 
@@ -542,7 +614,8 @@ secrets; the app runs with none of it set.
 | `WHATSAPP_VERIFY_TOKEN` | — | Webhook handshake |
 | `WHATSAPP_APP_SECRET` | — | Signature verification |
 | `WHATSAPP_ALLOW_UNSIGNED` | `1` in dev | Local testing escape hatch; refuses to apply in production |
-| `CRON_SECRET` | — | Bearer token for `/api/cron/*` |
+| `CRON_SECRET` | — | Bearer token for `POST /api/cron/*`; only an **external** scheduler needs it |
+| `CRON_IN_PROCESS` | *(unset → on in production only)* | The in-process scheduler: `on` \| `off` \| unset — see [Scheduled sweeps](#scheduled-sweeps) |
 
 ---
 
@@ -554,6 +627,7 @@ src/lib/demo/              sample WhatsApp corpus, reset, console queries
 src/lib/extract/           tokens, lexicon, lines, header, inventory, formats, rules
 src/lib/geo/               aliases, gazetteer, states/ZIPs, place matcher, geocoder, math
 src/lib/moving/            cubic feet, truck equivalents, price per cf
+src/lib/cron/              the in-process scheduler: cadences, advisory locks, cron_runs
 src/lib/pipeline/          ingest, process, reconcile (supersession), issues, expire, web
 src/lib/loads/             search query builder, params, redaction, the public wire shapes
 src/lib/location.ts        the viewer's location, in the browser and nowhere else
@@ -571,6 +645,7 @@ scripts/                   eval + cases, scorer, seed, reprocess, expire, mainte
 | `npm run eval:lifecycle` | Supersession: delisting, expiry, sticky Taken |
 | `npm run check:redact` | Asserts no phone survives into a public payload |
 | `npm run check:routes` | Asserts every API handler declares who may call it |
+| `npm run check:cron` | Starts the real scheduler and proves each sweep runs, locks and survives a neighbour's failure |
 | `npm run rules:export` | Write admin-taught rules into the eval fixtures |
 | `npm run admin:grant` | Promote a registered account to a real (non-demo) admin |
 | `npm run seed` | Demo accounts, groups, sample traffic, full pipeline run |

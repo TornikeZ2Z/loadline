@@ -833,3 +833,49 @@ CREATE TABLE IF NOT EXISTS match_runs (
 );
 -- The sweep opens with `SELECT max(watermark)`, which is the whole of its state.
 CREATE INDEX IF NOT EXISTS match_runs_watermark_idx ON match_runs (watermark DESC);
+
+-- What the scheduler actually did, readable without CloudWatch.
+--
+-- The three sweeps run IN-PROCESS (src/lib/cron/, started from
+-- src/instrumentation.ts) rather than from EventBridge, so their only other
+-- witness is a container log line an admin cannot reach. This table is the one
+-- they can: /admin opens with a strip saying when each sweep last finished and
+-- what it did.
+--
+-- A row is INSERTed with status 'running' BEFORE the sweep starts and UPDATEd
+-- when it ends, in that order and never the other way round. A run that never
+-- finishes -- a task killed mid-sweep, a query that hangs -- then leaves a
+-- 'running' row behind, which is exactly the state the readout has to be able
+-- to show. A row written only at the end would make a hung sweep and a sweep
+-- that never started look identical, and those are different emergencies.
+--
+-- 'skipped' is a first-class outcome, not an error: it is what a task writes
+-- when another task holds the advisory lock, and under `desired_count > 1` it
+-- is the normal case for every task but one. Folding it into 'error' would
+-- paint correct behaviour red.
+CREATE TABLE IF NOT EXISTS cron_runs (
+  id          bigserial PRIMARY KEY,
+  sweep       text NOT NULL,
+  status      text NOT NULL DEFAULT 'running'
+              CHECK (status IN ('running','ok','error','skipped')),
+  started_at  timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz,
+  duration_ms integer,
+  -- The error message, or the reason the run was skipped. NULL on an 'ok' run:
+  -- there is nothing to say about one beyond its counts.
+  detail      text,
+  -- Per-sweep counters, whatever that sweep counts. Deliberately shapeless: the
+  -- expiry sweep's three numbers and the match sweep's eight are not the same
+  -- quantity and must never be added, so there is no column here that could
+  -- hold "the total".
+  counts      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Which process wrote it. Meaningless at desired_count = 1 and the whole
+  -- point the day it is 2: "skipped, lock held" is only legible beside who was
+  -- holding it.
+  runner      text
+);
+CREATE INDEX IF NOT EXISTS cron_runs_sweep_started_idx ON cron_runs (sweep, started_at DESC);
+-- The readout's real question is "when did this sweep last COMPLETE", which is
+-- not "when did it last start" on a board where skips are normal.
+CREATE INDEX IF NOT EXISTS cron_runs_sweep_ok_idx
+  ON cron_runs (sweep, finished_at DESC) WHERE status = 'ok';

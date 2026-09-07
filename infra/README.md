@@ -116,6 +116,63 @@ on host-header and cannot capture `ziptozip.app` traffic.
    fired: gotcha 6's broken database showed as a healthy target serving 500s.
    When diagnosing, curl `/login`, not `/api/health`.
 
+## The cron is in the app, not in EventBridge
+
+The deployment design deferred scheduling — *"An EventBridge Scheduler is a later
+addition"* ([`../docs/superpowers/specs/2026-09-06-aws-deployment-design.md`](../docs/superpowers/specs/2026-09-06-aws-deployment-design.md),
+line 28) — and the later addition never arrived, because this stack cannot be applied
+from the machine the app is developed on. Meanwhile three bearer-guarded routes sat in
+the repo with nothing calling them: jobs never expired, trucks never departed, and the
+notification bell rendered a permanent zero.
+
+So **the sweeps run inside the task**, on timers started from `src/instrumentation.ts`.
+**There is no infrastructure here for them and this file adds no Terraform.** They ship
+with the image, so they are live the moment the next `main` push deploys, and there is
+nothing in AWS to drift from.
+
+| Sweep | Every | Lock key |
+|---|---|---|
+| `process` | 60 s | `pg_try_advisory_lock(1819238756, 1)` |
+| `expire` | 1 h | `pg_try_advisory_lock(1819238756, 2)` |
+| `match` | 3 min | `pg_try_advisory_lock(1819238756, 3)` |
+
+(`1819238756` is `0x6C6F6164`, `"load"` in ASCII — it shows up as `classid` in `pg_locks`.)
+
+`desired_count = 1` today. **Raising it does not double-run anything**: each sweep takes
+its advisory lock on a dedicated connection, and a task that cannot get the lock records
+a skip and waits for its next tick. Watch for it in `/admin` — the strip at the top shows
+the last run per sweep and which container ran it — or in `cron_runs` directly.
+
+### Handing the job to EventBridge, when somebody can apply this stack
+
+Nothing has to be rewritten; the three `POST /api/cron/*` routes are untouched and still
+guarded by `CRON_SECRET`. **Documentation only — do not treat the snippets below as
+applied state.**
+
+1. Add `CRON_IN_PROCESS=off` to the task definition's `environment`. The next task to
+   start prints `[cron] in-process scheduler OFF (CRON_IN_PROCESS=off)` and arms nothing.
+   Do this **first**: with both running, the advisory locks keep them from colliding, but
+   the ledger fills with skips and nobody can tell which scheduler is the live one.
+2. Create an EventBridge **connection** holding the secret as an API-key authorization
+   parameter — header `Authorization`, value `Bearer <the CRON_SECRET value>`. Point it
+   at the same string that is in `loadline/CRON_SECRET`; EventBridge cannot read a
+   Secrets Manager secret for you, it stores its own copy (in a secret it manages).
+3. Create one **API destination** per route
+   (`https://loadline.ziptozip.app/api/cron/process`, `…/expire`, `…/match`), method
+   `POST`, using that connection.
+4. Create one **schedule** per destination — `rate(1 minute)`, `rate(1 hour)`,
+   `rate(3 minutes)` — with an execution role that allows
+   `events:InvokeApiDestination` on the destination ARNs. Give each a different starting
+   minute; the in-process scheduler staggers them to 15/30/45 s past the minute and
+   EventBridge should not undo that.
+5. Confirm from `/admin`, not from the EventBridge console: a schedule that fires and
+   gets a 401 back looks *successful* in CloudWatch. The strip goes red when a sweep has
+   not **completed** within twice its interval, which is the only end-to-end check.
+
+The one thing that genuinely changes: with an external scheduler the sweeps run against
+whichever task the ALB routes to, so `cron_runs.runner` stops being a single container.
+That is fine — the advisory lock does not care which task holds it.
+
 ## HERE — on, and what that took
 
 HERE **is** configured in production as of 2026-09-07: `loadline/HERE_API_KEY` in Secrets
