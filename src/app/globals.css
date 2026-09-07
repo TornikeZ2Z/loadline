@@ -99,14 +99,17 @@
    * There is one green now. It was emerald-600 (#059669, hue 161) beside the
    * brand's #1FA463 (hue 151) -- two greens that were never going to look like
    * one decision. --ok and --ready are the brand green stepped down to where it
-   * can be read: the brand green measures 3.25:1 on white and 2.92:1 on its own
+   * can be read: the brand green measures 3.21:1 on white and 2.89:1 on its own
    * soft tint, and a price on a card is 13 px, a "Ready now" chip 11-12. This
-   * step is the same hue (150) and measures 4.69:1 and 4.22:1 -- better than
-   * the emerald it replaces (3.77 / 3.37), so the chip that appears 73 times on
-   * one screen got more legible, not less. The mark colour itself is spent
-   * where green is a MARK and never type: --brand-green is the logo's second
-   * pin and --you is the "you are here" dot on the map. */
-  --ok: #17874F; --ok-soft: #e9f6ef; --ready: #17874F; --ready-soft: #e9f6ef;
+   * step is the same hue (150) and measures 5.44:1 on white and 4.89:1 on the
+   * tint, against the emerald's 3.77 and 3.37 -- so the chip that appears 73
+   * times on one screen passes AA for the first time. A lighter step was built
+   * and rejected on that number: #17874F is closer to the mark but lands at
+   * 4.09 on the tint, and no tint light enough to rescue it exists (pure white
+   * only reaches 4.55). The mark colour itself is spent where green is a MARK
+   * and never type: --brand-green is the logo's second pin, and --you is the
+   * "you are here" dot on the map. */
+  --ok: #14794A; --ok-soft: #e9f6ef; --ready: #14794A; --ready-soft: #e9f6ef;
   --fresh: var(--brand-blue); --fresh-soft: #e9f0fe;
   --warn: #d97706; --warn-soft: #fdf3e3; --danger: #dc2626; --danger-soft: #fdeaea;
   /* shape */

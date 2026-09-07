@@ -308,7 +308,11 @@ export function AuthForm({
           <Link
             href="/"
             className="flex min-h-[var(--tap-min)] items-center px-[var(--sp-2)] font-semibold"
-            style={{ color: "var(--accent)" }}
+            /* --accent-deep, not --accent: this link sits on --bg rather than
+               on a white card, where the brand blue measures 4.23:1 at the
+               12 px it is set in. Every other accent-coloured link in the app
+               is on --surface, where it measures 4.57. */
+            style={{ color: "var(--accent-deep)" }}
           >
             ← Back to the board
           </Link>
