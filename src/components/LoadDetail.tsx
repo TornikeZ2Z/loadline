@@ -268,6 +268,19 @@ export function LoadDetail({
               {fresh.text}
             </Chip>
             {row.status !== "available" && <StatusChip status={row.status} />}
+            {/*
+              Only ever true on the poster's own copy: a demo listing is not
+              returned to anybody else (src/lib/loads/query.ts), so nobody sees
+              this chip on somebody else's job. It is here because "See it →"
+              lands on this drawer, and a listing that looks exactly like the 98
+              around it would leave the poster believing they published to the
+              board. They did not.
+            */}
+            {row.is_demo && (
+              <Chip tone="warn" title="Posted from a demo account. Only this account can see it — it is not on the public board.">
+                Demo · only you
+              </Chip>
+            )}
             {row.needs_review && (
               <Chip tone="review" title={row.flags?.join(" · ") || undefined}>
                 Unverified
