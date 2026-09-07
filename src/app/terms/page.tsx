@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Terms",
   description:
-    "The rules for using LoadLine: jobs are other people's posts, LoadLine is not a broker, and a revealed number is for contacting that sender about that job.",
+    "The rules for using MoverMesh: jobs are other people's posts, MoverMesh is not a broker, and a revealed number is for contacting that sender about that job.",
 };
 
 /**
@@ -35,14 +35,14 @@ export default async function TermsPage() {
       >
         <Section title="1. What this service is">
           <p>
-            LoadLine is a board. It reads moving jobs out of WhatsApp group messages it has been
+            MoverMesh is a board. It reads moving jobs out of WhatsApp group messages it has been
             given access to, and out of posts made on this site, and it shows them on a map. It is
             an index of other people&rsquo;s messages.
           </p>
           <p>
-            LoadLine is not a broker, a carrier or an agent. It does not arrange, price, insure or
-            guarantee any move, takes no commission, and is not a party to whatever you and a sender
-            agree.
+            MoverMesh is not a broker, a carrier or an agent. It does not arrange, price, insure
+            or guarantee any move, takes no commission, and is not a party to whatever you and a
+            sender agree.
           </p>
         </Section>
 

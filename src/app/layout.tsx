@@ -16,10 +16,10 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   // Every page sets its own title through this template, so a tab in a row of
-  // tabs says which LoadLine page it is.
+  // tabs says which MoverMesh page it is.
   title: {
-    default: "LoadLine — moving backhauls from WhatsApp, on a map",
-    template: "%s · LoadLine",
+    default: "MoverMesh — The Load Board for Movers",
+    template: "%s · MoverMesh",
   },
   description:
     "Backhaul jobs for movers, pulled out of WhatsApp group chats and put on a map: route, cubic feet, price and who to call.",

@@ -31,7 +31,7 @@ export default function BoardError({
   retry: () => void;
 }) {
   useEffect(() => {
-    console.error("[LoadLine]", error);
+    console.error("[MoverMesh]", error);
   }, [error]);
 
   return (

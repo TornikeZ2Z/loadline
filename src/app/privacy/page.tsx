@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Privacy",
   description:
-    "What LoadLine stores: the group messages jobs are derived from, what the rules pull out of them, account details for the few who sign in, and contact reveals. Your location stays in your browser.",
+    "What MoverMesh stores: the group messages jobs are derived from, what the rules pull out of them, account details for the few who sign in, and contact reveals. Your location stays in your browser.",
 };
 
 /**

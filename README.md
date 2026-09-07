@@ -1,4 +1,6 @@
-# LoadLine
+# MoverMesh
+
+**The Load Board for Movers.**
 
 A backhaul board for movers, built out of the WhatsApp groups they already post in.
 
@@ -17,7 +19,7 @@ One origin, then a line per destination: state, ZIP, cubic feet, sometimes a pri
 can search that. Fifteen senders posting fifteen batches a day is a wall of text, and the
 job you want scrolled past an hour ago.
 
-LoadLine reads those posts and puts every job on a map as a **route** — pickup to delivery,
+MoverMesh reads those posts and puts every job on a map as a **route** — pickup to delivery,
 with cubic feet, price per cubic foot, when it is ready and how fresh the post is. The
 board is public: no account to browse it, filter it, open a job or read the original
 message. An account buys exactly one thing, the sender's phone number.
@@ -25,6 +27,14 @@ message. An account buys exactly one thing, the sender's phone number.
 Extraction is **deterministic rules, not a model**. No API key, no per-message cost, no
 network dependency, and the same message always produces the same jobs — which is what
 makes `npm run eval` and `npm run score` meaningful regression gates.
+
+> **On the name.** The product is **MoverMesh**. It was called LoadLine until the name was
+> settled, and the identifiers were deliberately left alone: the npm package, this repository,
+> the AWS resources (ECR repository, ECS cluster and service, RDS instance, the `loadline/*`
+> secrets), the browser storage keys and the live URL <https://loadline.ziptozip.app> all
+> still read `loadline`. Renaming them would replace the database, block the secret names for
+> up to 30 days, and discard the truck location every existing visitor has saved. Every
+> `loadline` below is one of those identifiers, not a stale name.
 
 ---
 

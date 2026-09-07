@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "About",
   description:
-    "LoadLine is a backhaul board for long-distance movers, built from the WhatsApp groups where the jobs are already posted.",
+    "MoverMesh is a backhaul board for long-distance movers, built from the WhatsApp groups where the jobs are already posted.",
 };
 
 /**
@@ -33,8 +33,8 @@ export default async function AboutPage() {
     <AppShell user={user} active="site" currentPath="/about">
       <SitePage
         eyebrow="Company"
-        title="About LoadLine"
-        lead="A backhaul board for long-distance movers. The jobs are already being posted — in WhatsApp groups, as blocks of text nobody can search. LoadLine reads them and puts them on a map."
+        title="About MoverMesh"
+        lead="A backhaul board for long-distance movers. The jobs are already being posted — in WhatsApp groups, as blocks of text nobody can search. MoverMesh reads them and puts them on a map."
       >
         <Section title="The empty half of the trip">
           <p>
@@ -119,7 +119,7 @@ export default async function AboutPage() {
           </p>
         </Section>
 
-        <Section title="What LoadLine is not">
+        <Section title="What MoverMesh is not">
           <ul>
             <li>
               <strong>Not a broker.</strong> No cut, no escrow, nobody standing between you and the

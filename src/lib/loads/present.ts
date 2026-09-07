@@ -303,9 +303,9 @@ export function freshnessLabel(
 
 // --- sender and requirements -------------------------------------------------
 
-/** "Marco · via NJ Movers Loads" | "Unnamed sender" | "via LoadLine". */
+/** "Marco · via NJ Movers Loads" | "Unnamed sender" | "via MoverMesh". */
 export function senderLine(job: Pick<PublicLoadRow, "contact_name" | "group_name" | "is_web">): string {
-  if (job.is_web) return "via LoadLine";
+  if (job.is_web) return "via MoverMesh";
   const name = job.contact_name?.trim() || "Unnamed sender";
   return job.group_name ? `${name} · via ${job.group_name}` : name;
 }
