@@ -76,6 +76,9 @@ export interface BoardProps {
 
 const NUDGE_KEY = "loadline.locnudge";
 
+/** A stable empty array, so `show=jobs` does not hand the map a new one a frame. */
+const EMPTY_TRUCKS: PublicTruckRow[] = [];
+
 /**
  * Error strings reach us from two places -- our own literals and whatever the
  * API put in `body.error` -- and only some of them end in a full stop. This
@@ -177,6 +180,7 @@ export function Board({
   const [truckLoading, setTruckLoading] = useState(true);
   const [truckError, setTruckError] = useState<string | null>(null);
   const [noDestHidden, setNoDestHidden] = useState(0);
+  const [truckTruncated, setTruckTruncated] = useState(false);
   const [selectedTruckId, setSelectedTruckId] = useState<number | null>(initialTruckId ?? null);
   const [truckAutoContact, setTruckAutoContact] = useState(false);
   const [hoveredTruckId, setHoveredTruckId] = useState<number | null>(null);
@@ -354,6 +358,7 @@ export function Board({
         setTrucks([]);
         setTruckSummary(summarizeTrucks([], new Date()));
         setNoDestHidden(0);
+        setTruckTruncated(false);
         return;
       }
       const qs = truckQuery ? `${truckQuery}&limit=500` : "limit=500";
@@ -366,11 +371,15 @@ export function Board({
       setTrucks(received);
       setTruckSummary(data.summary ?? summarizeTrucks(received, new Date()));
       setNoDestHidden(data.applied?.noDestExcluded ?? 0);
+      // The map draws whatever this fetch returned, so it has to know when that
+      // is only the first page of what matched (SPEC 14.6).
+      setTruckTruncated(Boolean(data.applied?.truncated));
     } catch (err) {
       if (id !== truckRequestId.current) return;
       setTrucks([]);
       setTruckSummary(null);
       setNoDestHidden(0);
+      setTruckTruncated(false);
       setTruckError(err instanceof Error ? err.message : "Couldn't load trucks");
     } finally {
       if (id === truckRequestId.current) setTruckLoading(false);
@@ -472,6 +481,38 @@ export function Board({
     [closeJob],
   );
 
+  /**
+   * A truck arrow was clicked. It opens the truck's drawer AND moves the list
+   * to the Trucks tab, because the drawer opens inside the list column: leaving
+   * the Jobs tab selected under it would put "Back to 98 jobs" over a truck.
+   */
+  const selectTruckFromMap = useCallback(
+    (id: number | null) => {
+      if (id == null) {
+        closeTruck();
+        return;
+      }
+      closeJob();
+      setShow("trucks");
+      setSelectedTruckId(id);
+      setTruckAutoContact(false);
+      if (window.matchMedia("(max-width: 767px)").matches) setSnap("half");
+    },
+    [closeJob, closeTruck],
+  );
+
+  /** Hovering an arrow brings its card into view, exactly as a job's does. */
+  const hoverTruck = useCallback(
+    (id: number | null) => {
+      setHoveredTruckId(id);
+      if (id == null || selectedTruckId != null) return;
+      listScroller.current
+        ?.querySelector<HTMLElement>(`[data-truck-card][data-truck-id="${id}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    },
+    [selectedTruckId],
+  );
+
   // Hovering a route brings its card into view -- but only while the list is
   // the thing on screen; scrolling a drawer the viewer is reading would be rude.
   const hover = useCallback(
@@ -555,6 +596,16 @@ export function Board({
   }, [filters.routeMode, rows]);
 
   const ordered = useMemo(() => partitionUnverified(rows), [rows]);
+  /**
+   * What the MAP plots as trucks.
+   *
+   * The map draws both populations whichever tab the list is on: a dispatcher
+   * reading the job list still wants to see a truck heading their way, and the
+   * emphasis control on the map panel is what turns one of them down. The one
+   * case that draws none is `show=jobs`, which is a link that means "freight
+   * only, and do not mention trucks at all" -- and which does not fetch them.
+   */
+  const mapTrucks = show === "jobs" ? EMPTY_TRUCKS : trucks;
   // The map always draws the whole result; only the list narrows to one place,
   // so the surrounding inventory stays visible while you read what is at it.
   const listed = useMemo(
@@ -1062,11 +1113,25 @@ export function Board({
       <MapBoundary compact={mobile || shortScreen} bottomPadding={mapBottomPadding}>
         <LoadMap
           jobs={ordered}
+          /* THE MAP'S SECOND FEED, and it is a second feed rather than a second
+             field on the first: `/api/loads` is not modified by this feature,
+             so there was never one request that could carry both. The map draws
+             both populations at every `show` -- co-presence is the point of the
+             feature, and the map's own emphasis control (SPEC 14.6) is what
+             quiets one of them without removing it. `show === "jobs"` is the
+             one exception, because it means "do not mention trucks at all" and
+             the Board does not even fetch them. */
+          trucks={mapTrucks}
           end={filters.mapEnd}
           selectedId={selectedId}
           hoveredId={hoveredId}
+          selectedTruckId={selectedTruckId}
+          hoveredTruckId={hoveredTruckId}
           onSelect={selectFromMap}
           onHover={setHoveredId}
+          onSelectTruck={selectTruckFromMap}
+          onHoverTruck={hoverTruck}
+          truckTruncated={show === "jobs" ? false : truckTruncated}
           onStateClick={onStateClick}
           onGroupClick={onGroupClick}
           searchAsMove={searchAsMove}
