@@ -37,6 +37,7 @@ import {
 import { JobList, JobListSkeleton, partitionUnverified } from "./LoadViews";
 import { LoadDetail } from "./LoadDetail";
 import { BottomSheet, snapHeightPx, type SheetSnap } from "./BottomSheet";
+import { MapBoundary } from "./MapBoundary";
 import { EmptyState } from "./ui";
 
 // The map is client-only: MapLibre touches window at module scope, and a
@@ -58,6 +59,17 @@ export interface BoardProps {
 }
 
 const NUDGE_KEY = "loadline.locnudge";
+
+/**
+ * Error strings reach us from two places -- our own literals and whatever the
+ * API put in `body.error` -- and only some of them end in a full stop. This
+ * makes exactly one, so a sentence appended after the message never reads
+ * "Could not load the board Showing the last results." or ends in "..".
+ */
+function stopped(message: string): string {
+  const trimmed = message.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
 
 /**
  * The list header until A's `summary` lands -- and permanently as the fallback,
@@ -354,6 +366,19 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       <span className="skeleton h-[20px] w-[150px]" />
       <span className="skeleton mt-[5px] h-[12px] w-[210px]" />
     </div>
+  ) : error && rows.length === 0 ? (
+    // And it is wrong in the same way after a failed fetch -- worse, because by
+    // then it looks settled. "0 jobs" would tell a driver there is no freight
+    // when what actually happened is that nobody asked successfully. On a phone
+    // this line is the sheet's handle, so it is the first thing read.
+    <div>
+      <div className="big text-(length:--fs-xl)" style={{ color: "var(--muted)" }}>
+        Jobs unavailable
+      </div>
+      <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        The board could not be read
+      </div>
+    </div>
   ) : (
     <div>
       <div className="big nums text-(length:--fs-xl)">
@@ -400,15 +425,31 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
           {notice}
         </p>
       )}
-      {error && (
+      {/* A search that failed while results were already on screen. Those rows
+          are still true and still worth calling, so they stay and this says
+          only that the refresh did not land. The no-rows case is a different
+          state entirely and is handled below. */}
+      {error && rows.length > 0 && (
         <p
-          className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
+          className="mb-[var(--sp-2)] flex items-center gap-[var(--sp-3)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-sm)"
           style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
         >
-          {error}
+          <span>{stopped(error)} Showing the last results.</span>
+          <button type="button" className="btn btn-sm ml-auto" onClick={() => void search()}>
+            Try again
+          </button>
         </p>
       )}
 
+      {/* THREE STATES, AND THEY ARE NOT THE SAME STATE.
+          - "Could not load jobs" is OUR failure. Nothing is known about what is
+            out there, and the recovery is to ask again.
+          - "No jobs match this search" is a true and complete answer. Nothing
+            is broken; the recovery is to widen the filters.
+          - "Map unavailable" is neither -- it is the map's own boundary, over
+            in the other column, and the jobs below are unaffected.
+          Collapsing any two of these tells a driver the wrong thing about
+          whether there is freight to be had. */}
       {loading && rows.length === 0 ? (
         <>
           <p className="sr-only" role="status">
@@ -416,7 +457,16 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
           </p>
           <JobListSkeleton />
         </>
-      ) : rows.length === 0 && !error ? (
+      ) : error ? (
+        <EmptyState
+          title="Could not load jobs"
+          hint={`${stopped(error)} Nothing could be read from the board, so this is not the same as no jobs matching.`}
+        >
+          <button type="button" className="btn btn-sm" onClick={() => void search()}>
+            Try again
+          </button>
+        </EmptyState>
+      ) : rows.length === 0 ? (
         <EmptyState title={emptyStateTitle(filters)} hint={LIFECYCLE_NOTE}>
           {suggestions.map((s) => (
             <button key={s.label} type="button" className="btn btn-sm" onClick={() => setFilters(s.next)}>
@@ -455,81 +505,116 @@ export function Board({ initialQuery, initialJobId, signedIn, role, userId, demo
       />
     ) : null;
 
+  /**
+   * How much of the map's box the bottom sheet is covering. The map frames its
+   * jobs into what is left, and the unavailable panel centres itself in the
+   * same space -- one measurement, so a message about a missing map cannot end
+   * up behind the sheet where the map used to be.
+   */
+  const mapBottomPadding = mobile ? snapHeightPx(viewportHeight, snap, topInset) : 0;
+
   const map = (
     <div className="relative h-full w-full">
-      <LoadMap
-        jobs={ordered}
-        end={filters.mapEnd}
-        selectedId={selectedId}
-        hoveredId={hoveredId}
-        onSelect={selectFromMap}
-        onHover={setHoveredId}
-        onStateClick={onStateClick}
-        onGroupClick={onGroupClick}
-        searchAsMove={searchAsMove}
-        onSearchAsMoveChange={setSearchAsMove}
-        onBoundsChange={setBounds}
-        viewer={current}
-        home={home}
-        towardHome={filters.towardHome}
-        fitKey={visibleQuery}
-        /* How much of the map the sheet is covering right now: the map frames
-           the jobs into what is left, and lifts its own legend and MapLibre's
-           attribution above it. It re-frames when this changes -- once per
-           snap, never mid-drag, and never after the viewer has panned the map
-           themselves. */
-        bottomPadding={mobile ? snapHeightPx(viewportHeight, snap, topInset) : 0}
-        compact={mobile || shortScreen}
-        filteredSummary={summary}
-        loading={firstLoad}
-      />
+      {/* Everything that belongs to the map goes inside the boundary, not just
+          `LoadMap`: if the map cannot draw, the nudge that asks where your
+          truck is and the "nothing to plot" note are both about a map that is
+          not there, and printing them over the unavailable panel would be three
+          messages in one rectangle. One failure, one thing to read.
 
-      {showNudge && (
-        <div className="glass absolute bottom-[var(--sp-6)] left-1/2 w-[320px] -translate-x-1/2 p-[var(--sp-3)]">
-          <div className="font-semibold">Where are you now?</div>
-          <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-            Jobs sort by distance to the pickup, and cards show how far each one is.
-          </p>
-          <div className="mt-[var(--sp-2)] flex gap-[var(--sp-2)]">
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() =>
-                window.dispatchEvent(
-                  new CustomEvent(OPEN_LOCATION_EVENT, { detail: { slot: "current" } }),
-                )
-              }
-            >
-              Set your location
-            </button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={dismissNudge}>
-              Skip — just browse
-            </button>
-          </div>
-        </div>
-      )}
+          What is deliberately OUTSIDE it: the filter bar, the list, the open
+          job and the rows themselves. They live in this component's state, they
+          never needed a GPU, and they are what the visitor came for. */}
+      <MapBoundary compact={mobile || shortScreen} bottomPadding={mapBottomPadding}>
+        <LoadMap
+          jobs={ordered}
+          end={filters.mapEnd}
+          selectedId={selectedId}
+          hoveredId={hoveredId}
+          onSelect={selectFromMap}
+          onHover={setHoveredId}
+          onStateClick={onStateClick}
+          onGroupClick={onGroupClick}
+          searchAsMove={searchAsMove}
+          onSearchAsMoveChange={setSearchAsMove}
+          onBoundsChange={setBounds}
+          viewer={current}
+          home={home}
+          towardHome={filters.towardHome}
+          fitKey={visibleQuery}
+          /* How much of the map the sheet is covering right now: the map frames
+             the jobs into what is left, and lifts its own legend and MapLibre's
+             attribution above it. It re-frames when this changes -- once per
+             snap, never mid-drag, and never after the viewer has panned the map
+             themselves. */
+          bottomPadding={mapBottomPadding}
+          compact={mobile || shortScreen}
+          filteredSummary={summary}
+          loading={firstLoad}
+        />
 
-      {/* The list beside this already carries the full empty state -- headline,
-          the lifecycle note and a way forward. Printing all three again over
-          the map would be the same paragraph twice on one screen, so this says
-          only what the MAP needs to say (there is nothing here to plot) and
-          offers the one action the list does not. */}
-      {rows.length === 0 && !loading && !error && (
-        <div className="glass absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-[var(--sp-4)] py-[var(--sp-3)] text-center">
-          <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-            Nothing to plot for this search.
+        {showNudge && (
+          <div className="glass absolute bottom-[var(--sp-6)] left-1/2 w-[320px] -translate-x-1/2 p-[var(--sp-3)]">
+            <div className="font-semibold">Where are you now?</div>
+            <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+              Jobs sort by distance to the pickup, and cards show how far each one is.
+            </p>
+            <div className="mt-[var(--sp-2)] flex gap-[var(--sp-2)]">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent(OPEN_LOCATION_EVENT, { detail: { slot: "current" } }),
+                  )
+                }
+              >
+                Set your location
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={dismissNudge}>
+                Skip — just browse
+              </button>
+            </div>
           </div>
-          {!isDefault(filters) && (
-            <button
-              type="button"
-              className="btn btn-sm mt-[var(--sp-2)]"
-              onClick={() => setFilters(clearedFilters(filters))}
+        )}
+
+        {/* The list beside this already carries the full empty state -- headline,
+            the lifecycle note and a way forward. Printing all three again over
+            the map would be the same paragraph twice on one screen, so this says
+            only what the MAP needs to say (there is nothing here to plot) and
+            offers the one action the list does not. */}
+        {rows.length === 0 && !loading && (
+          <div className="glass absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-[var(--sp-4)] py-[var(--sp-3)] text-center">
+            {/* An empty map after a failed fetch must not be read as an empty
+                country. "Nothing to plot" is an answer; this is the absence of
+                one, and the button offers the matching recovery. */}
+            <div
+              className="text-(length:--fs-sm)"
+              style={{ color: error ? "var(--danger)" : "var(--muted)" }}
             >
-              Clear filters
-            </button>
-          )}
-        </div>
-      )}
+              {error ? "Could not load jobs to plot." : "Nothing to plot for this search."}
+            </div>
+            {error ? (
+              <button
+                type="button"
+                className="btn btn-sm mt-[var(--sp-2)]"
+                onClick={() => void search()}
+              >
+                Try again
+              </button>
+            ) : (
+              !isDefault(filters) && (
+                <button
+                  type="button"
+                  className="btn btn-sm mt-[var(--sp-2)]"
+                  onClick={() => setFilters(clearedFilters(filters))}
+                >
+                  Clear filters
+                </button>
+              )
+            )}
+          </div>
+        )}
+      </MapBoundary>
     </div>
   );
 
