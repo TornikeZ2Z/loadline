@@ -31,7 +31,6 @@ import {
   formatCf,
   formatPrice,
   freshnessLabel,
-  laneLabel,
   maskPhones,
   placeLabel,
   readyEvidence,
@@ -43,9 +42,17 @@ import {
   TAG_LABELS,
 } from "@/lib/loads/present";
 import { ContactGate } from "./ContactGate";
+import {
+  reviewTitle,
+  APPROX_NOTE,
+  EvidenceChip,
+  NEEDS_REVIEW,
+  ReadinessChip,
+  RequirementBadge,
+} from "./LoadViews";
 import { MatchPanel } from "./MatchPanel";
 import { ReportProblem } from "./ReportProblem";
-import { Chip, PrecisionNote, StatusChip } from "./ui";
+import { Chip, StatusChip } from "./ui";
 
 export interface LoadDetailProps {
   /** Null while a deep link is still loading: the detail fetches by `jobId`. */
@@ -259,16 +266,30 @@ export function LoadDetail({
           style={{ background: "var(--surface-glass)", backdropFilter: "blur(8px)" }}
         >
           <BackButton total={totalInList} onClose={onClose} />
+          {/* The route, city and state to city and state, is the title -- the
+              two-letter lane that used to be the h1 said less than the line
+              under it and is gone rather than printed twice (V05). */}
           <h1 className="big mt-[var(--sp-1)] text-(length:--fs-xl) md:mt-[var(--sp-2)] md:text-(length:--fs-2xl)">
-            {laneLabel(row)}
+            {from.text} <span aria-hidden>→</span>
+            <span className="sr-only">to</span> {to.text}
           </h1>
-          <p className="text-(length:--fs-base) md:text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
-            {from.text} → {to.text}
-          </p>
-          <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)] md:mt-[var(--sp-2)]">
-            <Chip tone={fresh.tone} title={fresh.detail ?? undefined}>
-              {fresh.text}
-            </Chip>
+          {/* V06 -- availability in plain text, our own doubts as outlined
+              chips. The freshness line is about the LISTING; the chips beside
+              it are MoverMesh saying how much to trust the reading. */}
+          <div
+            className="mt-[var(--sp-1)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)] text-(length:--fs-base) md:mt-[var(--sp-2)]"
+            style={{ color: "var(--muted)" }}
+          >
+            <span>{fresh.text}</span>
+            {/* Said out loud rather than left in the freshness tooltip, which
+                was the only place "Posted 4× since Sep 1" and "Relisted" ever
+                appeared (V06). */}
+            {fresh.detail && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{fresh.detail}</span>
+              </>
+            )}
             {row.status !== "available" && <StatusChip status={row.status} />}
             {/*
               Only ever true on the poster's own copy: a demo listing is not
@@ -284,78 +305,54 @@ export function LoadDetail({
               </Chip>
             )}
             {row.needs_review && (
-              <Chip tone="review" title={row.flags?.join(" · ") || undefined}>
-                Unverified
-              </Chip>
+              <EvidenceChip kind="review" title={reviewTitle(row.flags)}>
+                {NEEDS_REVIEW}
+              </EvidenceChip>
             )}
             {twin && (
-              <Chip tone="approx" title={twin.title}>
+              <EvidenceChip kind="unknown" title={twin.title}>
                 {twin.label}
-              </Chip>
+              </EvidenceChip>
             )}
-            <PrecisionNote precision={row.pickup_precision} />
-            {row.pickup_precision !== row.delivery_precision && (
-              <PrecisionNote precision={row.delivery_precision} />
-            )}
+            {/* No "approximate" chip up here: V07 asks for source context beside
+                the field it qualifies, and each Stop below carries its own --
+                which also names WHICH end is the guess. */}
           </div>
         </section>
 
         <div className="p-[var(--sp-4)]">
 
-        {/* 2 — size and price. The two numbers a driver decides on, at the
-            size that says so. A price the post never gave is NOT one of them,
-            so it drops out of the display scale rather than being set in
-            20 px grey and wrapping over two lines. */}
-        <section className="grid grid-cols-2 gap-[var(--sp-3)]">
-          <div>
-            <div className="label">Size</div>
-            {row.cubic_feet != null ? (
-              <div className="big text-(length:--fs-3xl)">{formatCf(row.cubic_feet)}</div>
-            ) : (
-              <div className="text-(length:--fs-md)" style={{ color: "var(--approx)" }}>
-                Size not stated
-              </div>
-            )}
-          </div>
-          <div>
-            <div className="label">Price</div>
-            {/* The SAME string as the card, deliberately. The detail has room
-                for more words, and used to spend it on "Not stated — ask the
-                sender"; a driver meets a missing price dozens of times a session
-                and should not have to notice that two different sentences mean
-                one thing. The next step is not lost with the wording: the
-                contact gate is five sections below, and it is the thing that
-                actually gets you the sender. Never "Negotiable" and never
-                "Make offer" -- neither is a thing the post said. */}
-            {price.tone === "muted" ? (
-              <div className="text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
-                {PRICE_NOT_PROVIDED}
-              </div>
-            ) : (
-              <>
-                <div className="big text-(length:--fs-xl)" style={{ color: "var(--ok)" }}>
-                  {price.headline}
-                </div>
-                {price.sub && (
-                  <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-                    {price.sub}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </section>
+        {/* ============================================================== *
+            V07 — FOUR GROUPS, AND NOTHING SAID TWICE.
+            Route and schedule · Load and requirements · Contact · Original
+            post. The drawer used to open with a two-up size/price card, then a
+            timeline, then a 2x2 grid of bordered mini-cards that repeated the
+            Ready value from the timeline and the Listed value from the header
+            three lines above it. The mini-cards are gone entirely -- a card
+            inside a card inside a drawer, for a label and one line of text --
+            and every value now appears in exactly one of these groups.
+            ============================================================== */}
 
-        {/* 3 — timeline */}
-        <section className="mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]">
+        {/* A — ROUTE AND SCHEDULE. Where it starts, where it ends, when it can
+            be loaded and by when it must land. */}
+        <Group title="Route and schedule" first>
           <Stop
             label="Pickup"
             place={from.text}
-            precision={row.pickup_precision}
-            note={ready.text}
-            noteTitle={ready.title}
-          />
-          {/* Two independent statements, deliberately not merged.
+            approx={from.approx}
+            approxLabel="Approximate pickup"
+          >
+            <div className="mt-[var(--sp-1)] flex flex-wrap items-center gap-[var(--sp-2)]">
+              <ReadinessChip text={ready.text} tone={ready.tone} title={ready.title} />
+              {readyEvidence(row) && (
+                <span className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
+                  {readyEvidence(row)}
+                </span>
+              )}
+            </div>
+          </Stop>
+
+          {/* Three independent statements, deliberately not merged.
               WHAT KIND OF NUMBER: a road route, a straight line, or none at all
               -- the provider either answered or it did not.
               HOW GOOD THE ENDS ARE: a post that never named a city is measured
@@ -363,15 +360,18 @@ export function LoadDetail({
               route to a made-up address. This job is the live example: an exact
               Kearny pickup, "SC 29588" that resolved only to the state, and a
               confident-looking "726 mi by road" between them.
-              A job can be any of the four combinations, so the caveat rides
-              alongside rather than replacing the kind. */}
+              WHAT THE TIME IS: an ESTIMATE from a routing provider (V07). It is
+              a car on an empty road, not a loaded truck with a driver who has
+              to sleep, and MoverMesh is not a party to when this freight
+              arrives. The word "estimated" is in the line rather than in a
+              tooltip for exactly that reason. */}
           <div
-            className="my-[var(--sp-1)] ml-[5px] border-l border-dashed pl-[var(--sp-4)] text-(length:--fs-sm)"
+            className="my-[var(--sp-1)] ml-[5px] border-l border-dashed pl-[var(--sp-4)] text-(length:--fs-base)"
             style={{ borderColor: "var(--border-strong)", color: "var(--muted)", minHeight: 28 }}
             title={tripCaveat?.title ?? undefined}
           >
             {trip
-              ? `${tripCaveat ? "≈ " : ""}${Math.round(trip.miles).toLocaleString()} mi by road · ${formatDuration(trip.minutes)} driving`
+              ? `${tripCaveat ? "≈ " : ""}${Math.round(trip.miles).toLocaleString()} mi by road · ${formatDuration(trip.minutes)} estimated driving`
               : data == null
                 ? "checking road distance…"
                 : row.trip_miles != null
@@ -385,22 +385,37 @@ export function LoadDetail({
                 {tripCaveat.note}
               </span>
             )}
+            {trip && (
+              <div className="text-(length:--fs-sm)">
+                Driving time is a routing estimate, not a delivery commitment — agree dates with
+                the sender.
+              </div>
+            )}
           </div>
+
           <Stop
             label="Delivery"
             place={to.text}
-            precision={row.delivery_precision}
-            note={deliverBy?.text ?? "No deadline given"}
-          />
-        </section>
+            approx={to.approx}
+            approxLabel="Approximate delivery"
+          >
+            <div className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
+              {deliverBy ? (
+                <span style={{ color: deliverBy.tone === "warn" ? "var(--warn)" : undefined }}>
+                  {deliverBy.text}
+                </span>
+              ) : (
+                "No delivery deadline stated"
+              )}
+            </div>
+          </Stop>
 
-        {/* 4 — facts */}
-        <section className="mt-[var(--sp-5)] grid grid-cols-2 gap-[var(--sp-2)]">
-          <Fact label="From you">
+          <Field label="From you">
             {toPickup ? (
               <span className="nums" title={nearCaveat?.title ?? undefined}>
                 {nearCaveat ? "≈ " : ""}
-                {Math.round(toPickup.miles).toLocaleString()} mi · {formatDuration(toPickup.minutes)} to pickup
+                {Math.round(toPickup.miles).toLocaleString()} mi ·{" "}
+                {formatDuration(toPickup.minutes)} estimated driving to pickup
               </span>
             ) : row.distance_miles != null ? (
               <span className="nums" title={nearCaveat?.title ?? undefined}>
@@ -410,8 +425,7 @@ export function LoadDetail({
             ) : (
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
-                style={{ color: "var(--accent)", padding: 0 }}
+                className="btn btn-link btn-sm -ml-[10px]"
                 onClick={() =>
                   window.dispatchEvent(
                     new CustomEvent(OPEN_LOCATION_EVENT, { detail: { slot: "current" } }),
@@ -421,63 +435,104 @@ export function LoadDetail({
                 Set your location to see this
               </button>
             )}
-            {/* Same caveat as the timeline's, worded for this leg. The box has
-                the room for the words; the card, which shows the same number,
-                has only the "≈" and the tooltip. */}
+            {/* Same caveat as the leg's, worded for this one. The drawer has the
+                room for the words; the card, which shows the same number, has
+                only the "≈" and the tooltip. */}
             {nearCaveat && (toPickup != null || row.distance_miles != null) && (
               <div className="text-(length:--fs-sm)" style={{ color: "var(--approx)" }}>
                 {nearCaveat.note}
               </div>
             )}
-          </Fact>
+          </Field>
+        </Group>
 
-          <Fact label="Ready">
-            <span title={ready.title ?? undefined}>{ready.text}</span>
-            <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-              {readyEvidence(row)}
+        {/* B — LOAD AND REQUIREMENTS. How big, what it pays, and what the
+            sender demands of whoever takes it. */}
+        <Group title="Load and requirements">
+          <div className="grid grid-cols-2 gap-[var(--sp-3)]">
+            <div>
+              <div className="label">Size</div>
+              {row.cubic_feet != null ? (
+                <div className="big text-(length:--fs-3xl)">{formatCf(row.cubic_feet)}</div>
+              ) : (
+                <div className="mt-[var(--sp-1)]">
+                  <EvidenceChip
+                    kind="unknown"
+                    title="The post never stated a size, and MoverMesh does not estimate one."
+                  >
+                    Size not stated
+                  </EvidenceChip>
+                </div>
+              )}
             </div>
-          </Fact>
-
-          <Fact label="Deliver by">{deliverBy?.text ?? "Not given"}</Fact>
-
-          <Fact label="Listed">
-            <span>{listedRange(row)}</span>
-          </Fact>
-        </section>
-
-        {/* 5 — the sender's own words about the work */}
-        {row.requirements && (
-          <section className="mt-[var(--sp-4)]">
-            <div className="label">Sender&apos;s requirements</div>
-            <div className="flex flex-wrap gap-[var(--sp-1)]">
-              {requirements.map((req) => (
-                <Chip key={req.label} title={req.title}>
-                  {req.label}
-                </Chip>
-              ))}
+            <div>
+              <div className="label">Price</div>
+              {/* The SAME string as the card, deliberately. The detail has room
+                  for more words, and used to spend it on "Not stated — ask the
+                  sender"; a driver meets a missing price dozens of times a
+                  session and should not have to notice that two different
+                  sentences mean one thing. The next step is not lost with the
+                  wording: the contact block below is the thing that actually
+                  gets you the sender. Never "Negotiable" and never "Make offer"
+                  -- neither is a thing the post said. */}
+              {price.tone === "muted" ? (
+                <div className="text-(length:--fs-md)" style={{ color: "var(--muted)" }}>
+                  {PRICE_NOT_PROVIDED}
+                </div>
+              ) : (
+                <>
+                  <div className="big text-(length:--fs-xl)" style={{ color: "var(--ok)" }}>
+                    {price.headline}
+                  </div>
+                  {price.sub && (
+                    <div className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
+                      {price.sub}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-            <p className="mt-[var(--sp-1)] text-(length:--fs-base)">{maskPhones(row.requirements)}</p>
-          </section>
-        )}
+          </div>
 
-        {(row.job_notes || (row.tags?.length ?? 0) > 0) && (
-          <section className="mt-[var(--sp-4)]">
-            <div className="label">Notes on this job</div>
-            {(row.tags?.length ?? 0) > 0 && (
-              <div className="mb-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
-                {row.tags.map((tag) => {
-                  const meta = TAG_LABELS[tag];
-                  return (
-                    <Chip key={tag} tone={meta?.tone ?? "default"}>
-                      {meta?.label ?? tag}
-                    </Chip>
-                  );
-                })}
+          {/* The sender's own conditions, as chips beside their own words. The
+              chips are a reading of that paragraph and the paragraph is under
+              them, so nothing here is only a tooltip. */}
+          {row.requirements && (
+            <div className="mt-[var(--sp-4)]">
+              <div className="label">Sender&apos;s requirements</div>
+              <div className="flex flex-wrap gap-[var(--sp-1)]">
+                {requirements.map((req) => (
+                  <RequirementBadge key={req.label} label={req.label} title={req.title} />
+                ))}
               </div>
-            )}
-            {row.job_notes && <p className="text-(length:--fs-base)">{maskPhones(row.job_notes)}</p>}
-          </section>
-        )}
+              <p className="mt-[var(--sp-2)] text-(length:--fs-base)">
+                {maskPhones(row.requirements)}
+              </p>
+              <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                Stated by the sender. MoverMesh verifies no authority, insurance or identity.
+              </p>
+            </div>
+          )}
+
+          {(row.job_notes || (row.tags?.length ?? 0) > 0) && (
+            <div className="mt-[var(--sp-4)]">
+              <div className="label">Notes on this job</div>
+              {(row.tags?.length ?? 0) > 0 && (
+                <div className="mb-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
+                  {row.tags.map((tag) => {
+                    const meta = TAG_LABELS[tag];
+                    return (
+                      <Chip key={tag} tone={meta?.tone ?? "default"}>
+                        {meta?.label ?? tag}
+                      </Chip>
+                    );
+                  })}
+                </div>
+              )}
+              {row.job_notes && <p className="text-(length:--fs-base)">{maskPhones(row.job_notes)}</p>}
+            </div>
+          )}
+        </Group>
 
         {/* 6 — the only place a phone number reaches the page.
             On a phone it is not here at all: it is the bar under this scroller,
@@ -486,10 +541,14 @@ export function LoadDetail({
             it -- the Cancel button -- was clipped. A flex row outside the
             scroller cannot be clipped by definition, and it is on screen from
             the moment the job opens rather than six sections down. */}
+        {/* "Contact the poster" rather than V07's bare "Contact": ContactGate
+            draws its own "Contact" caption, and a heading directly above a
+            caption of the same word reads as a stutter. This is the branding
+            review's own phrase for the action. */}
         {!mobile && (
-          <section ref={contactSection} className="mt-[var(--sp-5)]">
+          <Group title="Contact the poster" ref={contactSection}>
             {gate}
-          </section>
+          </Group>
         )}
 
         {/* 6b — the mirror of the truck page's panel.
@@ -501,14 +560,15 @@ export function LoadDetail({
             has already decided to call should not have to scroll past it. */}
         <MatchPanel side="job" path={`/api/loads/${row.id}/matches`} jobCf={row.cubic_feet} />
 
-        {/* 7 — the post it came from */}
+        {/* D — ORIGINAL POST. The reading above is ours; this is what the
+            sender actually wrote, one action away and with this job's own line
+            highlighted. */}
         {data?.source && (
-          <section className="mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]">
-            <div className="label">Original WhatsApp message</div>
-            <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+          <Group title="Original post">
+            <p className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
               {data.source.author_name ?? "Unnamed sender"}
               {data.source.group_name ? ` · ${data.source.group_name}` : ""}
-              {" · "}
+              {" · WhatsApp · "}
               {new Date(data.source.sent_at).toLocaleString([], {
                 month: "short",
                 day: "numeric",
@@ -540,19 +600,27 @@ export function LoadDetail({
             {excerpt && excerpt.total > excerpt.lines.length && (
               <button
                 type="button"
-                className="btn btn-ghost btn-sm mt-[var(--sp-1)]"
+                className="btn btn-sm mt-[var(--sp-2)]"
                 onClick={() => setFullMessage((f) => !f)}
               >
                 {fullMessage ? "Show just this job's line" : `Show full message (${excerpt.total} lines)`}
               </button>
             )}
 
+            {/* Said in words next to the words it is about, not only in the
+                chip's tooltip up in the header (V06). */}
+            {row.needs_review && (
+              <p className="mt-[var(--sp-2)] text-(length:--fs-base)" style={{ color: "var(--warn)" }}>
+                {NEEDS_REVIEW}: {row.flags?.filter(Boolean).join(" · ") || "the rules were not confident about this reading"}. Check the message above before you call.
+              </p>
+            )}
+
             {row.confidence < 0.5 && (
-              <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--warn)" }}>
+              <p className="mt-[var(--sp-1)] text-(length:--fs-base)" style={{ color: "var(--warn)" }}>
                 Read out of the message automatically with low confidence — confirm the details on the call.
               </p>
             )}
-          </section>
+          </Group>
         )}
 
         {/* The other postings of what looks like this same load.
@@ -680,18 +748,74 @@ function BackButton({ total, onClose }: { total: number; onClose(): void }) {
   );
 }
 
+/**
+ * One of V07's four groups.
+ *
+ * A real <h2> rather than the uppercase `.label` the sub-fields use: these are
+ * the four things a drawer is made of, and a reader skimming for the contact
+ * action or the original post is looking for a heading, not a caption. The rule
+ * above it is the group's only border -- the mini-cards this replaced put a
+ * second and a third border inside the drawer's own.
+ */
+function Group({
+  title,
+  first,
+  ref,
+  children,
+}: {
+  title: string;
+  /** The first group needs no rule: the sticky header already drew one. */
+  first?: boolean;
+  ref?: React.Ref<HTMLElement>;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      ref={ref}
+      className={
+        first
+          ? ""
+          : "mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]"
+      }
+    >
+      <h2 className="t-title mb-[var(--sp-3)]">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/** A labelled value inside a group. No card: see `Group`. */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-[var(--sp-3)]">
+      <div className="label">{label}</div>
+      <div className="text-(length:--fs-base)">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * One end of the route: the place, whether we had to guess it, and whatever the
+ * post said about the timing of that end.
+ *
+ * The uncertainty chip NAMES THE END -- "Approximate pickup", not a bare
+ * "approximate location" that leaves the reader to work out which of the two
+ * places above it is the vague one (V06). It sits directly under the place it
+ * qualifies, which is what "keep source context adjacent to fields that are
+ * uncertain" asks for.
+ */
 function Stop({
   label,
   place,
-  precision,
-  note,
-  noteTitle,
+  approx,
+  approxLabel,
+  children,
 }: {
   label: string;
   place: string;
-  precision: string | null;
-  note: string;
-  noteTitle?: string | null;
+  approx: boolean;
+  approxLabel: string;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="flex gap-[var(--sp-3)]">
@@ -701,40 +825,19 @@ function Stop({
         style={{ background: label === "Pickup" ? "var(--pickup)" : "var(--delivery)" }}
       />
       <div className="min-w-0">
-        <div className="text-(length:--fs-xs) font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
-          {label}
-        </div>
+        <div className="label mb-0">{label}</div>
         <div className="text-(length:--fs-md) font-semibold">{place}</div>
-        <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }} title={noteTitle ?? undefined}>
-          {note}
-        </div>
-        <PrecisionNote precision={precision} />
+        {approx && (
+          <div className="mt-[var(--sp-1)]">
+            <EvidenceChip kind="unknown" title={APPROX_NOTE}>
+              {approxLabel}
+            </EvidenceChip>
+          </div>
+        )}
+        {children}
       </div>
     </div>
   );
-}
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="card p-[var(--sp-3)]">
-      <div className="label">{label}</div>
-      <div className="text-(length:--fs-base)">{children}</div>
-    </div>
-  );
-}
-
-/** "Sep 1 – Sep 6 · posted 4×" / "Today" — how long this job has been around. */
-function listedRange(row: PublicLoadRow): string {
-  const fmt = (iso: string | null) =>
-    iso
-      ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" })
-      : null;
-  const first = fmt(row.first_seen_at ?? row.created_at);
-  const last = fmt(row.last_seen_at ?? row.created_at);
-  const times = row.seen_count > 1 ? ` · posted ${row.seen_count}×` : "";
-  if (!first || !last) return "Today";
-  if (first === last) return `${first}${times}`;
-  return `${first} – ${last}${times}`;
 }
 
 /**
