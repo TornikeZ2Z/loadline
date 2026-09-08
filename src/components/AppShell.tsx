@@ -190,6 +190,34 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
           </nav>
 
           <div className="ml-auto flex shrink-0 items-center gap-[var(--sp-2)] lg:gap-[var(--sp-3)]">
+            {/* L06 / V12 — the demo label, and it is in the header row rather
+                than in the account menu because "persistent" is the whole
+                requirement. The review signed in as the demo driver, saw a
+                named account in this header with nothing to mark it, and only
+                found out what the account was two pages later, at the bottom of
+                a posting form. By then the visitor has decided what this site
+                is.
+
+                It is here, at every width, and not next to the name: the name
+                only appears from `lg` (V03), so hanging the mark off it would
+                hide the mark on exactly the screen where the review found the
+                problem. `.chip .chip-warn` are the board's own classes, so this
+                is the same yellow the row itself wears on a demo listing
+                (LoadDetail, TruckDetail, TruckViews) -- one mark, one meaning.
+
+                A word and not a dot: review 01 is explicit that an icon or a
+                coloured dot is not enough for a consequential state. The full
+                sentence is in the account menu below, where there is room for
+                it, and in the `title` here. */}
+            {user?.isDemo ? (
+              <span
+                className="chip chip-warn shrink-0"
+                title="You are signed in to a shared demo account. Browsing and contact reveals work normally; anything you post is visible to this account only, and never to other movers."
+              >
+                Demo
+              </span>
+            ) : null}
+
             {/* The rest of the site, in a menu rather than six more nav items:
                 the board has to stay first, and a phone header has no room.
 
@@ -269,10 +297,32 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                   <div className="col-span-2 sm:col-span-3">
                     <div className="label">Account</div>
                     <div className="px-1 pb-[var(--sp-2)]">
-                      <div className="font-semibold">{user.name}</div>
+                      <div className="flex flex-wrap items-center gap-[var(--sp-2)]">
+                        <span className="font-semibold">{user.name}</span>
+                        {user.isDemo ? <span className="chip chip-warn">Demo</span> : null}
+                      </div>
                       <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
                         {ROLE_LABEL[user.role]}
                       </div>
+                      {/* L06 — the sentence the header chip's `title` carries,
+                          spelled out where a touch screen can read it: a title
+                          attribute is a hover, and a phone has no hover.
+
+                          It says what to DO about it too, and the instruction is
+                          the real flow rather than an invented one: there is no
+                          upgrade endpoint, /register redirects anyone who is
+                          already signed in, so the honest path out of the demo
+                          is the Sign out button directly below this line. */}
+                      {user.isDemo ? (
+                        <p
+                          className="mt-[var(--sp-2)] max-w-[46ch] text-(length:--fs-sm) leading-relaxed"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          A shared demo account. Browsing and contact reveals work normally; anything
+                          you post from it is visible to this account only. Sign out and create your
+                          own account to post something other movers can see.
+                        </p>
+                      ) : null}
                     </div>
                     <LogoutButton className="btn w-full" />
                   </div>
