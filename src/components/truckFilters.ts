@@ -28,7 +28,7 @@
 
 import type { BoundsInput } from "@/lib/loads/types";
 import type { StoredLocation } from "@/lib/location";
-import type { Filters } from "./FilterBar";
+import { routeApplied, type Filters } from "./FilterBar";
 
 /**
  * `FilterBar`'s "this city only" sentinel, and the job board's default radius.
@@ -80,7 +80,10 @@ export function truckFiltersToQuery(
     }
   };
 
-  if (f.routeMode === "corridor") {
+  // The same rule the job query follows: a corridor with fewer than two ends is
+  // not a filter, so it is not written (L02). `/api/trucks` would ignore it as
+  // `/api/loads` does, and the request would claim a constraint it never had.
+  if (f.routeMode === "corridor" && routeApplied(f, ctx)) {
     sp.set("routeMode", "corridor");
     if (f.corridor) sp.set("corridor", f.corridor);
     if (f.origin) writePoint(f.origin, "origin", "originLat", "originLng");

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/basePath";
 import {
   OPEN_LOCATION_EVENT,
@@ -25,10 +26,80 @@ import { LocationInput, type ResolvedPlace } from "./LocationInput";
  * filter and powers the Toward-home corridor, which is why it is a separate,
  * quieter pill rather than a second required field.
  */
+/**
+ * The board's own definition of a narrow screen, mirrored here.
+ *
+ * Board.tsx calls it `compact` -- `(max-width: 767px)` OR `(max-height: 540px)`
+ * -- and it decides whether the filter bar has room for the search controls
+ * below. Above it the board hosts the truck-location and home-base controls
+ * inside its search area (V02), so the header must not print a second pair.
+ */
+const COMPACT_MQ = "(max-width: 767px), (max-height: 540px)";
+
+/** The board and its two deep links, the only routes with a search area. */
+function isBoardPath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return pathname === "/" || pathname.startsWith("/jobs") || pathname.startsWith("/trucks");
+}
+
+function subscribeCompact(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia(COMPACT_MQ);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
+/**
+ * True while the viewport is one the board calls compact.
+ *
+ * The server snapshot is `true` on purpose: the header renders the pills in the
+ * HTML, so a phone -- where they are the only copy there is -- has them before
+ * any JavaScript runs, and the wide-screen case is handled by a media query on
+ * the wrapper so nothing is ever painted twice.
+ */
+function useCompactViewport(): boolean {
+  return useSyncExternalStore(
+    subscribeCompact,
+    () => window.matchMedia(COMPACT_MQ).matches,
+    () => true,
+  );
+}
+
 export function CurrentLocation() {
+  const pathname = usePathname();
+  const compact = useCompactViewport();
+  // On a wide board the search area owns these two controls, so this one steps
+  // aside completely -- including its OPEN_LOCATION_EVENT listener, or the
+  // map's "Set truck location" nudge would open a popover inside a header that
+  // is not showing (V02).
+  const stepAside = isBoardPath(pathname) && !compact;
+
+  if (stepAside) return null;
+  return (
+    /* The same condition as `stepAside`, written once more as a media query.
+       `useCompactViewport` cannot know the viewport during server rendering, so
+       without this the wide board would paint the header pills for the one
+       frame between HTML and hydration and then drop them, which reads as a
+       layout bug. Off the board the wrapper carries no class and nothing hides. */
+    <div className={isBoardPath(pathname) ? "md:[@media(min-height:541px)]:hidden" : undefined}>
+      <LocationControls variant="header" />
+    </div>
+  );
+}
+
+/**
+ * The two location pills and the popover behind them.
+ *
+ * `header` is the pinned group beside the account controls, where the pills
+ * shrink to a city on a phone. `search` is the board's own search area, where
+ * they lead the row that forms the search -- the whole point of V02 -- and can
+ * afford their full labels.
+ */
+function LocationControls({ variant }: { variant: "header" | "search" }) {
   const { current, home, hydrated } = useViewerLocation();
   const [open, setOpen] = useState<LocationSlot | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  const inHeader = variant === "header";
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -50,12 +121,20 @@ export function CurrentLocation() {
   }, []);
 
   return (
-    <div ref={box} className="relative flex items-center gap-[var(--sp-2)]">
+    /* The search variant wraps: at 390 px the two pills are 400 px of content
+       inside a 358 px sheet, and a row that cannot wrap simply pushed the home
+       base off the right edge. The header variant must not wrap -- it lives in
+       a fixed-height bar -- and below `sm` it only ever shows one pill anyway. */
+    <div
+      ref={box}
+      className={`relative flex items-center gap-[var(--sp-2)]${inHeader ? "" : " flex-wrap"}`}
+    >
       <button
         type="button"
-        className="pill max-w-[32vw] sm:max-w-none"
+        className={inHeader ? "pill max-w-[32vw] sm:max-w-none" : "pill min-w-0 max-w-full"}
         onClick={() => setOpen((s) => (s === "current" ? null : "current"))}
         title="Where your truck will be empty — sorts the board by distance to the pickup"
+        aria-label="Where will your truck be empty?"
         style={
           hydrated && !current
             ? { borderColor: "var(--accent)", color: "var(--accent)" }
@@ -70,10 +149,21 @@ export function CurrentLocation() {
             whose whole subject is an empty truck it has to be a statement about
             the truck (§5.1). The popover under it already asks the longer
             question, "Where will you be when you're empty?". */}
-        <span className="truncate sm:hidden">◎ {current ? shortLabel(current.label) : "Truck location"}</span>
-        <span className="hidden truncate sm:inline">
-          ◎ {current ? `Near ${current.label}` : "Truck location"}
-        </span>
+        {inHeader ? (
+          <>
+            <span className="truncate sm:hidden">
+              ◎ {current ? shortLabel(current.label) : "Truck location"}
+            </span>
+            <span className="hidden truncate sm:inline">
+              ◎ {current ? `Near ${current.label}` : "Truck location"}
+            </span>
+          </>
+        ) : (
+          <span className="truncate">
+            <span style={{ color: "var(--muted)" }}>◎ Truck empty at </span>
+            {current ? current.label : "anywhere"}
+          </span>
+        )}
         ▾
       </button>
 
@@ -83,16 +173,24 @@ export function CurrentLocation() {
           The wrapper carries `hidden`, not the button: `.pill` sets its own
           `display`, and a utility class of equal specificity declared earlier
           would lose to it. */}
-      <span className="hidden sm:block">
+      <span className={inHeader ? "hidden sm:block" : "block min-w-0 max-w-full"}>
         <button
           type="button"
-          className="pill"
+          className={inHeader ? "pill" : "pill min-w-0 max-w-full"}
           onClick={() => setOpen((s) => (s === "home" ? null : "home"))}
-          title="Where you're heading back to"
+          title="Where you're heading back to — optional. It pre-selects the delivery filter and powers Toward home."
         >
           {/* "Home" beside a job board reads as a link to the home page.
               "Home base" is the yard you are trying to get back to (§5.1). */}
-          ⌂ {home ? `Home base ${home.state ?? home.label}` : "Home base"} ▾
+          {inHeader ? (
+            <>⌂ {home ? `Home base ${home.state ?? home.label}` : "Home base"}</>
+          ) : (
+            <span className="truncate">
+              <span style={{ color: "var(--muted)" }}>⌂ Home base </span>
+              {home ? (home.state ?? home.label) : "optional"}
+            </span>
+          )}{" "}
+          ▾
         </button>
       </span>
 
@@ -104,10 +202,23 @@ export function CurrentLocation() {
           slot={open}
           onClose={() => setOpen(null)}
           onSwitchSlot={(s) => setOpen(s)}
+          align={inHeader ? "right" : "left"}
         />
       )}
     </div>
   );
+}
+
+/**
+ * The same two controls, rendered inside the board's search area.
+ *
+ * V02: "Place 'Where will your truck be empty?' within this area." It is the
+ * first thing in the row that forms the search, ahead of the lane, because it
+ * is the question a mover with an empty truck answers first -- and the header
+ * copy stands down (see `CurrentLocation`) so there is only ever one.
+ */
+export function SearchLocationControls() {
+  return <LocationControls variant="search" />;
 }
 
 /** "Miami, FL" -> "Miami"; "Near Kearny, NJ 07032" -> "Near Kearny". */
@@ -119,10 +230,17 @@ function LocationPopover({
   slot,
   onClose,
   onSwitchSlot,
+  align = "right",
 }: {
   slot: LocationSlot;
   onClose: () => void;
   onSwitchSlot: (slot: LocationSlot) => void;
+  /**
+   * Which edge the panel hangs from. The header group sits at the right of the
+   * window, so it opens leftwards; in the search area the controls are at the
+   * left edge and a right-aligned panel would run off the screen.
+   */
+  align?: "left" | "right";
 }) {
   const { current, home } = useViewerLocation();
   const stored = slot === "current" ? current : home;
@@ -210,7 +328,7 @@ function LocationPopover({
 
   return (
     <div
-      className="popover absolute right-0 top-full z-50 mt-2 w-[340px] max-w-[calc(100vw-2rem)] p-[var(--sp-3)]"
+      className={`popover absolute ${align === "right" ? "right-0" : "left-0"} top-full z-50 mt-2 w-[340px] max-w-[calc(100vw-2rem)] p-[var(--sp-3)]`}
       style={{ background: "var(--surface)", borderColor: "var(--border-strong)" }}
     >
       <div className="label">{isCurrent ? "Where are you?" : "Where are you heading back to?"}</div>
