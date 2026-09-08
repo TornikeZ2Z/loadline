@@ -90,7 +90,7 @@ export default async function CookiesPage() {
           </StoredItem>
           <StoredItem name="loadline.post.requirements.v1" where="Local storage">
             The requirements text on the post form, remembered so a poster does not retype the same
-            paragraph on every job. Posters only.
+            paragraph on every listing. Posters only.
           </StoredItem>
           <StoredItem name="loadline.locnudge" where="Session storage">
             That the board already offered, this visit, to set your location. Stops it asking twice.

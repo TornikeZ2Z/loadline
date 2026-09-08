@@ -32,7 +32,7 @@ export default async function NotificationSettingsPage() {
           className="mb-[var(--sp-5)] mt-[var(--sp-2)] max-w-[62ch] text-(length:--fs-md) leading-relaxed"
           style={{ color: "var(--text-2)" }}
         >
-          You are told when a load matches a truck you posted, or a truck could take a job you
+          You are told when a load matches a truck you posted, or a truck could take a load you
           posted. Nothing about your listings is sent to WhatsApp, and nothing is shared with anyone
           else on the board.
         </p>

@@ -36,9 +36,17 @@ export const SITE_SECTIONS: SiteSection[] = [
     heading: "Product",
     links: [
       { href: "/", label: "Board" },
+      // L05. Truck space had no way in from anywhere on the site except the
+      // /post chooser -- which is the POSTING side of it. A driver who wanted
+      // to LOOK at available space had to know that `?show=trucks` exists
+      // (Board.tsx: "reachable only from a URL"). The board itself is still
+      // both kinds by default; this is the filtered view, named.
+      { href: "/?show=trucks", label: "Find truck space" },
       { href: "/for-movers", label: "For movers" },
       { href: "/how-it-works", label: "How it works" },
-      { href: "/post", label: "Post to the board" },
+      // The nav calls it "Post a listing" (V03) and so does this, because they
+      // are the same destination and a reader should not have to work that out.
+      { href: "/post", label: "Post a listing" },
     ],
   },
   {
@@ -63,9 +71,22 @@ export const SITE_SECTIONS: SiteSection[] = [
   },
 ];
 
-/** The one honest line about what this is. Repeated nowhere else. */
+/**
+ * The one honest line about what this is. Repeated nowhere else.
+ *
+ * L05 rewrote it, twice over. It said "jobs posted in WhatsApp groups", which
+ * is the provenance of most of the board and not of the listings a poster types
+ * in here; and it led on the mechanism ("read by rules"), which review 01 names
+ * as the thing to stop doing -- a tagline should say what the reader gets. The
+ * rules are still the reason to trust the board, and they are still on
+ * /how-it-works, one click from this footer.
+ *
+ * It is also the FooterBar's line from `xl` up, so its length is load-bearing:
+ * 83 characters, six shorter than the line it replaces, which is why the bar
+ * still fits on one row at 1280.
+ */
 export const SITE_TAGLINE =
-  "A backhaul board for movers: jobs posted in WhatsApp groups, read by rules and put on a map.";
+  "A load board for movers: loads and truck space, by route, capacity and stated dates.";
 
 /**
  * The links a one-line bar has room for.
@@ -170,8 +191,12 @@ export function Footer() {
       <div className="border-t border-border">
         <div className="mx-auto flex max-w-[1100px] flex-col gap-[var(--sp-1)] px-[var(--sp-4)] py-[var(--sp-4)] text-(length:--fs-sm) md:flex-row md:items-center md:justify-between">
           <Copyright />
+          {/* L05. "one thing: a sender's phone number" was the site's most
+              repeated sentence and it had been wrong since posting shipped:
+              `requirePosting()` needs a session too. Two things, named. */}
           <span style={{ color: "var(--muted)" }}>
-            Browsing is public. An account is needed for one thing: a sender&rsquo;s phone number.
+            Browsing is public. An account is for two things: seeing a phone number, and posting a
+            listing.
           </span>
         </div>
       </div>

@@ -17,9 +17,10 @@ public, and browsing it never asks for an account.
 > connection. Everything downstream of them — extraction, geocoding, supersession, expiry,
 > search — is the real implementation running on that data.
 
-If you want the pitch rather than the tour, `/for-movers` is the marketing page: the two
-things the product actually does, and a plain list of the things it does not. `/how-it-works`
-covers the same ground for a customer who wants to know why the board can be trusted.
+If you want the pitch rather than the tour, `/for-movers` is the marketing page: find work,
+offer work or space, understand the source — and a short list of what to settle with the
+poster before you drive. `/how-it-works` covers the same ground for a customer who wants to
+know why the board can be trusted.
 
 ---
 
@@ -103,26 +104,35 @@ hour, because clicking Call twice is not twice the interest.
 
 ---
 
-## 4. Post a job, then take it off the board
+## 4. Post a load, then take it off the board
 
 Sign out, then go to **/login** and press **Sign in as demo poster**. (Signed in, `/login`
 just sends you back to the board — sign out first.)
 
-**Post a job** gives you a form shaped like a real post: pickup with the same type-ahead
+Look at the header once you are in: beside the account controls there is a **Demo** chip, at
+every width, and the account block in the ⋯ menu says what it costs you. `/post` says the
+same thing again, in full, *before* you pick a form: **anything a demo account posts is
+visible to that account and nobody else.** The ~98 loads you have been browsing are a
+different thing — seeded sample inventory, `is_demo = false`, public to every visitor.
+
+**Post a load** gives you a form shaped like a real post: pickup with the same type-ahead
 (type `Kearny`, pick **Kearny, NJ**, and the field notes *NJ recorded from the suggestion*),
 delivery state plus ZIP or city, cubic feet, price per cf or flat with a live total
 (`$3.25/cf × 400 cf ≈ $1,300`), ready now or on a date, deliver by, tags, requirements,
 contact name, contact phone and notes. A phone is required — without one nobody can be
 reached through the board.
 
-Press **Post job**. A green line answers *Job #133 is live on the board.* — whatever id
-yours got — with a **See it →** link. Follow it: the card reads *Posted today* and *via
-MoverMesh* instead of a sender and a group, and the board is now 99 jobs deep.
+Press **Post job**. A green line answers *Job #133 is posted, and visible to this demo
+account only.* — whatever id yours got — with a **See it →** link. Follow it: the card reads
+*Posted today* and *via MoverMesh* instead of a poster and a group, it wears a **Demo · only
+you** chip, and *your* board is now 99 loads deep. Open the same board in a private window
+and it is still 98: `demoVisibilitySql` never serves that row to anyone else. Posting from a
+real account is the same form and the same 201, with none of that qualification.
 
-Scroll that job's detail to **Manage** and press **taken**. It leaves the public board
-immediately — *← Back to 98 jobs* — and stays taken even if the same job is posted again. A
-poster can only do this to their own jobs, which is why Manage is absent on the WhatsApp
-ones.
+Scroll that load's detail to **Manage** and press **taken**. It drops out of the available
+list immediately — *← Back to 98 jobs* — and stays taken even if the same load is posted
+again. A poster can only do this to their own listings, which is why Manage is absent on the
+WhatsApp ones.
 
 ---
 
@@ -198,8 +208,8 @@ the board is half the product.
 
 | How you get in | Account | What it adds |
 |---|---|---|
-| **Sign in as demo driver** | `driver@example.com` | The contact on any job — nothing else |
-| **Sign in as demo poster** | `poster@example.com` | Post jobs from the website and mark them taken |
+| **Sign in as demo driver** | `driver@example.com` | The contact on any listing. It can post too — `can_post` is on for every account — but the walkthrough uses the poster for that |
+| **Sign in as demo poster** | `poster@example.com` | Post loads and truck space, and mark them taken. Both are demo listings: visible to this account only |
 | the e-mail form | `admin@movermesh.com` | Every console, and every button inside one |
 
 The two buttons need no password, and they are all the demo is. **There is no demo admin
@@ -227,7 +237,8 @@ this page.
 | Extraction | **Real** — deterministic rules, no AI service, no per-message cost |
 | Geocoding | **Real** — offline gazetteer + alias table; optional HERE or free Census geocoder |
 | Supersession, expiry, search, route matching | **Real** |
-| Map rendering | **Real** — OpenStreetMap tiles, one arc per job |
+| Map rendering | **Real** — OpenStreetMap tiles, one arc per load |
+| A demo account's own listings | **Real rows, private ones** — stamped `is_demo`, served only to the account that posted them. The ~98 seeded loads are not demo rows and are public |
 
 ```bash
 npm run score   # the six real messages: 94/94 jobs, 0 fabricated

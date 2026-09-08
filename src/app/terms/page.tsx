@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Terms",
   description:
-    "The rules for using MoverMesh: jobs are other people's posts, MoverMesh is not a broker, and a revealed number is for contacting that sender about that job.",
+    "The rules for using MoverMesh: listings are other people's posts, MoverMesh is not a broker, and a revealed number is for contacting that poster about that listing.",
 };
 
 /**
@@ -33,7 +33,7 @@ export default async function TermsPage() {
       <SitePage
         eyebrow="Legal"
         title="Terms of use"
-        lead="Short, because the service is small: it shows you jobs other people posted, and hands you a phone number once you have an account."
+        lead="Short, because the service is small: it shows you loads and truck space other people posted, and hands you a phone number once you have an account."
         meta={
           <>
             Last updated <strong>{settingText(settings, "effective_date")}</strong> · Operated by{" "}
@@ -43,27 +43,28 @@ export default async function TermsPage() {
       >
         <Section title="1. What this service is">
           <p>
-            MoverMesh is a board. It reads moving jobs out of WhatsApp group messages it has been
+            MoverMesh is a board. It reads moving loads out of WhatsApp group messages it has been
             given access to, and out of posts made on this site, and it shows them on a map. It is
             an index of other people&rsquo;s messages.
           </p>
           <p>
             MoverMesh is not a broker, a carrier or an agent. It does not arrange, price, insure
             or guarantee any move, takes no commission, and is not a party to whatever you and a
-            sender agree.
+            poster agree.
           </p>
         </Section>
 
-        <Section title="2. Jobs are other people's content">
+        <Section title="2. Listings are other people's content">
           <p>
-            Every job here comes from a message somebody else wrote. We do not verify that a job is
+            Most listings here come from a message somebody else wrote, and the rest were typed in by
+            the person offering them. We do not verify that a listing is
             accurate, that it is still available, that the price is real, or that the person posting
             it holds operating authority, insurance or any licence. Nor do we verify who they are.
           </p>
           <p>
-            Check before you drive. If a job turns out not to exist, that is between you and whoever
+            Check before you drive. If a load turns out not to exist, that is between you and whoever
             posted it. See <Link href="/how-it-works">How it works</Link> for what the board does
-            and does not claim about a job.
+            and does not claim about a listing.
           </p>
         </Section>
 
@@ -77,39 +78,40 @@ export default async function TermsPage() {
 
         <Section title="4. Revealed phone numbers">
           <p>
-            A number you reveal is for contacting that sender about that job. Every reveal is
+            A number you reveal is for contacting that poster about that listing. Every reveal is
             recorded against your account.
           </p>
           <p>
             Collecting numbers in bulk, automating the reveal endpoint, republishing numbers
-            elsewhere, selling them, or using them for marketing unrelated to the job is not
+            elsewhere, selling them, or using them for marketing unrelated to the listing is not
             permitted and ends the account. This is the one rule the whole access model exists to
             protect.
           </p>
         </Section>
 
-        <Section title="5. Posting a job">
+        <Section title="5. Posting a listing">
           <p>
-            Post only work you have the right to offer, and describe it accurately — the lane, the
-            size, the price, the dates. Do not post anything unlawful, and do not post somebody
-            else&rsquo;s job as your own. A post can be removed, and an account that repeatedly
-            posts work that does not exist can be closed.
+            Two kinds may be posted from an account here: a load you need moved, and space on a
+            truck you are running. Post only what you have the right to offer, and describe it
+            accurately — the lane, the size, the price, the dates. Do not post anything unlawful,
+            and do not post somebody else&rsquo;s load as your own. A post can be removed, and an
+            account that repeatedly posts work or space that does not exist can be closed.
           </p>
         </Section>
 
         <Section title="6. Groups">
           <p>
             A WhatsApp group is connected only with the agreement of whoever administers it, and it
-            is disconnected on request. A sender who does not want their posts republished here can
+            is disconnected on request. A poster who does not want their posts republished here can
             say so and have them removed — see <Link href="/privacy">Privacy</Link>.
           </p>
         </Section>
 
         <Section title="7. Availability">
           <p>
-            No uptime is promised. The service may change, be interrupted or stop. Jobs also
-            disappear in normal operation: a job the sender&rsquo;s newest post no longer lists is
-            delisted, and a sender who goes quiet for four days has their jobs expired. That is the
+            No uptime is promised. The service may change, be interrupted or stop. Listings also
+            disappear in normal operation: a load the poster&rsquo;s newest post no longer lists is
+            delisted, and a poster who goes quiet for four days has their loads expired. That is the
             board working, not the board failing.
           </p>
         </Section>
@@ -118,7 +120,7 @@ export default async function TermsPage() {
           <p>
             The service is provided as it is, without warranties of any kind, to the fullest extent
             the law allows. To that same extent, <strong>{company}</strong> is not
-            liable for lost profit, an empty trip, a job that fell through, or any decision made on
+            liable for lost profit, an empty trip, a load that fell through, or any decision made on
             the strength of something shown here.
           </p>
           <p>

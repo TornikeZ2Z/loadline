@@ -22,7 +22,7 @@ job you want scrolled past an hour ago.
 MoverMesh reads those posts and puts every job on a map as a **route** — pickup to delivery,
 with cubic feet, price per cubic foot, when it is ready and how fresh the post is. The
 board is public: no account to browse it, filter it, open a job or read the original
-message. An account buys exactly one thing, the sender's phone number.
+message. An account is for two things: seeing a poster's phone number, and posting a listing.
 
 Extraction is **deterministic rules, not a model**. No API key, no per-message cost, no
 network dependency, and the same message always produces the same jobs — which is what
@@ -87,13 +87,41 @@ runs and bare ten-digit numbers, not only for dashed ones.
 
 | | anonymous | driver | poster | admin |
 |---|---|---|---|---|
-| Browse the board, filters, map, job detail, original message | yes | yes | yes | yes |
+| Browse the board, filters, map, listing detail, original message | yes | yes | yes | yes |
 | See the contact | — | yes | yes | yes |
-| Post a job, mark it taken | — | — | own jobs | any |
+| Post a load or truck space, mark it taken | — | own, if `can_post` | own, if `can_post` | any |
 | Admin console, WhatsApp console, needs-attention queue | — | — | — | yes |
+
+**Posting is not a role.** That row used to read `— / — / own jobs / any`, and it was wrong
+in the direction that sends a driver away: `requirePosting()` tests `users.can_post`, which
+is `NOT NULL DEFAULT true` (`db/schema.sql`), so *every* account may post either kind of
+listing unless an admin has taken the capability off that account. The words driver and
+poster record which door somebody came in through, not what they may do — which is what
+stops a company that both hauls and posts from needing two accounts. Review 03 (L05) found
+the site repeating the old rule in four places; `/about`, `/contact`, `/post` and the footer
+now say the real one.
 
 A driver account holds nothing but an identity. Your location lives in the browser
 (`localStorage`), never on the server, for everyone.
+
+### The demo account is labelled, from the header down
+
+`users.is_demo` is a shared identity anybody can sign into, and `loads.is_demo` /
+`trucks.is_demo` keep what it posts off the public board (`demoVisibilitySql`). What was
+missing was the part a person can see: review 03 (L06) signed in as the demo driver, met a
+named account in the header with nothing to mark it, and only learned what the account was
+at the top of a posting form two pages later.
+
+So the shell carries a `Demo` chip beside the account controls at every width
+(`src/components/AppShell.tsx`), the account block in the More menu spells out what it means
+and how to leave it, and `/post` states who will see the listing **before** the choice of
+form rather than after it. The chip is `.chip .chip-warn` — the same mark `LoadDetail`,
+`TruckDetail` and `TruckViews` already put on a demo row, so it means one thing everywhere.
+
+`/post` also draws the line the demo blurs: the ~98 loads on the board are **seeded sample
+inventory**, corpus rows with `is_demo = false` that every visitor sees, and a **demo
+listing** is a row that account made, which nobody else sees. `scripts/check-demo.ts`
+asserts the first half of that (not one seeded row is `is_demo`).
 
 ---
 
@@ -332,7 +360,7 @@ from `SitePage` except the first:
 
 | Route | What it is for |
 |---|---|
-| `/for-movers` | The marketing page. **Two** actions, not three — see below. |
+| `/for-movers` | The marketing page. Find work, offer work or space, understand the source — see below. |
 | `/how-it-works` | The customer's four steps (search, inspect, contact, confirm), then the message-to-job path including the parts that fail |
 | `/about` | Why the product exists, who it is for, and what it is not |
 | `/contact` | The one route to a human, and the destination of every "Report a problem" link |
@@ -340,14 +368,26 @@ from `SitePage` except the first:
 | `/terms` | Deliberately short; carries a visible draft notice |
 | `/cookies` | The complete inventory of the one cookie and the five browser keys |
 
-**`/for-movers` advertises two actions on purpose.** The brief that asked for it named three
-— post a load, find a load, offer truck space. The third does not exist: there is no `kind`
-column, no second table, and `src/lib/extract/lines.ts` deliberately discards "have room" /
-"going empty" lines as chatter. The page names it as something MoverMesh does not do, with
-no date attached, rather than selling it. It carries no testimonial, customer count, logo
-wall or metric, because every one of those would have to be invented today — on the
-marketing page of a product whose entire pitch is that it does not invent. It is a *sibling*
-route: the board stays the home page, which is the decision recorded at `src/app/page.tsx`.
+**`/for-movers` advertises three actions, and used to advertise two.** The brief that asked
+for it named three — post a load, find a load, offer truck space — and the third genuinely
+did not exist at the time: no second table, no second form, and `src/lib/extract/lines.ts`
+still discards "have room" / "going empty" lines out of a group post as chatter. So the page
+carried a section headed *Not here yet: offering truck space*.
+
+Truck space shipped: `trucks`, `/post/truck`, `/trucks/[id]`, `truckQuery.ts`, its own
+lifecycle. The page did not, and review 03 caught it (L05) — a marketing page telling a
+driver the thing they came for is not on offer, three clicks from the form that offers it.
+The section is gone and **Offer work or space** is one of the page's three, beside **Find
+work** and **Understand the source** (V13). Extraction is unchanged: a group post is still
+read for loads only, and truck space is still something a person posts on this site.
+
+What did not change: no testimonial, customer count, logo wall or metric, because every one
+would have to be invented today — on the marketing page of a product whose entire pitch is
+that it does not invent. It is a *sibling* route: the board stays the home page, which is the
+decision recorded at `src/app/page.tsx`. The before-and-after card in the hero is generated
+from strings the board itself uses (`PRICE_NOT_PROVIDED` from `src/lib/loads/present.ts`) and
+its three rows were read off `extractInventory` rather than written by hand, so the example
+cannot drift from what the product actually does with that post.
 
 **No page claims anything the service does not do.** No guaranteed availability, no verified
 or vetted companies, no protected payments or escrow, no booking speed, no response time.
