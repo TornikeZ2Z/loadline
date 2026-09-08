@@ -189,7 +189,16 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
               ))}
           </nav>
 
-          <div className="ml-auto flex shrink-0 items-center gap-[var(--sp-2)] lg:gap-[var(--sp-3)]">
+          {/* `min-w-0` and NOT `shrink-0` (V03 residual). The group used to
+              refuse to shrink, so the one control with a variable label -- the
+              truck-location pill -- had to protect the row with a `max-w-32vw`
+              guess of its own, and at 320 that guess was 102 px for a 155 px
+              label: "Truck l…". Flexbox does this properly. Every item in here
+              keeps `min-width: auto`, which is the default and means none of
+              them will shrink below its own content; the pill alone carries
+              `min-w-0`, so it is the only thing that gives, and it gives
+              exactly as much as the row is short and not a vw more. */}
+          <div className="ml-auto flex min-w-0 items-center gap-[var(--sp-2)] lg:gap-[var(--sp-3)]">
             {/* L06 / V12 — the demo label, and it is in the header row rather
                 than in the account menu because "persistent" is the whole
                 requirement. The review signed in as the demo driver, saw a

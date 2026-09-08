@@ -1539,6 +1539,36 @@ export function Board({
     </div>
   );
 
+  /* V15 residual -- THE KEYBOARD REACHES THE JOBS BEFORE IT WALKS THE MAP.
+   *
+   * The map is first in the document because that is where it is drawn, and
+   * moving the results above it would only reverse the problem: 98 cards, two
+   * controls each, before anybody could reach a zoom button. What a keyboard
+   * needs is not a different order, it is a way out of the first region -- so
+   * this is the first focusable thing on the board, and one Tab plus Enter
+   * lands in the results. The map keeps every one of its own stops.
+   *
+   * On a phone the results live in the bottom sheet, and at the peek snap the
+   * sheet is a summary line. Skipping to a list that is not on screen would be
+   * a link that appears to do nothing, so the sheet is raised first and the
+   * focus follows on the next frame, once it has its new height.
+   */
+  const skipToResults = (
+    <a
+      href="#board-results"
+      className="skip-link"
+      onClick={(e) => {
+        e.preventDefault();
+        if (mobile && snap === "peek") setSnap("half");
+        requestAnimationFrame(() => {
+          document.getElementById("board-results")?.focus();
+        });
+      }}
+    >
+      Skip the map — go to the results
+    </a>
+  );
+
   const filterBar = (
     <div
       ref={filterRow}
@@ -1561,6 +1591,7 @@ export function Board({
     return (
       <div ref={root} className="board flex flex-col" style={{ height: "100%" }}>
         {filterBar}
+        {skipToResults}
         {/* The map fills everything under the filter bar and the sheet floats
             over it. It used to be a 48vh box with the sheet fixed to the bottom
             of the window, which left 174 px of empty page between them at the
@@ -1575,6 +1606,7 @@ export function Board({
             onSnapChange={setSnap}
             topInset={topInset}
             padded={detail == null}
+            bodyId="board-results"
             handle={<div className="w-full pt-[var(--sp-2)]">{header}</div>}
           >
             {detail ?? (listKind === "trucks" ? truckBody : listBody)}
@@ -1591,6 +1623,7 @@ export function Board({
       style={{ height: "100%" }}
     >
       {filterBar}
+      {skipToResults}
 
       {/* THE SPLIT, AND WHO GETS TO SET IT (V01).
           `minmax(0, 1fr)`, not `minmax(560px, 1fr)`. A phone held sideways is
@@ -1651,7 +1684,14 @@ export function Board({
           </>
         )}
 
+        {/* Where the skip link lands, and where a screen reader is told the
+            results begin. `tabIndex={-1}` makes it a focus target without
+            making it a tab stop of its own. */}
         <section
+          id="board-results"
+          data-results
+          tabIndex={-1}
+          aria-label="Results"
           className="flex min-h-0 flex-col"
           style={{ background: "var(--bg)" }}
         >

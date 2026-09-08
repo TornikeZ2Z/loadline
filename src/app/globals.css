@@ -515,6 +515,43 @@ textarea.field { height: auto; padding: 8px 10px; }
  * ------------------------------------------------------------------------- */
 .link-parent { position: relative; }
 .link-cover::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+
+/* ---------------------------------------------------------------------------
+ * THE KEYBOARD'S WAY PAST THE MAP (V15 residual).
+ *
+ * The board puts the map before the results in the document, because that is
+ * the order it is drawn in and a screen reader should meet them the same way.
+ * The cost was that a keyboard reached the results last: the canvas, then every
+ * state pill, then the zoom buttons, the attribution, the statistics -- twenty
+ * three stops at 1440 before the first job. A skip link is WCAG 2.4.1's own
+ * answer to exactly that, and it costs the map nothing: every marker is still
+ * in the tab order for anyone who wants it.
+ *
+ * `fixed` and not `absolute` on purpose -- the two board layouts (a grid on a
+ * desktop, a map with a sheet over it on a phone) have different positioned
+ * ancestors, and a skip link that has to be told where it is in each of them is
+ * a skip link that will one day be off the screen in one of them.
+ *
+ * Hidden by a transform rather than `display: none` or `visibility: hidden`:
+ * both of those take it out of the tab order, which is the one thing it exists
+ * to be in. z-40 is the header's layer, and this sits one above it so the
+ * focused link is never painted under the bar it hangs below.
+ * ------------------------------------------------------------------------- */
+.skip-link {
+  position: fixed; z-index: 45; left: var(--sp-3); top: calc(var(--header-h) + var(--sp-2));
+  display: inline-flex; align-items: center; height: var(--tap-min); padding: 0 var(--sp-3);
+  border-radius: var(--radius-sm); border: 1px solid var(--accent);
+  background: var(--surface); color: var(--accent-deep);
+  font-size: var(--fs-base); font-weight: 600; white-space: nowrap;
+  box-shadow: var(--shadow-2);
+  transform: translateY(calc(-100% - var(--header-h) - var(--sp-4)));
+  transition: transform var(--dur) var(--ease);
+}
+.skip-link:focus { transform: none; outline: none; box-shadow: var(--focus); }
+/* The results column takes focus when the link is used. It is a landing place,
+   not a control, so it gets no ring of its own -- the first card the next Tab
+   reaches has one. */
+[data-results]:focus { outline: none; }
 /* Above the cover, and given its own stacking context so a focus ring is not
    painted under it. */
 .link-sibling { position: relative; z-index: 2; }
