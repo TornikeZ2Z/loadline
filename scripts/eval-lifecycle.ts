@@ -49,6 +49,11 @@
  *       insurance produces exactly those three and never an MC nobody wrote.
  *   R3  the website form cannot publish an assumed readiness, and refuses a
  *       ready date that falls after the delivery deadline.
+ *   R4  a ZIP that contradicts the state posted beside it is asked about --
+ *       "07102 is a New Jersey ZIP, but the delivery state says Florida. Which
+ *       is right?" -- at both ends of a job and both ends of a truck, while a
+ *       ZIP nobody can place, a blank one, a stateless one and a leading zero
+ *       all keep working.
  *
  * And then the OTHER lifecycle, which shares none of that machinery:
  *
@@ -734,6 +739,9 @@ async function main() {
   // --------------------------------------------------------------- R1-R3
   await readinessAndRequirements(post, T0);
 
+  // ------------------------------------------------------------------ R4
+  await zipStateAgreement();
+
   // ------------------------------------------------------------- T4-T6, T8
   await truckLifecycle();
 
@@ -987,6 +995,277 @@ async function readinessAndRequirements(
   expect(
     orderedRow.ready_state === "date" && orderedRow.ready_date === day(3) && !orderedRow.ready_now,
     `R3: and the same two dates the right way round publish as a stated date (got ${JSON.stringify(orderedRow)})`,
+  );
+}
+
+/**
+ * R4: a ZIP that contradicts the state posted beside it.
+ *
+ * The last of the review's honesty gaps, and the quietest: posting
+ * `deliveryState:"FL"` with `deliveryZip:"07102"` -- a Newark ZIP -- returned
+ * 201. Nothing was invented, which is why it survived a review: the geocoder
+ * saw the disagreement, refused the ZIP's point and stored Florida's centroid
+ * at `delivery_precision:'state'` with no city, and the card said "Approximate
+ * delivery". But the row held a Florida job carrying a New Jersey ZIP, a driver
+ * filtering by state and a driver filtering by ZIP got different answers about
+ * the same load, and the one person who knew which half was true was never
+ * asked.
+ *
+ * The refusal is a QUESTION -- "07102 is a New Jersey ZIP, but the delivery
+ * state says Florida. Which is right?" -- and the section asserts the shape of
+ * it as much as the fact of it, because a blanket "invalid ZIP" would have
+ * closed the gap while telling the poster nothing they could act on.
+ *
+ * Four things that are NOT conflicts are asserted just as hard, because a
+ * validator that over-refuses is its own kind of dishonesty -- it would be
+ * claiming to know a ZIP is wrong when all it knows is that a prefix table has
+ * never heard of it:
+ *
+ *   * a ZIP outside the published allocations (09001 is military mail);
+ *   * a leading zero, which must survive as five characters everywhere -- in
+ *     the column, in the question, and in the button that offers to keep it;
+ *   * a blank ZIP beside a state;
+ *   * a ZIP with no state chosen at all.
+ *
+ * Driven through `insertWebJob` and `insertWebTruck` rather than through the
+ * routes, for the reason T6 gives: they are where the form's round trip and the
+ * public POST both end, so a refusal proved here cannot be true of one caller
+ * and false of the other. The last case closes the loop the other way -- over
+ * every row this section wrote, no `loads` or `trucks` row holds a state and a
+ * placeable ZIP that disagree.
+ */
+async function zipStateAgreement() {
+  console.log(`\n${DIM}R4: a ZIP that contradicts its state is asked about, not accepted${RESET}`);
+
+  const { query, queryOne } = await import("../src/lib/db");
+  const { insertWebJob, insertWebTruck, WebJobValidationError, WebTruckValidationError } =
+    await import("../src/lib/pipeline/web");
+  // The SAME function the two forms call in the browser. Importing it here is
+  // the point of the case at the end: the sentence a poster reads before they
+  // submit and the sentence the API answers with are one string, not two that
+  // happen to match today.
+  const { zipStateConflict } = await import("../src/lib/geo/states");
+
+  await query(
+    `INSERT INTO users (email, password_hash, name, role, phone, company, is_demo, can_post)
+     VALUES ('zip@lifecycle.test','x','Zip Poster','poster','+12015550188','Lifecycle Movers',false,true)
+     ON CONFLICT (email) DO NOTHING`,
+  );
+  const row = (await queryOne<{ id: number }>(
+    `SELECT id FROM users WHERE email = 'zip@lifecycle.test'`,
+  ))!;
+  const actor = { id: row.id, name: "Zip Poster", phone: "+12015550188", isDemo: false };
+
+  // Coordinates supplied throughout, so nothing here reaches a geocoder: HERE
+  // is unconfigured in this run and the subject is the pair of fields, not the
+  // placing of them.
+  const jobBody = (extra: Record<string, string>) => ({
+    pickup: "Kearny, NJ 07032",
+    pickupLat: "40.7684",
+    pickupLng: "-74.1454",
+    pickupState: "NJ",
+    pickupZip: "07032",
+    pickupPrecision: "zip",
+    deliveryState: "FL",
+    deliveryZip: "33435",
+    cubicFeet: "800",
+    readyState: "unknown" as const,
+    contactPhone: "+12015550188",
+    ...extra,
+  });
+  const truckBody = (extra: Record<string, string>) => ({
+    origin: "Kearny, NJ 07032",
+    originLat: "40.7684",
+    originLng: "-74.1454",
+    originState: "NJ",
+    originZip: "07032",
+    originPrecision: "zip",
+    destUndecided: "on",
+    freeCf: "700",
+    availMode: "unknown",
+    contactPhone: "+12015550188",
+    ...extra,
+  });
+
+  const jobs = async () =>
+    (await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM loads WHERE posted_by = $1`, [
+      row.id,
+    ]))!.n;
+  const trucks = async () =>
+    (await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM trucks WHERE posted_by = $1`, [
+      row.id,
+    ]))!.n;
+
+  const jobRefusal = async (extra: Record<string, string>) => {
+    const before = await jobs();
+    try {
+      await insertWebJob(actor, jobBody(extra));
+      return { err: null as unknown, wrote: (await jobs()) - before };
+    } catch (e) {
+      return { err: e, wrote: (await jobs()) - before };
+    }
+  };
+  const truckRefusal = async (extra: Record<string, string>) => {
+    const before = await trucks();
+    try {
+      await insertWebTruck(actor, truckBody(extra) as Parameters<typeof insertWebTruck>[1]);
+      return { err: null as unknown, wrote: (await trucks()) - before };
+    } catch (e) {
+      return { err: e, wrote: (await trucks()) - before };
+    }
+  };
+
+  // --- the review's own case ------------------------------------------------
+  const delivery = await jobRefusal({ deliveryZip: "07102" });
+  const deliveryMsg = delivery.err instanceof Error ? delivery.err.message : "a 201";
+  expect(
+    delivery.err instanceof WebJobValidationError &&
+      delivery.err.field === "deliveryZip" &&
+      delivery.wrote === 0,
+    `R4: FL + 07102 is refused and writes no row, naming the ZIP field (got "${deliveryMsg}", ${delivery.wrote} rows)`,
+  );
+  expect(
+    deliveryMsg ===
+      "07102 is a New Jersey ZIP, but the delivery state says Florida. Which is right?",
+    `R4: and it ASKS rather than rejects, naming both states in full (got "${deliveryMsg}")`,
+  );
+  expect(
+    deliveryMsg.includes("07102") && !/\b7102\b/.test(deliveryMsg),
+    `R4: the leading zero survives into the question -- "07102", never 7102 (got "${deliveryMsg}")`,
+  );
+  expect(
+    zipStateConflict("FL", "07102", "delivery")?.message === deliveryMsg,
+    "R4: the browser refuses in the API's exact words, out of the same function",
+  );
+
+  // --- the same disagreement at the other end -------------------------------
+  const pickup = await jobRefusal({ pickupState: "FL" });
+  expect(
+    pickup.err instanceof WebJobValidationError &&
+      pickup.err.field === "pickupZip" &&
+      pickup.wrote === 0 &&
+      pickup.err.message.startsWith("07032 is a New Jersey ZIP, but the pickup state"),
+    `R4: the pickup end is checked too, and says which end it means (got "${
+      pickup.err instanceof Error ? pickup.err.message : "a 201"
+    }")`,
+  );
+
+  // --- what is NOT a conflict ----------------------------------------------
+  // 09001 is military mail: outside every published allocation, so the table
+  // cannot place it. Refusing it would be claiming knowledge we do not have.
+  const unknownZip = await jobRefusal({ deliveryZip: "09001" });
+  expect(
+    unknownZip.err === null && unknownZip.wrote === 1,
+    `R4: a ZIP the table cannot place is accepted -- we refuse only what we can judge (got "${
+      unknownZip.err instanceof Error ? unknownZip.err.message : "accepted"
+    }")`,
+  );
+
+  const noZip = await jobRefusal({ deliveryZip: "", deliveryCity: "Boca Raton" });
+  expect(
+    noZip.err === null && noZip.wrote === 1,
+    `R4: a state with no ZIP has nothing to disagree with (got "${
+      noZip.err instanceof Error ? noZip.err.message : "accepted"
+    }")`,
+  );
+
+  const noState = await jobRefusal({ pickupState: "", pickupZip: "07102" });
+  expect(
+    noState.err === null && noState.wrote === 1,
+    `R4: a ZIP with no state chosen is not a disagreement either (got "${
+      noState.err instanceof Error ? noState.err.message : "accepted"
+    }")`,
+  );
+  const zeroKept = (await queryOne<{ zip: string | null; state: string | null }>(
+    `SELECT pickup_zip AS zip, pickup_state AS state FROM loads
+      WHERE posted_by = $1 ORDER BY id DESC LIMIT 1`,
+    [row.id],
+  ))!;
+  expect(
+    zeroKept.zip === "07102" && zeroKept.state === null,
+    `R4: and it is stored as five characters with no state invented for it (got ${JSON.stringify(zeroKept)})`,
+  );
+
+  const agreeing = await jobRefusal({ deliveryState: "NJ", deliveryZip: "07102" });
+  const happy = (await queryOne<{ pz: string | null; dz: string | null; ds: string | null }>(
+    `SELECT pickup_zip AS pz, delivery_zip AS dz, delivery_state AS ds FROM loads
+      WHERE posted_by = $1 ORDER BY id DESC LIMIT 1`,
+    [row.id],
+  ))!;
+  expect(
+    agreeing.err === null && agreeing.wrote === 1 && happy.dz === "07102" && happy.ds === "NJ",
+    `R4: the happy path -- NJ + 07102 posts, and both zeros are still there (got ${JSON.stringify(happy)})`,
+  );
+  expect(
+    happy.pz === "07032",
+    `R4: the pickup's own leading zero is intact on the same row (got ${JSON.stringify(happy.pz)})`,
+  );
+
+  // --- the truck's two ends -------------------------------------------------
+  const originClash = await truckRefusal({ originState: "FL" });
+  expect(
+    originClash.err instanceof WebTruckValidationError &&
+      originClash.err.field === "originZip" &&
+      originClash.wrote === 0 &&
+      originClash.err.message.includes("the origin state says Florida"),
+    `R4: a truck's origin is checked the same way (got "${
+      originClash.err instanceof Error ? originClash.err.message : "a 201"
+    }")`,
+  );
+
+  const destClash = await truckRefusal({
+    destUndecided: "",
+    dest: "Miami, FL 33101",
+    destLat: "25.7743",
+    destLng: "-80.1937",
+    destState: "FL",
+    destZip: "07102",
+    destPrecision: "zip",
+  });
+  expect(
+    destClash.err instanceof WebTruckValidationError &&
+      destClash.err.field === "destZip" &&
+      destClash.wrote === 0 &&
+      destClash.err.message.includes("the destination state says Florida"),
+    `R4: and so is its destination (got "${
+      destClash.err instanceof Error ? destClash.err.message : "a 201"
+    }")`,
+  );
+
+  const goodTruck = await truckRefusal({});
+  expect(
+    goodTruck.err === null && goodTruck.wrote === 1,
+    `R4: an agreeing truck still posts (got "${
+      goodTruck.err instanceof Error ? goodTruck.err.message : "accepted"
+    }")`,
+  );
+
+  // --- the invariant, read back off the tables ------------------------------
+  // The refusals above are about one call each; this is about the columns. Of
+  // everything the web writers put in the two tables, no row holds a state and
+  // a ZIP the table CAN place that disagree -- which is the property the whole
+  // section exists to buy, stated once over the data rather than case by case.
+  const { stateForZip } = await import("../src/lib/geo/states");
+  const ends = [
+    ...(await query<{ st: string | null; zip: string | null }>(
+      `SELECT pickup_state AS st, pickup_zip AS zip FROM loads WHERE posted_by IS NOT NULL
+        UNION ALL
+       SELECT delivery_state, delivery_zip FROM loads WHERE posted_by IS NOT NULL`,
+    )),
+    ...(await query<{ st: string | null; zip: string | null }>(
+      `SELECT origin_state AS st, origin_zip AS zip FROM trucks WHERE posted_by IS NOT NULL
+        UNION ALL
+       SELECT dest_state, dest_zip FROM trucks WHERE posted_by IS NOT NULL`,
+    )),
+  ];
+  const disagreeing = ends.filter(
+    (e) => e.st && e.zip && stateForZip(e.zip) && stateForZip(e.zip)!.abbr !== e.st,
+  );
+  expect(
+    disagreeing.length === 0 && ends.length > 0,
+    `R4: across ${ends.length} posted endpoints, none stores a state and a placeable ZIP that disagree (got ${JSON.stringify(
+      disagreeing.slice(0, 3),
+    )})`,
   );
 }
 

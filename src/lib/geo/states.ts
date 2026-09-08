@@ -101,6 +101,66 @@ export function stateForZip(zip: string): StateInfo | null {
   return best;
 }
 
+/**
+ * A ZIP that does not belong to the state posted beside it.
+ *
+ * Two things the poster said about ONE place, disagreeing. The board's whole
+ * claim is that it does not invent, so the one thing this must never do is
+ * pick a winner: 07102 with "FL" could be a Newark job whose state box was
+ * never changed, or a Florida job whose ZIP was pasted from the line above,
+ * and the software has no way to tell. It reports the disagreement and asks.
+ *
+ * Three cases are deliberately NOT conflicts, and all three are silence rather
+ * than a refusal:
+ *
+ *   * a ZIP `stateForZip` cannot place -- 09xxx (military), 00x, anything
+ *     outside the published allocations. We refuse only what we can judge, and
+ *     a prefix table that does not know a ZIP is not evidence against it;
+ *   * a blank or malformed ZIP. The callers' own validators own that message
+ *     ("must be five digits"), and two errors about one box is one too many;
+ *   * a state we do not recognise, for the same reason.
+ *
+ * `zip` comes back as the five characters that were typed, so "07102" stays
+ * "07102" -- nothing here parses a ZIP as a number, and the message quotes the
+ * string. `stateForZip` reads the first three digits numerically INSIDE itself
+ * (070 -> 70, matched against New Jersey's [70, 89]) and that number never
+ * escapes.
+ *
+ * `where` is the end being posted -- "pickup", "delivery", "origin",
+ * "destination" -- so one sentence serves four fields on two forms, and the
+ * browser and the API say it in exactly the same words.
+ */
+export interface ZipStateConflict {
+  /** The five digits as typed. "07102", never 7102. */
+  zip: string;
+  /** The state the poster chose. */
+  stated: StateInfo;
+  /** The state the ZIP belongs to. */
+  zipState: StateInfo;
+  /** The question, identical in the browser and in the API's refusal. */
+  message: string;
+}
+
+export function zipStateConflict(
+  state: string | null | undefined,
+  zip: string | null | undefined,
+  where: string,
+): ZipStateConflict | null {
+  const digits = (zip ?? "").trim();
+  if (!/^\d{5}$/.test(digits)) return null;
+  const stated = STATE_BY_ABBR.get((state ?? "").trim().toUpperCase());
+  if (!stated) return null;
+  const zipState = stateForZip(digits);
+  if (!zipState) return null;
+  if (zipState.abbr === stated.abbr) return null;
+  return {
+    zip: digits,
+    stated,
+    zipState,
+    message: `${digits} is a ${zipState.name} ZIP, but the ${where} state says ${stated.name}. Which is right?`,
+  };
+}
+
 /** "new jersey" | "nj" | "N.J." -> StateInfo */
 export function resolveState(text: string): StateInfo | null {
   const t = text.trim().toLowerCase().replace(/\./g, "");
