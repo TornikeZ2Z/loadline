@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Where to report a job that does not match its post, how to get a WhatsApp group on the board, and how to have a sender's posts removed.",
+    "Where to report a listing that does not match its post, how to get a WhatsApp group on the board, and how to have a poster's posts removed.",
 };
 
 /**
@@ -57,15 +57,15 @@ export default async function ContactPage({
       <SitePage
         eyebrow="Company"
         title="Contact"
-        lead="Most questions about a job belong to the sender rather than to us. Here is what to do with everything else, and what to include so it can actually be acted on."
+        lead="Most questions about a load belong to the poster rather than to us. Here is what to do with everything else, and what to include so it can actually be acted on."
         meta={
           <>
             One address for all of it: <strong>{email}</strong>. Jump to{" "}
-            <Link href={`#${REPORT_SECTION_ID}`}>report a problem with a job</Link>.
+            <Link href={`#${REPORT_SECTION_ID}`}>report a problem with a listing</Link>.
           </>
         }
       >
-        <Section title="Report a problem with a job" id={REPORT_SECTION_ID}>
+        <Section title="Report a problem with a listing" id={REPORT_SECTION_ID}>
           {/* Only ever a job path on this site; see the note above. Rendered as
               a link because the first thing the reader has to do is copy it. */}
           {about ? (
@@ -73,32 +73,32 @@ export default async function ContactPage({
               className="rounded-[var(--radius-md)] border p-[var(--sp-4)]"
               style={{ background: "var(--accent-soft)", borderColor: "var(--accent-soft)" }}
             >
-              <span className="label">The job you came from</span>
+              <span className="label">The listing you came from</span>
               <Link href={about} className="font-semibold">
                 {about}
               </Link>
             </div>
           ) : null}
           <p>
-            A job that does not match the message it came from is the most useful thing you can
+            A load that does not match the message it came from is the most useful thing you can
             send us. A misreading is a bug in a rule: it gets a test case and a fix, and the fix
-            covers every future post in that format instead of that one job.
+            covers every future post in that format instead of that one load.
           </p>
           <p>
             Write to <strong>{email}</strong> with three things:
           </p>
           <ul>
             <li>
-              <strong>The link to the job.</strong> Every job has its own page — copy the address
+              <strong>The link to the listing.</strong> Every listing has its own page — copy the address
               out of the bar, or use the link above if you arrived here from one.
             </li>
             <li>
-              <strong>What the original post actually said.</strong> The job page shows the message
+              <strong>What the original post actually said.</strong> The load's page shows the message
               it was read out of, with the phone number masked; quoting the line is enough.
             </li>
             <li>
               <strong>What is wrong with it</strong> — the wrong ZIP, a missing destination, a size
-              that belongs to the job above it, a price that was never in the text.
+              that belongs to the load above it, a price that was never in the text.
             </li>
           </ul>
           <p>
@@ -107,20 +107,20 @@ export default async function ContactPage({
           </p>
         </Section>
 
-        <Section title="Is a job still going?">
+        <Section title="Is a load still going?">
           <p>
-            Ask the sender. The number behind <strong>Show contact</strong> is theirs, the job is
+            Ask the poster. The number behind <strong>Show contact</strong> is theirs, the load is
             theirs, and only they know whether this morning&rsquo;s load has already gone. We are
-            not the seller: we cannot hold a job, move a price, or confirm that something is still
+            not the seller: we cannot hold a load, move a price, or confirm that something is still
             available.
           </p>
           <p>What the board can tell you before you call:</p>
           <ul>
             <li>
-              The status on the job — available, delisted, expired or taken — and what each of those
+              The status on the load — available, delisted, expired or taken — and what each of those
               means on <Link href="/how-it-works">How it works</Link>.
             </li>
-            <li>When the sender was last seen posting it.</li>
+            <li>When the poster was last seen posting it.</li>
           </ul>
         </Section>
 
@@ -131,23 +131,34 @@ export default async function ContactPage({
           </p>
           <p>
             To be plain about what that means: MoverMesh reads the messages that are already
-            visible to that group&rsquo;s members, and republishes the jobs in them with the phone
+            visible to that group&rsquo;s members, and republishes the loads in them with the phone
             numbers hidden. It does not join a group without the group&rsquo;s admin knowing.
           </p>
         </Section>
 
-        <Section title="Posting a job without a group">
+        {/* L05. "A poster account can put a job on the board directly" was two
+            errors in one sentence: it named a role that is not the gate --
+            `requirePosting()` tests `users.can_post`, which every account has
+            unless an admin takes it away -- and it mentioned one of the two
+            things you can post. Both are corrected here, and neither needs an
+            e-mail, which is why this section now points at the form instead of
+            at the mailbox. */}
+        <Section title="Posting without a group">
           <p>
-            A poster account can put a job on the board directly, from{" "}
-            <Link href="/post/job">Post a job</Link>. If you do not have one, say so and say what you
-            move.
+            You do not need a connected group, and you do not need to write to us. Any signed-in
+            account can post from <Link href="/post">Post a listing</Link> — a load you need moved,
+            or space on a truck you are running anyway. Both go straight onto the public board.
+          </p>
+          <p>
+            Write to us only if posting is switched off for your account, which an admin has to have
+            done deliberately; say which account it is.
           </p>
         </Section>
 
         <Section title="Taking your posts down">
           <p>
-            If you are a sender and you want your posts off the board, tell us which group and which
-            sender you are. We remove the stored messages and every job derived from them. Say so
+            If you are a poster and you want your posts off the board, tell us which group and which
+            sender you are. We remove the stored messages and every load derived from them. Say so
             plainly in the message — it is a request we act on, not one we argue with.
           </p>
         </Section>
