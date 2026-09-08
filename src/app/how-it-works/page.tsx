@@ -159,9 +159,9 @@ export default async function HowItWorksPage() {
               it reads <em>{PRICE_NOT_PROVIDED}</em>.
             </li>
             <li>
-              No ready marker in the post means <em>{READY_NOT_STATED}</em>. Not <em>Ready now</em>,
-              which is what a missing date is least likely to mean, and not a date nobody wrote down.
-              A post that marks some of its loads ready and not others is read that way too: the
+              No ready marker in the post means <em>{READY_NOT_STATED}</em> — a statement about the
+              post, not about the load. Not <em>Ready now</em>, and not a date nobody wrote down. A
+              post that marks some of its loads ready and not others is read that way too: the
               unmarked ones say <em>Not ready yet</em>, because the poster distinguished them.
             </li>
             <li>
