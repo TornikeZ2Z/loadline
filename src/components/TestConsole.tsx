@@ -529,7 +529,7 @@ function JobRow({
 }) {
   const today = boardDay(new Date());
   const ready = readyLabel(
-    { ready_now: job.ready_now, ready_date: job.ready_date, ready_source: null },
+    { ready_now: job.ready_now, ready_date: job.ready_date, ready_source: null, ready_state: job.ready_state },
     today,
   );
   const price = formatPrice({

@@ -26,7 +26,7 @@ import { api } from "@/lib/basePath";
 import type { ContactResponse, PublicTruckDetailResponse, PublicTruckRow } from "@/lib/loads/publicView";
 import type { StoredLocation } from "@/lib/location";
 import type { Role } from "@/lib/session";
-import { boardDay, maskPhones, requirementChip, TAG_LABELS } from "@/lib/loads/present";
+import { boardDay, maskPhones, requirementChips, TAG_LABELS } from "@/lib/loads/present";
 import {
   departureLabel,
   driverLine,
@@ -196,7 +196,7 @@ export function TruckDetail({
   const depart = departureLabel(row, today);
   const fresh = truckFreshness(row, now);
   const status = truckStatusMeta(row.status);
-  const requirement = requirementChip(row.requirements);
+  const requirements = requirementChips(row.requirements);
   const claims = [
     row.has_dot_mc ? "DOT & MC" : null,
     row.has_hhg_authority ? "HHG authority" : null,
@@ -419,7 +419,13 @@ export function TruckDetail({
           {row.requirements && (
             <section className="mt-[var(--sp-4)]">
               <div className="label">Driver&apos;s requirements</div>
-              {requirement && <Chip title={requirement.title}>{requirement.label}</Chip>}
+              <div className="flex flex-wrap gap-[var(--sp-1)]">
+                {requirements.map((req) => (
+                  <Chip key={req.label} title={req.title}>
+                    {req.label}
+                  </Chip>
+                ))}
+              </div>
               <p className="mt-[var(--sp-1)] text-(length:--fs-base)">{maskPhones(row.requirements)}</p>
             </section>
           )}

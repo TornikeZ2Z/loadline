@@ -72,6 +72,7 @@ const SELECT_COLUMNS = `
   l.ready_now,
   l.ready_date::text  AS ready_date,
   l.ready_source,
+  l.ready_state,
   l.deliver_by::text  AS deliver_by,
   coalesce(l.tags,  '{}') AS tags,
   coalesce(l.flags, '{}') AS flags,
@@ -213,8 +214,15 @@ export async function searchLoads(
   // the board's. Every other "today" (the chips, the corridor summary, the
   // client's `boardDay`) is computed in DEFAULT_TZ, so this one is too, bound
   // as a date rather than left to the server's clock.
-  if (input.readyOnly) where.push(`(l.ready_now OR l.ready_date <= ${p.add(localToday())}::date)`);
-  if (input.readyBy) where.push(`(l.ready_now OR l.ready_date <= ${p.add(input.readyBy)}::date)`);
+  // `ready_now` is now only ever true because the post SAID so, and
+  // `ready_date` is only set because the post gave a date, so this predicate
+  // excludes the undated without naming them -- which is the fix for L01: a
+  // driver who asks for freight that is ready today no longer receives jobs
+  // whose readiness nobody knows. `includeUnknownReady` is the deliberate way
+  // back to the wider net, and it names what it lets in.
+  const readyUnknownSql = input.includeUnknownReady ? ` OR l.ready_state = 'unknown'` : "";
+  if (input.readyOnly) where.push(`(l.ready_now OR l.ready_date <= ${p.add(localToday())}::date${readyUnknownSql})`);
+  if (input.readyBy) where.push(`(l.ready_now OR l.ready_date <= ${p.add(input.readyBy)}::date${readyUnknownSql})`);
   if (input.deliverBy) {
     where.push(`(l.deliver_by IS NULL OR l.deliver_by <= ${p.add(input.deliverBy)}::date)`);
   }

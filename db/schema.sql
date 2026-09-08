@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS load_sightings (
   sent_at timestamptz NOT NULL, line_no integer, line_text text,
   cubic_feet integer, price_per_cf numeric(6,2), price_flat numeric(10,2),
   ready_now boolean NOT NULL DEFAULT false, ready_date date,
-  ready_source text CHECK (ready_source IN ('line','header','footer','title','assumed')),
+  ready_source text CHECK (ready_source IN ('line','header','footer','title')),
   deliver_by date, tags text[] NOT NULL DEFAULT '{}', job_notes text, confidence real,
   PRIMARY KEY (load_id, snapshot_id)
 );
@@ -249,7 +249,7 @@ ALTER TABLE loads ADD COLUMN IF NOT EXISTS price_per_cf numeric(6,2);
 ALTER TABLE loads ADD COLUMN IF NOT EXISTS price_flat numeric(10,2);
 ALTER TABLE loads ADD COLUMN IF NOT EXISTS ready_now boolean NOT NULL DEFAULT false;
 ALTER TABLE loads ADD COLUMN IF NOT EXISTS ready_date date;
-ALTER TABLE loads ADD COLUMN IF NOT EXISTS ready_source text CHECK (ready_source IN ('line','header','footer','title','assumed'));
+ALTER TABLE loads ADD COLUMN IF NOT EXISTS ready_source text CHECK (ready_source IN ('line','header','footer','title'));
 ALTER TABLE loads ADD COLUMN IF NOT EXISTS deliver_by date;
 ALTER TABLE loads ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT '{}';
 ALTER TABLE loads ADD COLUMN IF NOT EXISTS flags text[] NOT NULL DEFAULT '{}';
@@ -268,6 +268,57 @@ ALTER TABLE loads DROP CONSTRAINT IF EXISTS loads_status_check;
 ALTER TABLE loads ADD CONSTRAINT loads_status_check CHECK (status IN ('available','delisted','pending','taken','expired','cancelled'));
 ALTER TABLE loads DROP CONSTRAINT IF EXISTS loads_source_message_id_fkey;
 ALTER TABLE loads ADD CONSTRAINT loads_source_message_id_fkey FOREIGN KEY (source_message_id) REFERENCES raw_messages(id) ON DELETE SET NULL;
+
+-- ---------------------------------------------------------------------------
+-- Readiness, stated rather than assumed (review L01).
+--
+-- `ready_now` used to answer two questions at once: "did the sender say the
+-- freight is ready?" and "is there any reason to think it is not?". A post with
+-- no readiness marker at all was written down as ready_now = true with
+-- ready_source = 'assumed', so 74 of 98 live jobs wore the green "Ready now"
+-- chip on the strength of a guess, and `?readyOnly=1` returned them. The
+-- tooltip admitted the guess, which made it worse: the product knew it was
+-- guessing and published the guess as a fact.
+--
+-- So readiness is FOUR states, written down once at ingest and never inferred
+-- again at render:
+--
+--   'now'        the source said it is ready now (RFD, "ready", a footer flag)
+--   'date'       the source gave a date; `ready_date` holds it
+--   'not_ready'  the source marked OTHER jobs ready and deliberately not this one
+--   'unknown'    the post carried no readiness marker. Not a synonym for 'now',
+--                not a synonym for 'not_ready', and never counted as either.
+--
+-- `ready_now` keeps its column and narrows to its honest meaning -- state
+-- 'now' -- so every existing predicate (`ready_now OR ready_date <= today`,
+-- loads_board_idx, the summary's FILTER) stays correct without being rewritten.
+-- 'assumed' leaves the `ready_source` domain because the value's whole meaning
+-- was the invention; the marker's provenance is a fact, its absence is not.
+--
+-- The backfill runs once per row: the column is added nullable, NULL means
+-- "written before this existed", and the statement that fills it is the same
+-- statement that retires the 'assumed' marker, so it can never see its own
+-- output and re-read a genuine 'unknown' as anything else.
+ALTER TABLE loads ADD COLUMN IF NOT EXISTS ready_state text
+  CHECK (ready_state IN ('now','date','not_ready','unknown'));
+UPDATE loads SET
+  ready_state = CASE WHEN ready_source = 'assumed' THEN 'unknown'
+                     WHEN ready_date IS NOT NULL   THEN 'date'
+                     WHEN ready_now                THEN 'now'
+                     ELSE 'not_ready' END,
+  ready_now   = CASE WHEN ready_source = 'assumed' THEN false ELSE ready_now END,
+  ready_source = CASE WHEN ready_source = 'assumed' THEN NULL ELSE ready_source END
+WHERE ready_state IS NULL;
+ALTER TABLE loads ALTER COLUMN ready_state SET DEFAULT 'unknown';
+ALTER TABLE loads ALTER COLUMN ready_state SET NOT NULL;
+ALTER TABLE loads DROP CONSTRAINT IF EXISTS loads_ready_source_check;
+UPDATE loads SET ready_source = NULL WHERE ready_source = 'assumed';
+ALTER TABLE loads ADD CONSTRAINT loads_ready_source_check
+  CHECK (ready_source IN ('line','header','footer','title'));
+ALTER TABLE load_sightings DROP CONSTRAINT IF EXISTS load_sightings_ready_source_check;
+UPDATE load_sightings SET ready_now = false, ready_source = NULL WHERE ready_source = 'assumed';
+ALTER TABLE load_sightings ADD CONSTRAINT load_sightings_ready_source_check
+  CHECK (ready_source IN ('line','header','footer','title'));
 -- NOT partial: Postgres can only infer a partial unique index for ON CONFLICT
 -- when the conflict target repeats the predicate, and
 -- `ON CONFLICT (sender_key, job_key) DO NOTHING` against a

@@ -273,18 +273,40 @@ export function formatRate(perCf: number): string {
 
 // --- ready / deliver by ------------------------------------------------------
 
-type ReadyJob = Pick<LoadRow, "ready_now" | "ready_date" | "ready_source">;
+type ReadyJob = Pick<LoadRow, "ready_now" | "ready_date" | "ready_source" | "ready_state">;
 
 const READY_SOURCE_NOTE: Record<string, string> = {
   line: "Stated on the job's own line",
   header: "Taken from the post's header",
   footer: "Taken from the post's footer",
   title: "Taken from the post's title",
-  assumed: "No ready marker in the post; assumed available — confirm on the call",
 };
 
 /**
- * "Ready now" · "Ready tomorrow" · "Ready Sep 12" · "Not ready yet".
+ * What a job with no readiness marker says — the sentence the whole of L01 is
+ * about.
+ *
+ * ONE STRING, for the same reason `PRICE_NOT_PROVIDED` is one: a driver meets
+ * this fact on most of the board, and two wordings for it would read as two
+ * different facts. It is a claim about the POST, not about the freight: we are
+ * not saying the job is unavailable, we are saying nobody told us. What it must
+ * never become again is "Ready now", which is what it used to say on the
+ * strength of nothing at all.
+ */
+export const READY_NOT_STATED = "Ready date not stated";
+
+const READY_UNKNOWN_TITLE =
+  "The post carried no readiness marker, so MoverMesh does not know when this freight is ready — and will not guess. Ask the sender.";
+
+/**
+ * "Ready now" · "Ready now (stated Sep 5)" · "Ready tomorrow" · "Ready Sep 12" ·
+ * "Not ready yet" · "Ready date not stated".
+ *
+ * Reads the stored state, never the shape of the other columns: the four
+ * answers are decided once, at ingest, by the sender's own words
+ * (`db/schema.sql`, `readyStateOf`). Rendering used to reconstruct them from
+ * `ready_now`, which could not tell "the post said nothing" from "the post said
+ * no" — and resolved the ambiguity in the green direction.
  *
  * "Not ready yet" is the honest reading of a job on a post where OTHER lines
  * carried an RFD marker and this one did not: the sender distinguished them, so
@@ -295,18 +317,57 @@ export function readyLabel(
   todayIso: string,
 ): { text: string; tone: Tone; title: string | null } {
   const title = job.ready_source ? (READY_SOURCE_NOTE[job.ready_source] ?? null) : null;
-  if (isReady(job, todayIso)) return { text: "Ready now", tone: "ready", title };
-  if (job.ready_date) {
+
+  if (job.ready_state === "unknown") {
+    return { text: READY_NOT_STATED, tone: "muted", title: READY_UNKNOWN_TITLE };
+  }
+  if (job.ready_state === "not_ready") {
+    return {
+      text: "Not ready yet",
+      tone: "muted",
+      title: title ?? "The sender marked other jobs ready but not this one",
+    };
+  }
+  if (job.ready_state === "date" && job.ready_date) {
+    // The stated day is kept in the label even once it has arrived: it is the
+    // sender's own timestamp, and "Ready now" alone would drop the evidence.
+    if (isReady(job, todayIso)) {
+      return { text: `Ready now (stated ${shortDate(job.ready_date)})`, tone: "ready", title };
+    }
     const days = daysBefore(job.ready_date, todayIso);
     if (days === -1) return { text: "Ready tomorrow", tone: "accent", title };
     return { text: `Ready ${shortDate(job.ready_date)}`, tone: "accent", title };
   }
-  return {
-    text: "Not ready yet",
-    tone: "muted",
-    title: title ?? "The sender marked other jobs ready but not this one",
-  };
+  if (job.ready_state === "now") return { text: "Ready now", tone: "ready", title };
+
+  // A 'date' row whose date never resolved: the sender said something about a
+  // day and we could not read it. Say that, rather than picking a day.
+  return { text: READY_NOT_STATED, tone: "muted", title: READY_UNKNOWN_TITLE };
 }
+
+/**
+ * The one-line evidence note under a detail's Ready fact: where the marker was
+ * found, or that there was none.
+ *
+ * Lives here rather than in the component because it is the same claim
+ * `readyLabel` makes, in longer words, and the two going out of step is exactly
+ * how the board came to print "Ready now" over a note that said it was assumed.
+ */
+export function readyEvidence(job: ReadyJob): string {
+  if (job.ready_state === "unknown") return "no ready marker in the post";
+  if (job.ready_state === "not_ready") return "other jobs in the post were marked ready; this one was not";
+  return job.ready_source ? `as posted (${job.ready_source})` : "";
+}
+
+/**
+ * The one sentence for "this job is ready only after it is due".
+ *
+ * One string, checked in the browser and again in `insertWebJob`, for the
+ * reason `DEPARTURE_ALREADY_PASSED` is one string: the way a cross-field rule
+ * goes wrong is a second copy of it that drifts, and a POST is a public
+ * interface that has to refuse what the form refuses.
+ */
+export const READY_AFTER_DEADLINE = "That is after the delivery deadline — check the two dates";
 
 /** "Deliver by Sep 20", warn tone inside three days. Null when the post gave none. */
 export function deliverByLabel(
@@ -418,19 +479,42 @@ export function twinLabel(dupCount: number): { label: string; title: string } | 
   };
 }
 
+/**
+ * The requirements a sender's own words state — one chip each, in the order a
+ * driver checks them.
+ *
+ * Every rule here is a literal reading of the source text. The rule this
+ * replaces was `/\b(dot|mc)\b/ -> "DOT & MC"`, which failed in both directions
+ * at once on job 111 (review L03): the post says HHG, active DOT and insurance,
+ * so the badge ADDED an MC authority the sender never asked for and HID two
+ * requirements they did. A driver reading "DOT & MC" decides they are not
+ * eligible, or arrives without proof of insurance.
+ *
+ * "required" and not "verified": these are the sender's conditions as written,
+ * and MoverMesh has checked nothing. No label here may ever imply otherwise.
+ */
 const REQUIREMENT_RULES: Array<{ re: RegExp; label: string }> = [
   { re: /\bno\s+brokers?\b/i, label: "No brokers" },
-  { re: /\b(dot|mc)\b/i, label: "DOT & MC" },
-  { re: /\binsur/i, label: "Insurance" },
+  { re: /\b(?:hhg|household\s+goods)\b/i, label: "HHG required" },
+  { re: /\b(?:us\s*)?dot\b/i, label: "DOT required" },
+  { re: /\bmc\s*#?\b/i, label: "MC required" },
+  { re: /\binsur/i, label: "Insurance required" },
   { re: /\b(cash|zelle|venmo|cod)\b/i, label: "Cash/Zelle" },
 ];
 
-/** A one-word chip for a sender's requirements, with the full text as the tooltip. */
-export function requirementChip(text: string | null): { label: string; title: string } | null {
+/**
+ * Chips for a sender's requirements, with their own words as the tooltip.
+ *
+ * A text this vocabulary cannot read still gets one neutral "Requirements"
+ * chip: that the sender stated conditions is itself a fact, and the words are
+ * a tooltip away. What it may not do is name a condition they did not write.
+ */
+export function requirementChips(text: string | null): Array<{ label: string; title: string }> {
   const t = text?.trim();
-  if (!t) return null;
-  const hit = REQUIREMENT_RULES.find((r) => r.re.test(t));
-  return { label: hit ? hit.label : "Requirements", title: t };
+  if (!t) return [];
+  const title = `Stated by the sender: ${t}`;
+  const hits = REQUIREMENT_RULES.filter((r) => r.re.test(t)).map((r) => ({ label: r.label, title }));
+  return hits.length ? hits : [{ label: "Requirements", title }];
 }
 
 // --- sizes -------------------------------------------------------------------

@@ -34,8 +34,9 @@ import {
   laneLabel,
   maskPhones,
   placeLabel,
+  readyEvidence,
   readyLabel,
-  requirementChip,
+  requirementChips,
   senderLine,
   twinLabel,
   PRICE_NOT_PROVIDED,
@@ -198,7 +199,7 @@ export function LoadDetail({
   const ready = readyLabel(row, today);
   const deliverBy = deliverByLabel(row, today);
   const fresh = freshnessLabel(row, now);
-  const requirement = requirementChip(row.requirements);
+  const requirements = requirementChips(row.requirements);
   const trip = data?.distances?.trip ?? null;
   const toPickup = data?.distances?.toPickup ?? null;
   // Two caveats, two spans. The pickup→delivery leg can be blurred by either
@@ -433,11 +434,7 @@ export function LoadDetail({
           <Fact label="Ready">
             <span title={ready.title ?? undefined}>{ready.text}</span>
             <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-              {row.ready_source === "assumed"
-                ? "assumed — no marker in the post"
-                : row.ready_source
-                  ? `as posted (${row.ready_source})`
-                  : ""}
+              {readyEvidence(row)}
             </div>
           </Fact>
 
@@ -452,7 +449,13 @@ export function LoadDetail({
         {row.requirements && (
           <section className="mt-[var(--sp-4)]">
             <div className="label">Sender&apos;s requirements</div>
-            {requirement && <Chip title={requirement.title}>{requirement.label}</Chip>}
+            <div className="flex flex-wrap gap-[var(--sp-1)]">
+              {requirements.map((req) => (
+                <Chip key={req.label} title={req.title}>
+                  {req.label}
+                </Chip>
+              ))}
+            </div>
             <p className="mt-[var(--sp-1)] text-(length:--fs-base)">{maskPhones(row.requirements)}</p>
           </section>
         )}

@@ -47,97 +47,25 @@
     "precision": "city"
    },
    {
-    "key": "-80.137,26.122",
-    "lng": -80.1373,
-    "lat": 26.1224,
-    "ids": [
-     111,
-     110,
-     109,
-     108,
-     107,
-     106,
-     105,
-     104
-    ],
-    "cf": 2700,
-    "unsized": 0,
-    "label": "Fort Lauderdale, FL",
-    "state": "FL",
-    "approx": false,
-    "spots": [
-     {
-      "key": "-80.13730,26.12240",
-      "lng": -80.1373,
-      "lat": 26.1224,
-      "ids": [
-       111,
-       110,
-       109,
-       108,
-       107,
-       106,
-       105,
-       104
-      ],
-      "cf": 2700,
-      "unsized": 0,
-      "label": "Fort Lauderdale, FL",
-      "approx": false,
-      "precision": "city"
-     }
-    ],
-    "precision": "city"
-   },
-   {
-    "key": "-80.843,35.227",
-    "lng": -80.8431,
-    "lat": 35.2271,
-    "ids": [
-     103
-    ],
-    "cf": 200,
-    "unsized": 0,
-    "label": "Charlotte, NC",
-    "state": "NC",
-    "approx": false,
-    "spots": [
-     {
-      "key": "-80.84310,35.22710",
-      "lng": -80.8431,
-      "lat": 35.2271,
-      "ids": [
-       103
-      ],
-      "cf": 200,
-      "unsized": 0,
-      "label": "Charlotte, NC",
-      "approx": false,
-      "precision": "city"
-     }
-    ],
-    "precision": "city"
-   },
-   {
     "key": "-118.244,34.052",
     "lng": -118.2437,
     "lat": 34.0522,
     "ids": [
-     102,
      101,
      100,
      99,
      98,
-     67,
-     66,
      34,
      33,
      32,
      31,
      30,
      29,
+     102,
      97,
-     96
+     96,
+     67,
+     66
     ],
     "cf": 7850,
     "unsized": 0,
@@ -150,21 +78,21 @@
       "lng": -118.2437,
       "lat": 34.0522,
       "ids": [
-       102,
        101,
        100,
        99,
        98,
-       67,
-       66,
        34,
        33,
        32,
        31,
        30,
        29,
+       102,
        97,
-       96
+       96,
+       67,
+       66
       ],
       "cf": 7850,
       "unsized": 0,
@@ -290,66 +218,6 @@
       "cf": 2200,
       "unsized": 0,
       "label": "Miami, FL",
-      "approx": false,
-      "precision": "city"
-     }
-    ],
-    "precision": "city"
-   },
-   {
-    "key": "-82.765,40.389",
-    "lng": -82.765,
-    "lat": 40.389,
-    "ids": [
-     56
-    ],
-    "cf": 500,
-    "unsized": 0,
-    "label": "Springfield, OH",
-    "state": "OH",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-82.76500,40.38900",
-      "lng": -82.765,
-      "lat": 40.389,
-      "ids": [
-       56
-      ],
-      "cf": 500,
-      "unsized": 0,
-      "label": "Springfield, OH",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-82.999,39.961",
-    "lng": -82.9988,
-    "lat": 39.9612,
-    "ids": [
-     55,
-     54
-    ],
-    "cf": 700,
-    "unsized": 0,
-    "label": "Columbus, OH",
-    "state": "OH",
-    "approx": false,
-    "spots": [
-     {
-      "key": "-82.99880,39.96120",
-      "lng": -82.9988,
-      "lat": 39.9612,
-      "ids": [
-       55,
-       54
-      ],
-      "cf": 700,
-      "unsized": 0,
-      "label": "Columbus, OH",
       "approx": false,
       "precision": "city"
      }
@@ -706,6 +574,78 @@
     "precision": "city"
    },
    {
+    "key": "-80.137,26.122",
+    "lng": -80.1373,
+    "lat": 26.1224,
+    "ids": [
+     111,
+     110,
+     109,
+     108,
+     107,
+     106,
+     105,
+     104
+    ],
+    "cf": 2700,
+    "unsized": 0,
+    "label": "Fort Lauderdale, FL",
+    "state": "FL",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-80.13730,26.12240",
+      "lng": -80.1373,
+      "lat": 26.1224,
+      "ids": [
+       111,
+       110,
+       109,
+       108,
+       107,
+       106,
+       105,
+       104
+      ],
+      "cf": 2700,
+      "unsized": 0,
+      "label": "Fort Lauderdale, FL",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
+    "key": "-80.843,35.227",
+    "lng": -80.8431,
+    "lat": 35.2271,
+    "ids": [
+     103
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "Charlotte, NC",
+    "state": "NC",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-80.84310,35.22710",
+      "lng": -80.8431,
+      "lat": 35.2271,
+      "ids": [
+       103
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "Charlotte, NC",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
+   },
+   {
     "key": "-121.886,37.338",
     "lng": -121.8863,
     "lat": 37.3382,
@@ -873,6 +813,66 @@
      }
     ],
     "precision": "city"
+   },
+   {
+    "key": "-82.765,40.389",
+    "lng": -82.765,
+    "lat": 40.389,
+    "ids": [
+     56
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "Springfield, OH",
+    "state": "OH",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-82.76500,40.38900",
+      "lng": -82.765,
+      "lat": 40.389,
+      "ids": [
+       56
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "Springfield, OH",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-82.999,39.961",
+    "lng": -82.9988,
+    "lat": 39.9612,
+    "ids": [
+     55,
+     54
+    ],
+    "cf": 700,
+    "unsized": 0,
+    "label": "Columbus, OH",
+    "state": "OH",
+    "approx": false,
+    "spots": [
+     {
+      "key": "-82.99880,39.96120",
+      "lng": -82.9988,
+      "lat": 39.9612,
+      "ids": [
+       55,
+       54
+      ],
+      "cf": 700,
+      "unsized": 0,
+      "label": "Columbus, OH",
+      "approx": false,
+      "precision": "city"
+     }
+    ],
+    "precision": "city"
    }
   ],
   "features": {
@@ -902,44 +902,6 @@
      "geometry": {
       "type": "Point",
       "coordinates": [
-       -80.1373,
-       26.1224
-      ]
-     },
-     "properties": {
-      "key": "-80.137,26.122",
-      "label": "Fort Lauderdale, FL",
-      "count": 8,
-      "cf": 2700,
-      "unsized": 0,
-      "approx": false,
-      "ids": "111,110,109,108,107,106,105,104"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -80.8431,
-       35.2271
-      ]
-     },
-     "properties": {
-      "key": "-80.843,35.227",
-      "label": "Charlotte, NC",
-      "count": 1,
-      "cf": 200,
-      "unsized": 0,
-      "approx": false,
-      "ids": "103"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
        -118.2437,
        34.0522
       ]
@@ -951,7 +913,7 @@
       "cf": 7850,
       "unsized": 0,
       "approx": false,
-      "ids": "102,101,100,99,98,67,66,34,33,32,31,30,29,97,96"
+      "ids": "101,100,99,98,34,33,32,31,30,29,102,97,96,67,66"
      }
     },
     {
@@ -1009,44 +971,6 @@
       "unsized": 0,
       "approx": false,
       "ids": "63,60,58,62,61,59,57"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -82.765,
-       40.389
-      ]
-     },
-     "properties": {
-      "key": "-82.765,40.389",
-      "label": "Springfield, OH",
-      "count": 1,
-      "cf": 500,
-      "unsized": 0,
-      "approx": true,
-      "ids": "56"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -82.9988,
-       39.9612
-      ]
-     },
-     "properties": {
-      "key": "-82.999,39.961",
-      "label": "Columbus, OH",
-      "count": 2,
-      "cf": 700,
-      "unsized": 0,
-      "approx": false,
-      "ids": "55,54"
      }
     },
     {
@@ -1263,6 +1187,44 @@
      "geometry": {
       "type": "Point",
       "coordinates": [
+       -80.1373,
+       26.1224
+      ]
+     },
+     "properties": {
+      "key": "-80.137,26.122",
+      "label": "Fort Lauderdale, FL",
+      "count": 8,
+      "cf": 2700,
+      "unsized": 0,
+      "approx": false,
+      "ids": "111,110,109,108,107,106,105,104"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.8431,
+       35.2271
+      ]
+     },
+     "properties": {
+      "key": "-80.843,35.227",
+      "label": "Charlotte, NC",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": false,
+      "ids": "103"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
        -121.8863,
        37.3382
       ]
@@ -1352,6 +1314,44 @@
       "approx": false,
       "ids": "65"
      }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -82.765,
+       40.389
+      ]
+     },
+     "properties": {
+      "key": "-82.765,40.389",
+      "label": "Springfield, OH",
+      "count": 1,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "56"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -82.9988,
+       39.9612
+      ]
+     },
+     "properties": {
+      "key": "-82.999,39.961",
+      "label": "Columbus, OH",
+      "count": 2,
+      "cf": 700,
+      "unsized": 0,
+      "approx": false,
+      "ids": "55,54"
+     }
     }
    ]
   },
@@ -1389,46 +1389,6 @@
     "-74.145,40.768"
    ],
    [
-    111,
-    "-80.137,26.122"
-   ],
-   [
-    110,
-    "-80.137,26.122"
-   ],
-   [
-    109,
-    "-80.137,26.122"
-   ],
-   [
-    108,
-    "-80.137,26.122"
-   ],
-   [
-    107,
-    "-80.137,26.122"
-   ],
-   [
-    106,
-    "-80.137,26.122"
-   ],
-   [
-    105,
-    "-80.137,26.122"
-   ],
-   [
-    104,
-    "-80.137,26.122"
-   ],
-   [
-    103,
-    "-80.843,35.227"
-   ],
-   [
-    102,
-    "-118.244,34.052"
-   ],
-   [
     101,
     "-118.244,34.052"
    ],
@@ -1453,14 +1413,6 @@
     "-121.494,38.582"
    ],
    [
-    67,
-    "-118.244,34.052"
-   ],
-   [
-    66,
-    "-118.244,34.052"
-   ],
-   [
     64,
     "-74.172,40.736"
    ],
@@ -1475,18 +1427,6 @@
    [
     58,
     "-80.192,25.762"
-   ],
-   [
-    56,
-    "-82.765,40.389"
-   ],
-   [
-    55,
-    "-82.999,39.961"
-   ],
-   [
-    54,
-    "-82.999,39.961"
    ],
    [
     53,
@@ -1649,6 +1589,46 @@
     "-108.551,39.064"
    ],
    [
+    111,
+    "-80.137,26.122"
+   ],
+   [
+    110,
+    "-80.137,26.122"
+   ],
+   [
+    109,
+    "-80.137,26.122"
+   ],
+   [
+    108,
+    "-80.137,26.122"
+   ],
+   [
+    107,
+    "-80.137,26.122"
+   ],
+   [
+    106,
+    "-80.137,26.122"
+   ],
+   [
+    105,
+    "-80.137,26.122"
+   ],
+   [
+    104,
+    "-80.137,26.122"
+   ],
+   [
+    103,
+    "-80.843,35.227"
+   ],
+   [
+    102,
+    "-118.244,34.052"
+   ],
+   [
     97,
     "-118.244,34.052"
    ],
@@ -1729,6 +1709,14 @@
     "-122.235,47.381"
    ],
    [
+    67,
+    "-118.244,34.052"
+   ],
+   [
+    66,
+    "-118.244,34.052"
+   ],
+   [
     65,
     "-74.412,40.519"
    ],
@@ -1747,6 +1735,18 @@
    [
     57,
     "-80.192,25.762"
+   ],
+   [
+    56,
+    "-82.765,40.389"
+   ],
+   [
+    55,
+    "-82.999,39.961"
+   ],
+   [
+    54,
+    "-82.999,39.961"
    ]
   ]
  },
@@ -1967,306 +1967,6 @@
     "precision": "state"
    },
    {
-    "key": "-117.161,32.716",
-    "lng": -117.1611,
-    "lat": 32.7157,
-    "ids": [
-     111
-    ],
-    "cf": 200,
-    "unsized": 0,
-    "label": "CA 91977",
-    "state": "CA",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-117.16110,32.71570",
-      "lng": -117.1611,
-      "lat": 32.7157,
-      "ids": [
-       111
-      ],
-      "cf": 200,
-      "unsized": 0,
-      "label": "CA 91977",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-111.832,33.415",
-    "lng": -111.8315,
-    "lat": 33.4152,
-    "ids": [
-     110,
-     49,
-     48
-    ],
-    "cf": 1100,
-    "unsized": 0,
-    "label": "AZ 85281",
-    "state": "AZ",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-111.83150,33.41520",
-      "lng": -111.8315,
-      "lat": 33.4152,
-      "ids": [
-       110,
-       49,
-       48
-      ],
-      "cf": 1100,
-      "unsized": 0,
-      "label": "AZ 85281",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-77.693,43.210",
-    "lng": -77.6931,
-    "lat": 43.2098,
-    "ids": [
-     109,
-     90
-    ],
-    "cf": 500,
-    "unsized": 0,
-    "label": "NY 14850",
-    "state": "NY",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-77.69310,43.20980",
-      "lng": -77.6931,
-      "lat": 43.2098,
-      "ids": [
-       109,
-       90
-      ],
-      "cf": 500,
-      "unsized": 0,
-      "label": "NY 14850",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-78.878,42.886",
-    "lng": -78.8784,
-    "lat": 42.8864,
-    "ids": [
-     108,
-     10
-    ],
-    "cf": 600,
-    "unsized": 0,
-    "label": "NY 14075",
-    "state": "NY",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-78.87840,42.88640",
-      "lng": -78.8784,
-      "lat": 42.8864,
-      "ids": [
-       108,
-       10
-      ],
-      "cf": 600,
-      "unsized": 0,
-      "label": "NY 14075",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-85.668,42.963",
-    "lng": -85.6681,
-    "lat": 42.9634,
-    "ids": [
-     107
-    ],
-    "cf": 300,
-    "unsized": 0,
-    "label": "MI 49456",
-    "state": "MI",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-85.66810,42.96340",
-      "lng": -85.6681,
-      "lat": 42.9634,
-      "ids": [
-       107
-      ],
-      "cf": 300,
-      "unsized": 0,
-      "label": "MI 49456",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-80.650,41.100",
-    "lng": -80.6495,
-    "lat": 41.0998,
-    "ids": [
-     106
-    ],
-    "cf": 400,
-    "unsized": 0,
-    "label": "OH 44473",
-    "state": "OH",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-80.64950,41.09980",
-      "lng": -80.6495,
-      "lat": 41.0998,
-      "ids": [
-       106
-      ],
-      "cf": 400,
-      "unsized": 0,
-      "label": "OH 44473",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-122.332,47.606",
-    "lng": -122.3321,
-    "lat": 47.6062,
-    "ids": [
-     105
-    ],
-    "cf": 200,
-    "unsized": 0,
-    "label": "WA 98109",
-    "state": "WA",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-122.33210,47.60620",
-      "lng": -122.3321,
-      "lat": 47.6062,
-      "ids": [
-       105
-      ],
-      "cf": 200,
-      "unsized": 0,
-      "label": "WA 98109",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-123.035,44.943",
-    "lng": -123.0351,
-    "lat": 44.9429,
-    "ids": [
-     104
-    ],
-    "cf": 700,
-    "unsized": 0,
-    "label": "OR 97396",
-    "state": "OR",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-123.03510,44.94290",
-      "lng": -123.0351,
-      "lat": 44.9429,
-      "ids": [
-       104
-      ],
-      "cf": 700,
-      "unsized": 0,
-      "label": "OR 97396",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-117.651,34.063",
-    "lng": -117.6509,
-    "lat": 34.0633,
-    "ids": [
-     103
-    ],
-    "cf": 200,
-    "unsized": 0,
-    "label": "CA 91916",
-    "state": "CA",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-117.65090,34.06330",
-      "lng": -117.6509,
-      "lat": 34.0633,
-      "ids": [
-       103
-      ],
-      "cf": 200,
-      "unsized": 0,
-      "label": "CA 91916",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-81.795,26.142",
-    "lng": -81.7948,
-    "lat": 26.142,
-    "ids": [
-     102,
-     12
-    ],
-    "cf": 400,
-    "unsized": 0,
-    "label": "FL 34113",
-    "state": "FL",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-81.79480,26.14200",
-      "lng": -81.7948,
-      "lat": 26.142,
-      "ids": [
-       102,
-       12
-      ],
-      "cf": 400,
-      "unsized": 0,
-      "label": "FL 34113",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
     "key": "-93.625,41.587",
     "lng": -93.625,
     "lat": 41.5868,
@@ -2418,72 +2118,6 @@
     "precision": "state"
    },
    {
-    "key": "-84.388,33.749",
-    "lng": -84.388,
-    "lat": 33.749,
-    "ids": [
-     67,
-     55,
-     57
-    ],
-    "cf": 1200,
-    "unsized": 0,
-    "label": "GA 30303",
-    "state": "GA",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-84.38800,33.74900",
-      "lng": -84.388,
-      "lat": 33.749,
-      "ids": [
-       67,
-       55,
-       57
-      ],
-      "cf": 1200,
-      "unsized": 0,
-      "label": "GA 30303",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-80.053,26.715",
-    "lng": -80.0534,
-    "lat": 26.7153,
-    "ids": [
-     66,
-     54,
-     3
-    ],
-    "cf": 1000,
-    "unsized": 0,
-    "label": "FL 33435",
-    "state": "FL",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-80.05340,26.71530",
-      "lng": -80.0534,
-      "lat": 26.7153,
-      "ids": [
-       66,
-       54,
-       3
-      ],
-      "cf": 1000,
-      "unsized": 0,
-      "label": "FL 33435",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
     "key": "-72.928,41.308",
     "lng": -72.9279,
     "lat": 41.3083,
@@ -2566,35 +2200,6 @@
       "cf": 300,
       "unsized": 0,
       "label": "NC 28202",
-      "approx": true,
-      "precision": "state"
-     }
-    ],
-    "precision": "state"
-   },
-   {
-    "key": "-96.797,32.777",
-    "lng": -96.797,
-    "lat": 32.7767,
-    "ids": [
-     56
-    ],
-    "cf": 500,
-    "unsized": 0,
-    "label": "TX 75201",
-    "state": "TX",
-    "approx": true,
-    "spots": [
-     {
-      "key": "-96.79700,32.77670",
-      "lng": -96.797,
-      "lat": 32.7767,
-      "ids": [
-       56
-      ],
-      "cf": 500,
-      "unsized": 0,
-      "label": "TX 75201",
       "approx": true,
       "precision": "state"
      }
@@ -2715,6 +2320,39 @@
       "cf": 200,
       "unsized": 0,
       "label": "CA 95961",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-111.832,33.415",
+    "lng": -111.8315,
+    "lat": 33.4152,
+    "ids": [
+     49,
+     48,
+     110
+    ],
+    "cf": 1100,
+    "unsized": 0,
+    "label": "AZ 85324",
+    "state": "AZ",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-111.83150,33.41520",
+      "lng": -111.8315,
+      "lat": 33.4152,
+      "ids": [
+       49,
+       48,
+       110
+      ],
+      "cf": 1100,
+      "unsized": 0,
+      "label": "AZ 85324",
       "approx": true,
       "precision": "state"
      }
@@ -3264,6 +2902,68 @@
     "precision": "state"
    },
    {
+    "key": "-81.795,26.142",
+    "lng": -81.7948,
+    "lat": 26.142,
+    "ids": [
+     12,
+     102
+    ],
+    "cf": 400,
+    "unsized": 0,
+    "label": "FL 34113",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-81.79480,26.14200",
+      "lng": -81.7948,
+      "lat": 26.142,
+      "ids": [
+       12,
+       102
+      ],
+      "cf": 400,
+      "unsized": 0,
+      "label": "FL 34113",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-78.878,42.886",
+    "lng": -78.8784,
+    "lat": 42.8864,
+    "ids": [
+     10,
+     108
+    ],
+    "cf": 600,
+    "unsized": 0,
+    "label": "NY 14201",
+    "state": "NY",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-78.87840,42.88640",
+      "lng": -78.8784,
+      "lat": 42.8864,
+      "ids": [
+       10,
+       108
+      ],
+      "cf": 600,
+      "unsized": 0,
+      "label": "NY 14201",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
     "key": "-83.921,35.961",
     "lng": -83.9207,
     "lat": 35.9606,
@@ -3348,6 +3048,244 @@
       "cf": 800,
       "unsized": 0,
       "label": "MA 02072",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-80.053,26.715",
+    "lng": -80.0534,
+    "lat": 26.7153,
+    "ids": [
+     3,
+     66,
+     54
+    ],
+    "cf": 1000,
+    "unsized": 0,
+    "label": "FL 33435",
+    "state": "FL",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-80.05340,26.71530",
+      "lng": -80.0534,
+      "lat": 26.7153,
+      "ids": [
+       3,
+       66,
+       54
+      ],
+      "cf": 1000,
+      "unsized": 0,
+      "label": "FL 33435",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-117.161,32.716",
+    "lng": -117.1611,
+    "lat": 32.7157,
+    "ids": [
+     111
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "CA 91977",
+    "state": "CA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-117.16110,32.71570",
+      "lng": -117.1611,
+      "lat": 32.7157,
+      "ids": [
+       111
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "CA 91977",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-77.693,43.210",
+    "lng": -77.6931,
+    "lat": 43.2098,
+    "ids": [
+     109,
+     90
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "NY 14850",
+    "state": "NY",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-77.69310,43.20980",
+      "lng": -77.6931,
+      "lat": 43.2098,
+      "ids": [
+       109,
+       90
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "NY 14850",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-85.668,42.963",
+    "lng": -85.6681,
+    "lat": 42.9634,
+    "ids": [
+     107
+    ],
+    "cf": 300,
+    "unsized": 0,
+    "label": "MI 49456",
+    "state": "MI",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-85.66810,42.96340",
+      "lng": -85.6681,
+      "lat": 42.9634,
+      "ids": [
+       107
+      ],
+      "cf": 300,
+      "unsized": 0,
+      "label": "MI 49456",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-80.650,41.100",
+    "lng": -80.6495,
+    "lat": 41.0998,
+    "ids": [
+     106
+    ],
+    "cf": 400,
+    "unsized": 0,
+    "label": "OH 44473",
+    "state": "OH",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-80.64950,41.09980",
+      "lng": -80.6495,
+      "lat": 41.0998,
+      "ids": [
+       106
+      ],
+      "cf": 400,
+      "unsized": 0,
+      "label": "OH 44473",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-122.332,47.606",
+    "lng": -122.3321,
+    "lat": 47.6062,
+    "ids": [
+     105
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "WA 98109",
+    "state": "WA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-122.33210,47.60620",
+      "lng": -122.3321,
+      "lat": 47.6062,
+      "ids": [
+       105
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "WA 98109",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-123.035,44.943",
+    "lng": -123.0351,
+    "lat": 44.9429,
+    "ids": [
+     104
+    ],
+    "cf": 700,
+    "unsized": 0,
+    "label": "OR 97396",
+    "state": "OR",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-123.03510,44.94290",
+      "lng": -123.0351,
+      "lat": 44.9429,
+      "ids": [
+       104
+      ],
+      "cf": 700,
+      "unsized": 0,
+      "label": "OR 97396",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-117.651,34.063",
+    "lng": -117.6509,
+    "lat": 34.0633,
+    "ids": [
+     103
+    ],
+    "cf": 200,
+    "unsized": 0,
+    "label": "CA 91916",
+    "state": "CA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-117.65090,34.06330",
+      "lng": -117.6509,
+      "lat": 34.0633,
+      "ids": [
+       103
+      ],
+      "cf": 200,
+      "unsized": 0,
+      "label": "CA 91916",
       "approx": true,
       "precision": "state"
      }
@@ -3620,6 +3558,39 @@
     "precision": "state"
    },
    {
+    "key": "-84.388,33.749",
+    "lng": -84.388,
+    "lat": 33.749,
+    "ids": [
+     67,
+     57,
+     55
+    ],
+    "cf": 1200,
+    "unsized": 0,
+    "label": "GA 30303",
+    "state": "GA",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-84.38800,33.74900",
+      "lng": -84.388,
+      "lat": 33.749,
+      "ids": [
+       67,
+       57,
+       55
+      ],
+      "cf": 1200,
+      "unsized": 0,
+      "label": "GA 30303",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
     "key": "-74.172,40.736",
     "lng": -74.1724,
     "lat": 40.7357,
@@ -3671,6 +3642,35 @@
       "cf": 400,
       "unsized": 0,
       "label": "NJ 07032",
+      "approx": true,
+      "precision": "state"
+     }
+    ],
+    "precision": "state"
+   },
+   {
+    "key": "-96.797,32.777",
+    "lng": -96.797,
+    "lat": 32.7767,
+    "ids": [
+     56
+    ],
+    "cf": 500,
+    "unsized": 0,
+    "label": "TX 75201",
+    "state": "TX",
+    "approx": true,
+    "spots": [
+     {
+      "key": "-96.79700,32.77670",
+      "lng": -96.797,
+      "lat": 32.7767,
+      "ids": [
+       56
+      ],
+      "cf": 500,
+      "unsized": 0,
+      "label": "TX 75201",
       "approx": true,
       "precision": "state"
      }
@@ -3819,196 +3819,6 @@
      "geometry": {
       "type": "Point",
       "coordinates": [
-       -117.1611,
-       32.7157
-      ]
-     },
-     "properties": {
-      "key": "-117.161,32.716",
-      "label": "CA 91977",
-      "count": 1,
-      "cf": 200,
-      "unsized": 0,
-      "approx": true,
-      "ids": "111"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -111.8315,
-       33.4152
-      ]
-     },
-     "properties": {
-      "key": "-111.832,33.415",
-      "label": "AZ 85281",
-      "count": 3,
-      "cf": 1100,
-      "unsized": 0,
-      "approx": true,
-      "ids": "110,49,48"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -77.6931,
-       43.2098
-      ]
-     },
-     "properties": {
-      "key": "-77.693,43.210",
-      "label": "NY 14850",
-      "count": 2,
-      "cf": 500,
-      "unsized": 0,
-      "approx": true,
-      "ids": "109,90"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -78.8784,
-       42.8864
-      ]
-     },
-     "properties": {
-      "key": "-78.878,42.886",
-      "label": "NY 14075",
-      "count": 2,
-      "cf": 600,
-      "unsized": 0,
-      "approx": true,
-      "ids": "108,10"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -85.6681,
-       42.9634
-      ]
-     },
-     "properties": {
-      "key": "-85.668,42.963",
-      "label": "MI 49456",
-      "count": 1,
-      "cf": 300,
-      "unsized": 0,
-      "approx": true,
-      "ids": "107"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -80.6495,
-       41.0998
-      ]
-     },
-     "properties": {
-      "key": "-80.650,41.100",
-      "label": "OH 44473",
-      "count": 1,
-      "cf": 400,
-      "unsized": 0,
-      "approx": true,
-      "ids": "106"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -122.3321,
-       47.6062
-      ]
-     },
-     "properties": {
-      "key": "-122.332,47.606",
-      "label": "WA 98109",
-      "count": 1,
-      "cf": 200,
-      "unsized": 0,
-      "approx": true,
-      "ids": "105"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -123.0351,
-       44.9429
-      ]
-     },
-     "properties": {
-      "key": "-123.035,44.943",
-      "label": "OR 97396",
-      "count": 1,
-      "cf": 700,
-      "unsized": 0,
-      "approx": true,
-      "ids": "104"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -117.6509,
-       34.0633
-      ]
-     },
-     "properties": {
-      "key": "-117.651,34.063",
-      "label": "CA 91916",
-      "count": 1,
-      "cf": 200,
-      "unsized": 0,
-      "approx": true,
-      "ids": "103"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -81.7948,
-       26.142
-      ]
-     },
-     "properties": {
-      "key": "-81.795,26.142",
-      "label": "FL 34113",
-      "count": 2,
-      "cf": 400,
-      "unsized": 0,
-      "approx": true,
-      "ids": "102,12"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
        -93.625,
        41.5868
       ]
@@ -4104,44 +3914,6 @@
      "geometry": {
       "type": "Point",
       "coordinates": [
-       -84.388,
-       33.749
-      ]
-     },
-     "properties": {
-      "key": "-84.388,33.749",
-      "label": "GA 30303",
-      "count": 3,
-      "cf": 1200,
-      "unsized": 0,
-      "approx": true,
-      "ids": "67,55,57"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -80.0534,
-       26.7153
-      ]
-     },
-     "properties": {
-      "key": "-80.053,26.715",
-      "label": "FL 33435",
-      "count": 3,
-      "cf": 1000,
-      "unsized": 0,
-      "approx": true,
-      "ids": "66,54,3"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
        -72.9279,
        41.3083
       ]
@@ -4192,25 +3964,6 @@
       "unsized": 0,
       "approx": true,
       "ids": "58"
-     }
-    },
-    {
-     "type": "Feature",
-     "geometry": {
-      "type": "Point",
-      "coordinates": [
-       -96.797,
-       32.7767
-      ]
-     },
-     "properties": {
-      "key": "-96.797,32.777",
-      "label": "TX 75201",
-      "count": 1,
-      "cf": 500,
-      "unsized": 0,
-      "approx": true,
-      "ids": "56"
      }
     },
     {
@@ -4287,6 +4040,25 @@
       "unsized": 0,
       "approx": true,
       "ids": "50"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -111.8315,
+       33.4152
+      ]
+     },
+     "properties": {
+      "key": "-111.832,33.415",
+      "label": "AZ 85324",
+      "count": 3,
+      "cf": 1100,
+      "unsized": 0,
+      "approx": true,
+      "ids": "49,48,110"
      }
     },
     {
@@ -4636,6 +4408,44 @@
      "geometry": {
       "type": "Point",
       "coordinates": [
+       -81.7948,
+       26.142
+      ]
+     },
+     "properties": {
+      "key": "-81.795,26.142",
+      "label": "FL 34113",
+      "count": 2,
+      "cf": 400,
+      "unsized": 0,
+      "approx": true,
+      "ids": "12,102"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -78.8784,
+       42.8864
+      ]
+     },
+     "properties": {
+      "key": "-78.878,42.886",
+      "label": "NY 14201",
+      "count": 2,
+      "cf": 600,
+      "unsized": 0,
+      "approx": true,
+      "ids": "10,108"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
        -83.9207,
        35.9606
       ]
@@ -4686,6 +4496,158 @@
       "unsized": 0,
       "approx": true,
       "ids": "4,94"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.0534,
+       26.7153
+      ]
+     },
+     "properties": {
+      "key": "-80.053,26.715",
+      "label": "FL 33435",
+      "count": 3,
+      "cf": 1000,
+      "unsized": 0,
+      "approx": true,
+      "ids": "3,66,54"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -117.1611,
+       32.7157
+      ]
+     },
+     "properties": {
+      "key": "-117.161,32.716",
+      "label": "CA 91977",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "111"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -77.6931,
+       43.2098
+      ]
+     },
+     "properties": {
+      "key": "-77.693,43.210",
+      "label": "NY 14850",
+      "count": 2,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "109,90"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -85.6681,
+       42.9634
+      ]
+     },
+     "properties": {
+      "key": "-85.668,42.963",
+      "label": "MI 49456",
+      "count": 1,
+      "cf": 300,
+      "unsized": 0,
+      "approx": true,
+      "ids": "107"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -80.6495,
+       41.0998
+      ]
+     },
+     "properties": {
+      "key": "-80.650,41.100",
+      "label": "OH 44473",
+      "count": 1,
+      "cf": 400,
+      "unsized": 0,
+      "approx": true,
+      "ids": "106"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -122.3321,
+       47.6062
+      ]
+     },
+     "properties": {
+      "key": "-122.332,47.606",
+      "label": "WA 98109",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "105"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -123.0351,
+       44.9429
+      ]
+     },
+     "properties": {
+      "key": "-123.035,44.943",
+      "label": "OR 97396",
+      "count": 1,
+      "cf": 700,
+      "unsized": 0,
+      "approx": true,
+      "ids": "104"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -117.6509,
+       34.0633
+      ]
+     },
+     "properties": {
+      "key": "-117.651,34.063",
+      "label": "CA 91916",
+      "count": 1,
+      "cf": 200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "103"
      }
     },
     {
@@ -4864,6 +4826,25 @@
      "geometry": {
       "type": "Point",
       "coordinates": [
+       -84.388,
+       33.749
+      ]
+     },
+     "properties": {
+      "key": "-84.388,33.749",
+      "label": "GA 30303",
+      "count": 3,
+      "cf": 1200,
+      "unsized": 0,
+      "approx": true,
+      "ids": "67,57,55"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
        -74.1724,
        40.7357
       ]
@@ -4895,6 +4876,25 @@
       "unsized": 0,
       "approx": true,
       "ids": "59"
+     }
+    },
+    {
+     "type": "Feature",
+     "geometry": {
+      "type": "Point",
+      "coordinates": [
+       -96.797,
+       32.7767
+      ]
+     },
+     "properties": {
+      "key": "-96.797,32.777",
+      "label": "TX 75201",
+      "count": 1,
+      "cf": 500,
+      "unsized": 0,
+      "approx": true,
+      "ids": "56"
      }
     }
    ]
@@ -4933,46 +4933,6 @@
     "-84.555,42.733"
    ],
    [
-    111,
-    "-117.161,32.716"
-   ],
-   [
-    110,
-    "-111.832,33.415"
-   ],
-   [
-    109,
-    "-77.693,43.210"
-   ],
-   [
-    108,
-    "-78.878,42.886"
-   ],
-   [
-    107,
-    "-85.668,42.963"
-   ],
-   [
-    106,
-    "-80.650,41.100"
-   ],
-   [
-    105,
-    "-122.332,47.606"
-   ],
-   [
-    104,
-    "-123.035,44.943"
-   ],
-   [
-    103,
-    "-117.651,34.063"
-   ],
-   [
-    102,
-    "-81.795,26.142"
-   ],
-   [
     101,
     "-93.625,41.587"
    ],
@@ -4997,14 +4957,6 @@
     "-104.821,38.834"
    ],
    [
-    67,
-    "-84.388,33.749"
-   ],
-   [
-    66,
-    "-80.053,26.715"
-   ],
-   [
     64,
     "-80.192,25.762"
    ],
@@ -5019,18 +4971,6 @@
    [
     58,
     "-80.843,35.227"
-   ],
-   [
-    56,
-    "-96.797,32.777"
-   ],
-   [
-    55,
-    "-84.388,33.749"
-   ],
-   [
-    54,
-    "-80.053,26.715"
    ],
    [
     53,
@@ -5193,6 +5133,46 @@
     "-80.053,26.715"
    ],
    [
+    111,
+    "-117.161,32.716"
+   ],
+   [
+    110,
+    "-111.832,33.415"
+   ],
+   [
+    109,
+    "-77.693,43.210"
+   ],
+   [
+    108,
+    "-78.878,42.886"
+   ],
+   [
+    107,
+    "-85.668,42.963"
+   ],
+   [
+    106,
+    "-80.650,41.100"
+   ],
+   [
+    105,
+    "-122.332,47.606"
+   ],
+   [
+    104,
+    "-123.035,44.943"
+   ],
+   [
+    103,
+    "-117.651,34.063"
+   ],
+   [
+    102,
+    "-81.795,26.142"
+   ],
+   [
     97,
     "-108.501,45.783"
    ],
@@ -5273,6 +5253,14 @@
     "-88.040,30.695"
    ],
    [
+    67,
+    "-84.388,33.749"
+   ],
+   [
+    66,
+    "-80.053,26.715"
+   ],
+   [
     65,
     "-81.379,28.538"
    ],
@@ -5291,6 +5279,18 @@
    [
     57,
     "-84.388,33.749"
+   ],
+   [
+    56,
+    "-96.797,32.777"
+   ],
+   [
+    55,
+    "-84.388,33.749"
+   ],
+   [
+    54,
+    "-80.053,26.715"
    ]
   ]
  }

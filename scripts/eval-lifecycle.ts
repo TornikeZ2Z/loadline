@@ -40,6 +40,16 @@
  *       sweep supplies one once a real geocoder places the ZIP, and a city the
  *       poster wrote is never overwritten.
  *
+ *   R1  readiness is what the POST said and nothing else: the reviewer's own
+ *       evidence (message F, Fort Lauderdale -> CA 91977) names no readiness
+ *       anywhere, so it stays unknown through the row, the card, the strict
+ *       filter, the sort and the headline count -- and comes back only when a
+ *       driver deliberately asks to include unknown dates.
+ *   R2  the requirement chips are the sender's own words: HHG + DOT +
+ *       insurance produces exactly those three and never an MC nobody wrote.
+ *   R3  the website form cannot publish an assumed readiness, and refuses a
+ *       ready date that falls after the delivery deadline.
+ *
  * And then the OTHER lifecycle, which shares none of that machinery:
  *
  *   T4  a truck with a stated departure day is available 12 h into it and
@@ -721,6 +731,9 @@ async function main() {
     `the poster's own city is never overwritten by the sweep (got ${JSON.stringify(postStated)})`,
   );
 
+  // --------------------------------------------------------------- R1-R3
+  await readinessAndRequirements(post, T0);
+
   // ------------------------------------------------------------- T4-T6, T8
   await truckLifecycle();
 
@@ -731,6 +744,250 @@ async function main() {
   }
   console.log(`${GREEN}✓${RESET} ${checks} lifecycle checks passed\n`);
   process.exit(0);
+}
+
+/**
+ * Readiness and requirements: R1, R2, R3 -- the truth layer, end to end.
+ *
+ * Every assertion here is about a fact the product does NOT have. The board's
+ * central claim is that it never invents one, and the reviewed build broke it
+ * in three places at once: a post with no readiness marker was stored as ready
+ * and shown with a green chip, a compact badge added an MC authority no sender
+ * had asked for, and the posting form defaulted to "Ready now" with no way to
+ * say "I do not know yet".
+ *
+ * It runs over the real fixture message F, which is the reviewer's own evidence
+ * (job 111 on the live board), rather than over a body written to pass.
+ */
+async function readinessAndRequirements(
+  post: (phone: string, body: string, at: Date, now?: Date) => Promise<number>,
+  T0: Date,
+) {
+  console.log(`\n${DIM}R1-R3: readiness is what the post said; requirements are the sender's words${RESET}`);
+
+  const { query, queryOne } = await import("../src/lib/db");
+  const { searchLoads } = await import("../src/lib/loads/query");
+  const { boardDay, readyLabel, requirementChips, READY_AFTER_DEADLINE, READY_NOT_STATED } =
+    await import("../src/lib/loads/present");
+  const { insertWebJob, WebJobValidationError } = await import("../src/lib/pipeline/web");
+
+  const today = boardDay(T0);
+
+  // --- R1: the four states, from the post to the headline -------------------
+  // Two senders, because supersession is per sender and a second post from the
+  // same one would retire the first. The MARKED post goes first, so that the
+  // unmarked one is the NEWER row: under the behaviour this replaces both were
+  // ready_now = true and the newer would have sorted above the stated one.
+  const MARKED = "+17865559201";
+  const SILENT = "+17865559202";
+  await post(MARKED, "FROM SAVANNAH GA\nFL 33180 400 RFD\nFL 33181 300 9/12", T0, T0);
+  await post(SILENT, bodyOf("F"), new Date(T0.getTime() + 60_000), new Date(T0.getTime() + 60_000));
+
+  const silent = await searchLoads({ senderKey: `phone:${SILENT}`, limit: 100 });
+  const job111 = silent.rows.find((r) => r.delivery_zip === "91977");
+  expect(
+    !!job111 && job111.ready_state === "unknown" && !job111.ready_now && job111.ready_date === null,
+    `R1: the post that never mentions readiness stores unknown (got ${JSON.stringify(
+      job111 && { state: job111.ready_state, now: job111.ready_now, date: job111.ready_date, source: job111.ready_source },
+    )})`,
+  );
+
+  const label = readyLabel(job111!, today);
+  expect(
+    label.text === READY_NOT_STATED && label.tone !== "ready",
+    `R1: the card and the detail read "${READY_NOT_STATED}" in a quiet tone (got "${label.text}" / ${label.tone})`,
+  );
+
+  expect(
+    silent.summary.count === 9 && silent.summary.readyNow === 0,
+    `R1: the headline counts the jobs and none of them as ready now (got ${silent.summary.count} jobs, ${silent.summary.readyNow} ready now)`,
+  );
+
+  const strict = await searchLoads({ senderKey: `phone:${SILENT}`, readyOnly: true, limit: 100 });
+  expect(
+    strict.total === 0 && strict.summary.readyNow === 0,
+    `R1: ?readyOnly=1 returns none of them -- an undated job is not a job that is ready today (got ${strict.total})`,
+  );
+
+  const wide = await searchLoads({
+    senderKey: `phone:${SILENT}`,
+    readyOnly: true,
+    includeUnknownReady: true,
+    limit: 100,
+  });
+  expect(
+    wide.rows.some((r) => r.id === job111!.id),
+    `R1: "Include unknown dates" brings them back, because the driver asked (got ${wide.total})`,
+  );
+
+  const marked = await searchLoads({ senderKey: `phone:${MARKED}`, limit: 100 });
+  const rfd = marked.rows.find((r) => r.delivery_zip === "33180");
+  const dated = marked.rows.find((r) => r.delivery_zip === "33181");
+  expect(
+    !!rfd && rfd.ready_state === "now" && rfd.ready_now && rfd.ready_source === "line",
+    `R1: an RFD line is ready now, and the row says where that was read (got ${JSON.stringify(
+      rfd && { state: rfd.ready_state, now: rfd.ready_now, source: rfd.ready_source },
+    )})`,
+  );
+  expect(
+    !!dated && dated.ready_state === "date" && !dated.ready_now && dated.ready_date != null,
+    `R1: a stated date is a date, and keeps the sender's own day (got ${JSON.stringify(
+      dated && { state: dated.ready_state, now: dated.ready_now, date: dated.ready_date },
+    )})`,
+  );
+  expect(
+    !!dated && readyLabel(dated, today).text.includes(dated.ready_date!.slice(8).replace(/^0/, "")),
+    `R1: and the label prints that day rather than today (got "${dated && readyLabel(dated, today).text}")`,
+  );
+  expect(
+    marked.summary.readyNow === 1,
+    `R1: a future date is not counted in "N ready now" either (got ${marked.summary.readyNow} of 2)`,
+  );
+
+  // Sorting: "Ready soonest" is about stated readiness, so the unknown row --
+  // posted a minute LATER, and therefore first on any freshness tiebreak --
+  // must sit below the job whose sender actually said "RFD".
+  const sorted = await searchLoads({ sort: "ready", limit: 500 });
+  const at = (id: number) => sorted.rows.findIndex((r) => r.id === id);
+  expect(
+    at(rfd!.id) >= 0 && at(job111!.id) >= 0 && at(rfd!.id) < at(job111!.id),
+    `R1: sorted by "Ready soonest", a stated ready-now job is above one whose date nobody stated (got ${at(rfd!.id)} vs ${at(job111!.id)})`,
+  );
+
+  // --- R2: requirement chips are the sender's own words ---------------------
+  // F's own line: "MUST HAVE HHG, ACTIVE DOT AND INSURANCE." The badge that
+  // used to sit on job 111 read "DOT & MC" -- one requirement invented, two
+  // hidden.
+  const chips111 = requirementChips(job111!.requirements).map((c) => c.label);
+  expect(
+    chips111.join(" | ") === "HHG required | DOT required | Insurance required",
+    `R2: HHG + DOT + insurance produces exactly those three chips (got ${JSON.stringify(chips111)})`,
+  );
+  expect(
+    !chips111.some((c) => /\bMC\b/.test(c)),
+    "R2: and no MC chip, because the post never says MC",
+  );
+  expect(
+    (job111!.requirements ?? "").toUpperCase().includes("HHG"),
+    "R2: the sender's full requirement text is still on the row for the detail to print",
+  );
+
+  const MC_ONLY = "+17865559203";
+  const MIXED = "+17865559204";
+  await post(MC_ONLY, "FROM SAVANNAH GA\nFL 33183 400\nMC AUTHORITY REQUIRED.", T0, T0);
+  await post(MIXED, "FROM SAVANNAH GA\nFL 33184 400\nDOT AND MC REQUIRED.", T0, T0);
+  const oneRow = async (phone: string) =>
+    (await queryOne<{ requirements: string | null }>(
+      `SELECT requirements FROM loads WHERE sender_key = $1`,
+      [`phone:${phone}`],
+    ))!;
+  const mcChips = requirementChips((await oneRow(MC_ONLY)).requirements).map((c) => c.label);
+  const mixedChips = requirementChips((await oneRow(MIXED)).requirements).map((c) => c.label);
+  expect(
+    mcChips.join(" | ") === "MC required",
+    `R2: an MC-only post says MC and nothing else (got ${JSON.stringify(mcChips)})`,
+  );
+  expect(
+    mixedChips.join(" | ") === "DOT required | MC required",
+    `R2: a post naming both stays two distinct requirements (got ${JSON.stringify(mixedChips)})`,
+  );
+
+  // --- R3: the form cannot publish an assumption ---------------------------
+  await query(
+    `INSERT INTO users (email, password_hash, name, role, phone, company, is_demo, can_post)
+     VALUES ('ready@lifecycle.test','x','Ready Poster','poster','+12015550123','Lifecycle Movers',false,true)
+     ON CONFLICT (email) DO NOTHING`,
+  );
+  const poster = (await queryOne<{ id: number }>(
+    `SELECT id FROM users WHERE email = 'ready@lifecycle.test'`,
+  ))!;
+  const actor = { id: poster.id, name: "Ready Poster", phone: "+12015550123", isDemo: false };
+  const jobBody = (extra: Record<string, string>) => ({
+    pickup: "Kearny, NJ 07032",
+    pickupLat: "40.7684",
+    pickupLng: "-74.1454",
+    pickupState: "NJ",
+    pickupZip: "07032",
+    pickupPrecision: "zip",
+    deliveryState: "FL",
+    deliveryZip: "33435",
+    cubicFeet: "800",
+    contactPhone: "+12015550123",
+    ...extra,
+  });
+  const stateOf = async (id: number) =>
+    (await queryOne<{ ready_state: string; ready_now: boolean; ready_date: string | null }>(
+      `SELECT ready_state, ready_now, ready_date::text AS ready_date FROM loads WHERE id = $1`,
+      [id],
+    ))!;
+
+  const unknownPost = await insertWebJob(actor, jobBody({ readyState: "unknown" }));
+  const unknownRow = await stateOf(unknownPost.id);
+  expect(
+    unknownRow.ready_state === "unknown" && !unknownRow.ready_now && unknownRow.ready_date === null,
+    `R3: "Not stated yet" publishes as unknown (got ${JSON.stringify(unknownRow)})`,
+  );
+
+  const nowPost = await insertWebJob(actor, jobBody({ readyState: "now" }));
+  expect((await stateOf(nowPost.id)).ready_state === "now", "R3: \u201cReady now\u201d publishes as a stated now");
+
+  // The legacy shape: a client that says nothing about readiness at all. It
+  // used to publish ready_now = true, which is the same invention through the
+  // front door.
+  const silentPost = await insertWebJob(actor, jobBody({}));
+  const silentRow = await stateOf(silentPost.id);
+  expect(
+    silentRow.ready_state === "unknown" && !silentRow.ready_now,
+    `R3: a body that says nothing about readiness is unknown, never now (got ${JSON.stringify(silentRow)})`,
+  );
+
+  const refusalOf = async (extra: Record<string, string>) => {
+    const before = (await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM loads`))!.n;
+    try {
+      await insertWebJob(actor, jobBody(extra));
+      return { err: null as unknown, wrote: 1 };
+    } catch (e) {
+      const after = (await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM loads`))!.n;
+      return { err: e, wrote: after - before };
+    }
+  };
+
+  const dateless = await refusalOf({ readyState: "date" });
+  expect(
+    dateless.err instanceof WebJobValidationError &&
+      dateless.err.field === "readyDate" &&
+      dateless.wrote === 0,
+    `R3: "ready on" with no date is refused rather than quietly stored (got ${
+      dateless.err instanceof Error ? dateless.err.message : "a 201"
+    })`,
+  );
+
+  // Ready three days AFTER it must be delivered: two dates the same poster
+  // typed, contradicting each other.
+  const day = (n: number) => boardDay(new Date(T0.getTime() + n * DAY));
+  const backwards = await refusalOf({
+    readyState: "date",
+    readyDate: day(6),
+    deliverBy: day(3),
+  });
+  expect(
+    backwards.err instanceof WebJobValidationError &&
+      backwards.err.message === READY_AFTER_DEADLINE &&
+      backwards.wrote === 0,
+    `R3: a ready date after the delivery deadline is refused in the board's calendar (got ${
+      backwards.err instanceof Error ? backwards.err.message : "a 201"
+    })`,
+  );
+
+  const ordered = await insertWebJob(
+    actor,
+    jobBody({ readyState: "date", readyDate: day(3), deliverBy: day(6) }),
+  );
+  const orderedRow = await stateOf(ordered.id);
+  expect(
+    orderedRow.ready_state === "date" && orderedRow.ready_date === day(3) && !orderedRow.ready_now,
+    `R3: and the same two dates the right way round publish as a stated date (got ${JSON.stringify(orderedRow)})`,
+  );
 }
 
 /**

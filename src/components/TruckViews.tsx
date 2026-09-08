@@ -22,7 +22,7 @@
 
 import { useRef } from "react";
 import type { PublicTruckRow } from "@/lib/loads/publicView";
-import { boardDay, requirementChip, TAG_LABELS } from "@/lib/loads/present";
+import { boardDay, requirementChips, TAG_LABELS } from "@/lib/loads/present";
 import {
   departureLabel,
   driverLine,
@@ -125,7 +125,7 @@ export function TruckCard({ truck, selected, hovered, now, onSelect, onHover }: 
   const depart = departureLabel(truck, today);
   const fresh = truckFreshness(truck, now);
   const inactive = truck.status !== "available";
-  const requirement = requirementChip(truck.requirements);
+  const requirements = requirementChips(truck.requirements);
 
   const chips: React.ReactNode[] = [];
   // The poster's own copy only: nobody else is served a demo row at all. It is
@@ -142,10 +142,10 @@ export function TruckCard({ truck, selected, hovered, now, onSelect, onHover }: 
       </Chip>,
     );
   }
-  if (requirement) {
+  for (const req of requirements) {
     chips.push(
-      <Chip key="req" title={requirement.title}>
-        {requirement.label}
+      <Chip key={`req-${req.label}`} title={req.title}>
+        {req.label}
       </Chip>,
     );
   }

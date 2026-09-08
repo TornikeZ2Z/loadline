@@ -16,6 +16,7 @@
 import { query, queryOne } from "@/lib/db";
 import { extractInventory, scopedRules, type ExtractedJob, type ExtractionOutcome, type OriginRef } from "@/lib/extract";
 import { resolveDatePhrase } from "@/lib/extract/dates";
+import { readyStateOf } from "@/lib/extract/schema";
 import { destKeyOf, originKeyOf } from "@/lib/extract/inventory";
 import { normalizePhone } from "@/lib/extract/phone";
 import { geocode, geocodeDestinations, geocodeOrigin, type GeocodeResult } from "@/lib/geo/geocode";
@@ -350,6 +351,10 @@ async function upsertJob(
   const pickup = og.result;
   const readyDate = resolveDatePhrase(e.ready_date_text, sentAt);
   const deliverBy = resolveDatePhrase(e.deliver_by_text, sentAt);
+  // Four states, stored (review L01). `ready_now` alone cannot tell "the post
+  // said nothing" from "the post said no", and the board used to read the first
+  // as a green "Ready now".
+  const readyState = readyStateOf(e, readyDate);
 
   const tripMiles = pickup && dest
     ? haversineMiles({ lat: pickup.lat, lng: pickup.lng }, { lat: dest.lat, lng: dest.lng })
@@ -396,7 +401,7 @@ async function upsertJob(
     /* $31 */ e.tags, /* $32 */ flags, /* $33 */ e.notes, /* $34 */ e.line_text || null, /* $35 */ contact.requirements,
     /* $36 */ contact.contactName, /* $37 */ contact.contactPhone, /* $38 */ contact.rawPhone, /* $39 */ contact.contactMode,
     /* $40 */ e.ordinal, /* $41 */ e.confidence, /* $42 */ needsReview,
-    /* $43 */ seenAt,
+    /* $43 */ seenAt, /* $44 */ readyState,
   ];
 
   const inserted = await queryOne<{ id: number }>(
@@ -409,7 +414,7 @@ async function upsertJob(
        delivery_lat, delivery_lng, delivery_precision,
        trip_miles,
        cubic_feet, price_per_cf, price_flat, rate_usd,
-       ready_now, ready_date, ready_source, deliver_by, pickup_date,
+       ready_now, ready_date, ready_source, ready_state, deliver_by, pickup_date,
        tags, flags, job_notes, line_text, requirements,
        contact_name, contact_phone, contact_phone_raw, contact_mode,
        ordinal, is_canonical, confidence, needs_review,
@@ -421,7 +426,7 @@ async function upsertJob(
        $15,$16,$17,$18,$19,$20,$21,
        $22,
        $23,$24,$25,$26,
-       $27,$28::date,$29,$30::date,$28::date,
+       $27,$28::date,$29,$44,$30::date,$28::date,
        $31::text[],$32::text[],$33,$34,$35,
        $36,$37,$38,$39,
        $40,true,$41,$42,
@@ -463,7 +468,7 @@ async function upsertJob(
            delivery_precision = COALESCE($16, delivery_precision),
            trip_miles = COALESCE($17::float8, trip_miles),
            price_per_cf = $18, price_flat = $19, rate_usd = $20,
-           ready_now = $21, ready_date = $22::date, ready_source = $23, deliver_by = $24::date, pickup_date = $22::date,
+           ready_now = $21, ready_date = $22::date, ready_source = $23, ready_state = $37, deliver_by = $24::date, pickup_date = $22::date,
            tags = $25::text[], flags = $26::text[], job_notes = $27, line_text = $28, requirements = $29,
            contact_name = $30, contact_phone = $31, contact_phone_raw = $32, contact_mode = $33,
            confidence = $34, needs_review = $35, group_id = COALESCE(group_id, $36::bigint), updated_at = now()
@@ -479,7 +484,7 @@ async function upsertJob(
           e.ready_now, readyDate, e.ready_source, deliverBy,
           e.tags, flags, e.notes, e.line_text || null, contact.requirements,
           contact.contactName, contact.contactPhone, contact.rawPhone, contact.contactMode,
-          e.confidence, needsReview, msg.group_id,
+          e.confidence, needsReview, msg.group_id, readyState,
         ],
       );
     }

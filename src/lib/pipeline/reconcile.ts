@@ -360,7 +360,8 @@ export async function pairCfRevisions(key: string, snapshotId: number): Promise<
     await query(
       `UPDATE loads o SET
          cubic_feet = n.cubic_feet, price_per_cf = n.price_per_cf, price_flat = n.price_flat, rate_usd = n.rate_usd,
-         ready_now = n.ready_now, ready_date = n.ready_date, ready_source = n.ready_source, deliver_by = n.deliver_by,
+         ready_now = n.ready_now, ready_date = n.ready_date, ready_source = n.ready_source,
+         ready_state = n.ready_state, deliver_by = n.deliver_by,
          pickup_date = n.pickup_date, tags = n.tags, flags = n.flags, job_notes = n.job_notes, line_text = n.line_text,
          requirements = n.requirements, contact_name = n.contact_name, contact_phone = n.contact_phone,
          contact_phone_raw = n.contact_phone_raw, contact_mode = n.contact_mode, confidence = n.confidence,
