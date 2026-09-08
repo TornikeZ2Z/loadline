@@ -28,7 +28,7 @@ import type {
 } from "@/lib/loads/publicView";
 import { OPEN_LOCATION_EVENT, useViewerLocation } from "@/lib/location";
 import { api } from "@/lib/basePath";
-import { boardDay, formatCf, formatRate, truckLine } from "@/lib/loads/present";
+import { boardDay, formatCf, formatRate, TRUCK_CF, truckLine } from "@/lib/loads/present";
 import { boardHeadline, summarizeTrucks, truckSubline } from "@/lib/loads/truckPresent";
 import { truckFilterNotes, truckFiltersToQuery } from "./truckFilters";
 import {
@@ -749,10 +749,23 @@ export function Board({
     <div>
       <div className="big nums text-(length:--fs-xl)">
         {shown.count} {shown.count === 1 ? "job" : "jobs"}
+        {/* WHICH SET THIS IS. The map panel counts what is inside the current
+            viewport and labels itself "on screen"; this counts what matched the
+            search. The two numbers differ the moment anybody pans, and until
+            now both were printed as a bare "98 jobs · 42,506 cf" (V04). */}
+        <span className="text-(length:--fs-sm) font-medium" style={{ color: "var(--muted)" }}>
+          {place ? ` at ${place.label}` : " matching your filters"}
+        </span>
         {shown.totalCf > 0 && (
           <>
             <span style={{ color: "var(--border-strong)" }}>{" · "}</span>
             {formatCf(shown.totalCf)}
+            {/* The space before "stated" is U+00A0, not U+0020: in a 420 px
+                list column the qualifier broke to a line of its own, under the
+                total it qualifies, which read as a third statistic. */}
+            <span className="text-(length:--fs-sm) font-medium" style={{ color: "var(--muted)" }}>
+              {" stated"}
+            </span>
           </>
         )}
         {/* The caveat on the number it follows, not a statistic on the line
@@ -784,16 +797,19 @@ export function Board({
           appears without the count it was taken over, which is why it hangs off
           the "N priced" clause instead of standing on its own. */}
       <div className="mt-[1px] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-        {shown.totalCf > 0 && `${truckLine(shown.totalCf, current?.truckCf ?? null)} · `}
         {shown.readyNow} ready now
-        {shown.freshToday > 0 && (
-          <span className="hidden md:inline">{` · ${shown.freshToday} listed today`}</span>
-        )}
         {` · ${shown.priced} priced`}
-        {shown.medianPricePerCf != null && (
-          <span className="hidden md:inline">{` · median ${formatRate(shown.medianPricePerCf)}`}</span>
-        )}
         {truncated && " · showing first 500"}
+        {/* THE TRUCKLOAD EQUIVALENT AND THE RATE HAVE MOVED IN HERE (V04).
+            "≈ 28.3 truckloads" was the second thing read on the board, and
+            1,500 cf is a reference vehicle this board invented, not the size of
+            the reader's truck. The median rate was worse: two priced jobs out
+            of 98 is not a market, and printed beside a count it looked like
+            one. Both are still available, one click away, with what they are
+            computed from said next to them. */}
+        {(shown.totalCf > 0 || shown.freshToday > 0 || shown.medianPricePerCf != null) && (
+          <> · <BoardStats shown={shown} truckCf={current?.truckCf ?? null} /></>
+        )}
       </div>
       {/* THE THIRD LINE, and it is a line of its own for a structural reason:
           the board must never print a combined figure, so the truck total sits
@@ -1328,6 +1344,69 @@ export function Board({
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * How many priced jobs it takes before a median is allowed to read as a rate.
+ *
+ * Two of 98 was what the board printed on the day it was reviewed, and it
+ * printed it in the same size and the same row as the counts (V04). A median
+ * over two samples is arithmetic, not a market; the figure is still shown, but
+ * inside the statistics disclosure and with the sample named.
+ */
+const MIN_RATE_SAMPLE = 5;
+
+/**
+ * The derived figures, one click behind the counts (V04).
+ *
+ * Everything on the header line above is a count of things the posts said.
+ * Everything in here is computed from an assumption -- a reference truck the
+ * reader does not own, a median over whatever handful of jobs quoted a
+ * price -- and the assumption is named beside each one rather than left in a
+ * source comment.
+ */
+function BoardStats({ shown, truckCf }: { shown: LoadSummary; truckCf: number | null }) {
+  const unsized = shown.count - shown.withCf;
+  return (
+    /* On a phone this sits inside the bottom sheet's drag handle, which
+       captures the pointer: without this the disclosure could not be opened
+       with a thumb, exactly as the tabs above it could not. */
+    <details className="inline" onPointerDown={(e) => e.stopPropagation()}>
+      <summary className="inline cursor-pointer" style={{ color: "var(--accent)" }}>
+        Statistics
+      </summary>
+      <div
+        className="mt-[var(--sp-2)] flex flex-col gap-[var(--sp-1)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-xs)"
+        style={{ background: "var(--surface-2)" }}
+      >
+        {shown.totalCf > 0 && (
+          <div>
+            {truckLine(shown.totalCf, truckCf)} —{" "}
+            {truckCf && truckCf > 0
+              ? "against the truck size you stored."
+              : `against an assumed ${TRUCK_CF.toLocaleString("en-US")} cf reference vehicle. It is not the space in your truck; store yours in Truck empty at and this line changes.`}
+          </div>
+        )}
+        {unsized > 0 && (
+          <div>
+            {unsized} of these {unsized === 1 ? "jobs states" : "jobs state"} no size at all. They
+            are counted in the {shown.count} and add nothing to the cubic feet — an unstated size is
+            not a zero.
+          </div>
+        )}
+        {shown.freshToday > 0 && <div>{shown.freshToday} first listed today.</div>}
+        <div>
+          {shown.priced === 0
+            ? "No job in these results states a price."
+            : shown.medianPricePerCf == null
+              ? `${shown.priced} of ${shown.count} state a price; the rest state none.`
+              : shown.priced < MIN_RATE_SAMPLE
+                ? `Median ${formatRate(shown.medianPricePerCf)} — over ${shown.priced} priced job${shown.priced === 1 ? "" : "s"} out of ${shown.count}. That is too small a sample to read as a going rate.`
+                : `Median ${formatRate(shown.medianPricePerCf)} over the ${shown.priced} of ${shown.count} jobs that state one. The other ${shown.count - shown.priced} state no price.`}
+        </div>
+      </div>
+    </details>
   );
 }
 
