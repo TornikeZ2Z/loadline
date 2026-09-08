@@ -335,23 +335,30 @@ export function JobList({ jobs, selectedId, hoveredId, now, onSelect, onHover }:
  *
  * Deliberately the card's own silhouette rather than a spinner or a line of
  * "Loading jobs…": the list column is 420 px of empty grey otherwise, and the
- * page then jumps a full screen when the rows land. The bars are sized from
- * the real card -- 22 px route, 26 px quantity, 22 px chips, a 32 px action row
- * -- so nothing moves when the skeleton is replaced.
+ * page then jumps a full screen when the rows land.
+ *
+ * THE BARS ARE THE REAL CARD'S ROWS, AND THEY WERE RE-MEASURED WITH IT (V08).
+ * The card is three rows now, not five -- the route and the size share a line,
+ * the readiness and the listing's freshness share a line, and the action stands
+ * at the end of the evidence -- so a skeleton still drawn to the old five would
+ * be a page that jumps by 100 px a card the moment the rows land, which is the
+ * one thing a skeleton exists to prevent. 8 + 26 + 4 + 22 + 4 + 46 + 8 = 118,
+ * against the 120 px a real card measures at 390.
  */
 export function JobListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <ul className="flex flex-col gap-[var(--sp-2)]" aria-hidden="true">
       {Array.from({ length: rows }, (_, i) => (
-        <li key={i} className="card p-[var(--sp-3)]" style={{ opacity: 1 - i * 0.15 }}>
-          <span className="skeleton h-[22px] w-[76%]" />
-          <span className="skeleton mt-[var(--sp-1)] h-[26px] w-[104px]" />
-          <div className="mt-[var(--sp-2)] flex gap-[var(--sp-2)]">
-            <span className="skeleton h-[22px] w-[112px] rounded-[var(--radius-pill)]" />
-            <span className="skeleton h-[22px] w-[72px] rounded-[var(--radius-pill)]" />
+        <li key={i} className="card p-[var(--sp-2)]" style={{ opacity: 1 - i * 0.15 }}>
+          <div className="flex items-baseline gap-[var(--sp-2)]">
+            <span className="skeleton h-[22px] min-w-0 flex-1" />
+            <span className="skeleton h-[26px] w-[76px] shrink-0" />
           </div>
-          <span className="skeleton mt-[var(--sp-2)] h-[20px] w-[62%]" />
-          <span className="skeleton mt-[var(--sp-3)] h-[32px] w-full" />
+          <span className="skeleton mt-[var(--sp-1)] h-[22px] w-[82%]" />
+          <div className="mt-[var(--sp-1)] flex items-center gap-[var(--sp-2)]">
+            <span className="skeleton h-[46px] min-w-0 flex-1" />
+            <span className="skeleton h-[44px] w-[108px] shrink-0" />
+          </div>
         </li>
       ))}
     </ul>
@@ -408,7 +415,14 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
         setKeyboardFocus(e.target.matches(":focus-visible"));
       }}
       onBlur={() => setKeyboardFocus(false)}
-      className={`card card-hover link-parent p-[var(--sp-3)]${selected ? " card-selected" : ""}`}
+      /* V08 — 8 px of padding, not 12, and it buys height twice over. Four
+         pixels a side is 8 px off the card directly, and it is also 8 px MORE
+         room on the widest row: at 390 the evidence lane goes from 224 px to
+         232, which is what lets "DOT required" and "MC required" share a line
+         instead of taking one each. On the board's own first four cards that
+         one wrap is 24 px. `--sp-2` is a rung on the spacing ladder, not a
+         number picked to hit a target. */
+      className={`card card-hover link-parent p-[var(--sp-2)]${selected ? " card-selected" : ""}`}
       /* An attribute rather than an inline borderColor. `hovered` is also set
          by the MAP -- hovering a marker lights its card without the pointer
          ever being over it -- so it cannot just be :hover. */
@@ -423,15 +437,48 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
           card and the only two at full ink. City and state to city and state,
           because that is the thing a driver is matching against their own
           empty leg; the state-only fallback is `placeLabel`'s, which prints
-          what the post gave and never composes a city it did not. */}
-      <h3 className="t-title" style={{ overflowWrap: "anywhere" }}>
-        {from.text} <span aria-hidden>→</span>
-        <span className="sr-only">to</span> {to.text}
-      </h3>
-      <div className="mt-[2px] flex items-baseline gap-[var(--sp-2)]">
+          what the post gave and never composes a city it did not.
+
+          V08 — THEY SHARE A LINE NOW, AND NEITHER OF THEM SHRANK. The route is
+          still 16/22/600 and the cubic feet still 20/26/600, measured; what
+          changed is that the size sits at the end of the route's line instead
+          of on a line of its own. That is 24 px a card, and the reading order
+          is the one V05 asked for either way -- the route first, the size
+          second, both before anything else. A route too long for one line wraps
+          inside its own column and the size stays where it is, on the first
+          baseline, which is where the eye scans a column of cards for it. */}
+      <div className="flex items-baseline gap-x-[var(--sp-2)]">
+        <h3 className="t-title min-w-0 flex-1" style={{ overflowWrap: "anywhere" }}>
+          {/* THE CARD'S ONE LINK IS ITS ROUTE (V05 / V08 / V15).
+              This is the shape globals.css documents for `.link-parent` --
+              "<h3><a class='link-cover'>Newark, NJ to Orlando, FL</a></h3>" --
+              and the card had drifted off it: the anchor was a "View details"
+              button in a ruled row of its own, 61 px of card for a label that
+              said nothing about the job and gave a screen reader 98 identical
+              entries in its link list. On the route the anchor is named by the
+              lane it opens, the cover still makes the whole card the target, and
+              the row it used to need is 61 px the list gets back. */}
+          <a
+            data-card-link
+            className="link-cover"
+            href={api(`/jobs/${job.id}`)}
+            aria-current={selected ? "true" : undefined}
+            onClick={(e) => {
+              if (!isPlainClick(e)) return;
+              e.preventDefault();
+              open();
+            }}
+          >
+            {from.text} <span aria-hidden>→</span>
+            <span className="sr-only">to</span> {to.text}
+            {/* What the link DOES, for a reader who cannot see that the card it
+                covers is a card. Never shown: the route is the visible name. */}
+            <span className="sr-only"> — open this job</span>
+          </a>
+        </h3>
         {job.cubic_feet != null ? (
           <span
-            className="t-quantity"
+            className="t-quantity shrink-0"
             title={job.cubic_feet < 100 ? `Small job as posted (${job.cubic_feet} cf)` : undefined}
           >
             {job.cubic_feet.toLocaleString("en-US")}
@@ -442,14 +489,29 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
             </span>
           </span>
         ) : (
-          <EvidenceChip kind="unknown" title="The post never stated a size, and MoverMesh does not estimate one.">
-            Size not stated
-          </EvidenceChip>
+          <span className="shrink-0">
+            <EvidenceChip kind="unknown" title="The post never stated a size, and MoverMesh does not estimate one.">
+              Size not stated
+            </EvidenceChip>
+          </span>
         )}
       </div>
 
       {/* REGION 2 — the decision. Readiness and freshness sit together because
           they are one question: can I load it, and is this listing still real.
+
+          V08 — ONE ROW, NOT TWO. That sentence was already the reason these two
+          things were adjacent; they were still on separate lines, which cost a
+          card 24 px to say what the comment says is one question. They wrap
+          onto a second line by themselves when the width runs out (at 320, and
+          at 390 once a distance and a detour are in the row), so nothing is
+          lost where there is no room -- what is gained is the common case,
+          where "Ready now · Listed today" fits on one line with the price.
+
+          Their four treatments are still four (V06): the readiness is a FILLED
+          chip with a clock, the listing's availability is PLAIN TEXT in muted
+          ink beside its own outlined StatusChip, and neither has become the
+          other by standing next to it.
 
           THE PRICE HAS ITS OWN SLOT: right-aligned, `shrink-0`, never wrapped.
           Nearly every job on this board is unpriced, so "Price not provided" is
@@ -457,7 +519,7 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
           that wrapped. It is set in muted 14 px rather than the green 16 px a
           real rate gets -- V05's line is that a price the post never gave must
           not carry the emphasis of operational data. */}
-      <div className="mt-[var(--sp-2)] flex items-center gap-x-[var(--sp-2)]">
+      <div className="mt-[var(--sp-1)] flex items-center gap-x-[var(--sp-2)]">
         <span className="flex min-w-0 flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
           <ReadinessChip text={ready.text} tone={ready.tone} title={ready.title} />
           {deliverBy && (
@@ -465,6 +527,57 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
               {deliverBy.text}
             </span>
           )}
+
+          {/* Listing availability: plain text, never a pill -- it is about the
+              LISTING, and the one pill in this region belongs to the freight's
+              own schedule. The lifecycle's chip joins it only when the listing
+              has left the sender's latest post.
+
+              `display: contents`, so these are the wrapping row's own items and
+              not a block inside it that has to break as one. It carries the
+              muted ink for all of them, which is the whole reason it is still
+              an element at all. */}
+          <span className="contents" style={{ color: "var(--muted)" }}>
+            {inactive && <StatusChip status={job.status} />}
+            <span
+              className="whitespace-nowrap"
+              title={fresh.detail ?? undefined}
+              style={fresh.tone === "fresh" ? { color: "var(--text-2)", fontWeight: 500 } : undefined}
+            >
+              {fresh.text}
+            </span>
+            {job.distance_miles != null && (
+              <>
+                <span aria-hidden>·</span>
+                {/* "≈" when the pickup is a state centroid: the number is real
+                    arithmetic on a fabricated point, and a flat "184 mi away" is
+                    exactly the kind of false precision this board exists not to
+                    print. */}
+                <span
+                  className="nums whitespace-nowrap"
+                  title={nearCaveat?.title ?? "Straight line from where you are"}
+                >
+                  {nearCaveat ? "≈ " : ""}
+                  {Math.round(job.distance_miles)} mi away
+                </span>
+              </>
+            )}
+            {/* Corridor searches only, and the one number a plain board cannot
+                produce: what taking this job adds to the run you were making
+                anyway. Straight-line geometry, never a road route. */}
+            {job.detour_miles != null && (
+              <>
+                <span aria-hidden>·</span>
+                <span className="nums whitespace-nowrap" title={detourTitle(job)}>
+                  {detourApproximate(job)
+                    ? `≈ ${job.detour_miles.toLocaleString()} mi detour`
+                    : job.detour_miles === 0
+                      ? "no detour"
+                      : `+${job.detour_miles.toLocaleString()} mi detour`}
+                </span>
+              </>
+            )}
+          </span>
         </span>
         {price.tone === "muted" ? (
           <span
@@ -490,61 +603,22 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
         )}
       </div>
 
-      {/* Listing availability: plain text, never a pill -- it is about the
-          LISTING, and the one pill in this region belongs to the freight's own
-          schedule. The lifecycle's chip joins it only when the listing has left
-          the sender's latest post. */}
-      <div
-        className="mt-[var(--sp-1)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]"
-        style={{ color: "var(--muted)" }}
-      >
-        {inactive && <StatusChip status={job.status} />}
-        <span
-          className="whitespace-nowrap"
-          title={fresh.detail ?? undefined}
-          style={fresh.tone === "fresh" ? { color: "var(--text-2)", fontWeight: 500 } : undefined}
-        >
-          {fresh.text}
-        </span>
-        {job.distance_miles != null && (
-          <>
-            <span aria-hidden>·</span>
-            {/* "≈" when the pickup is a state centroid: the number is real
-                arithmetic on a fabricated point, and a flat "184 mi away" is
-                exactly the kind of false precision this board exists not to
-                print. */}
-            <span
-              className="nums whitespace-nowrap"
-              title={nearCaveat?.title ?? "Straight line from where you are"}
-            >
-              {nearCaveat ? "≈ " : ""}
-              {Math.round(job.distance_miles)} mi away
-            </span>
-          </>
-        )}
-        {/* Corridor searches only, and the one number a plain board cannot
-            produce: what taking this job adds to the run you were making
-            anyway. Straight-line geometry, never a road route. */}
-        {job.detour_miles != null && (
-          <>
-            <span aria-hidden>·</span>
-            <span className="nums whitespace-nowrap" title={detourTitle(job)}>
-              {detourApproximate(job)
-                ? `≈ ${job.detour_miles.toLocaleString()} mi detour`
-                : job.detour_miles === 0
-                  ? "no detour"
-                  : `+${job.detour_miles.toLocaleString()} mi detour`}
-            </span>
-          </>
-        )}
-      </div>
+      {/* REGION 3 — the evidence, and REGION 4 at the end of it.
+          Who said it, how sure we are of the place, and what the sender
+          requires. The uncertainty chips are NEVER folded into a "+N": a caveat
+          behind a counter is a caveat nobody reads, and the requirements decide
+          whether a driver is eligible at all. Only the descriptive tags --
+          piano, stairs, packing -- are capped.
 
-      {/* REGION 3 — the evidence. Who said it, how sure we are of the place,
-          and what the sender requires. The uncertainty chips are NEVER folded
-          into a "+N": a caveat behind a counter is a caveat nobody reads, and
-          the requirements decide whether a driver is eligible at all. Only the
-          descriptive tags -- piano, stairs, packing -- are capped. */}
-      <div className="mt-[var(--sp-2)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
+          V08 — THE ACTION ROW IS THIS ROW'S RIGHT-HAND END, not a fifth row
+          with a rule over it. The rule, its two 8 px margins and a 44 px touch
+          target were 61 px on every card, and on a 390 px phone the list is
+          602 px: two whole cards. Show contact is still a real sibling button
+          at its full 44 px on a touch screen, still after everything it is a
+          decision about, and now it costs the row it stands in rather than a
+          row of its own. The link it used to stand beside is the route. */}
+      <div className="mt-[var(--sp-1)] flex items-center gap-x-[var(--sp-2)]">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)]">
         <span className="min-w-0 truncate" style={{ color: "var(--muted)" }}>
           {senderLine(job)}
         </span>
@@ -579,38 +653,14 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
             +{hiddenTags}
           </Chip>
         )}
-      </div>
-
-      {/* REGION 4 — the way out of the card, ruled off from the listing above
-          it. Two SIBLING controls: the link that covers the card, and a real
-          button beside it. Both are 32 px on a mouse and 44 on a touch screen
-          (`.btn-sm`, globals.css), against the 28 px the review measured. */}
-      <div className="mt-[var(--sp-2)] flex items-center gap-[var(--sp-2)] border-t border-border pt-[var(--sp-2)]">
-        <a
-          data-card-link
-          /* `-ml-[10px]` cancels .btn-sm's own left padding so the label starts
-             on the card's text column rather than ten pixels inside it. */
-          className="btn btn-link btn-sm link-cover -ml-[10px]"
-          href={api(`/jobs/${job.id}`)}
-          aria-current={selected ? "true" : undefined}
-          onClick={(e) => {
-            if (!isPlainClick(e)) return;
-            e.preventDefault();
-            open();
-          }}
-        >
-          View details
-          {/* 98 links reading "View details" are 98 identical entries in a
-              screen reader's link list. The route makes each one its own. */}
-          <span className="sr-only">
-            {": "}
-            {from.text} to {to.text}
-          </span>
-        </a>
+        </div>
+        {/* 32 px on a mouse and 44 on a touch screen (`.btn-sm`, globals.css),
+            against the 28 px the review measured. `shrink-0` so a card with a
+            wall of requirement chips never squeezes the one control on it. */}
         {job.has_phone && (
           <button
             type="button"
-            className="btn btn-sm link-sibling ml-auto shrink-0"
+            className="btn btn-sm link-sibling shrink-0"
             onClick={() => open({ contact: true })}
           >
             Show contact
