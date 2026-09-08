@@ -284,9 +284,13 @@ export function Board({
   }, []);
 
   // --- query ---------------------------------------------------------------
+  // `resolve` carries the stored slots for one question only -- does the route
+  // search resolve -- so the address bar stops advertising `routeMode=corridor`
+  // over a board the corridor never touched (L02). The slots themselves stay
+  // out of it, exactly as before.
   const visibleQuery = useMemo(
-    () => filtersToQuery(filters, { current: null, home: null }),
-    [filters],
+    () => filtersToQuery(filters, { current: null, home: null, resolve: { current, home } }),
+    [filters, current, home],
   );
 
   const fetchQuery = useMemo(() => {
@@ -628,7 +632,7 @@ export function Board({
   const selectedTruck = trucks.find((t) => t.id === selectedTruckId) ?? null;
   const truckFirstLoad = truckLoading && truckSummary == null && trucks.length === 0;
   const selectedJob = ordered.find((j) => j.id === selectedId) ?? null;
-  const suggestions = emptyStateSuggestions(filters);
+  const suggestions = emptyStateSuggestions(filters, { current, home });
   // Not on a phone, and not on a landscape phone either: it is a 320 px card
   // over a 544 x 267 map, which is most of the map.
   const showNudge = hydrated && !current && !nudged && !mobile && !shortScreen;
@@ -1039,7 +1043,7 @@ export function Board({
           </button>
         </EmptyState>
       ) : rows.length === 0 ? (
-        <EmptyState title={emptyStateTitle(filters)} hint={LIFECYCLE_NOTE}>
+        <EmptyState title={emptyStateTitle(filters, { current, home })} hint={LIFECYCLE_NOTE}>
           {suggestions.map((s) => (
             <button key={s.label} type="button" className="btn btn-sm" onClick={() => setFilters(s.next)}>
               {s.label}

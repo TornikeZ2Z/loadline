@@ -26,6 +26,7 @@ import { CORRIDOR_OPTIONS, RADIUS_OPTIONS } from "@/lib/loads/constants";
 import { CF_PRESETS, READY_OPTIONS, SEEN_OPTIONS, SORT_OPTIONS } from "@/lib/loads/present";
 import { StatePanel, StatePicker, tokenLabel } from "./StatePicker";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
+import { SearchLocationControls } from "./CurrentLocation";
 import { PopoverButton } from "./ui";
 
 /**
@@ -182,6 +183,47 @@ export function isTowardHome(f: Filters): boolean {
 }
 
 /**
+ * Whether the route search is actually narrowing anything (L02).
+ *
+ * This is the client's copy of one line of server truth: `searchLoads` builds a
+ * corridor only when `routeMode === "corridor" && origin && destination`
+ * (lib/loads/query.ts:250), and a radius clause only for the ends it was
+ * handed. So a corridor with one end -- or with none, which is what choosing
+ * "Along a route" gives you before you type anything -- is not a filter. It is
+ * a half-filled form.
+ *
+ * The board used to treat it as a filter anyway: an active "Along your route
+ * ±100 mi" chip, a lit-up Route pill, `routeMode=corridor` in the address bar,
+ * and all 98 jobs underneath it. Everything that says "this is narrowing your
+ * results" now asks this question first.
+ */
+export function routeApplied(
+  f: Filters,
+  ctx: { current: StoredLocation | null; home: StoredLocation | null },
+): boolean {
+  if (f.routeMode === "corridor") {
+    const { start, end } = routeEnds(f, ctx);
+    return Boolean(start && end);
+  }
+  if (f.routeMode === "radius") return Boolean(f.origin || f.dest);
+  return false;
+}
+
+/**
+ * A route mode was chosen but cannot filter yet -- the state the whole of L02
+ * is about. Named separately from `routeApplied` because the two answers mean
+ * different things on screen: not-applied-and-not-chosen says nothing at all,
+ * not-applied-but-chosen has to say "Route incomplete" and keep saying it with
+ * the popover shut.
+ */
+export function routeIncomplete(
+  f: Filters,
+  ctx: { current: StoredLocation | null; home: StoredLocation | null },
+): boolean {
+  return f.routeMode !== "" && !routeApplied(f, ctx);
+}
+
+/**
  * `Filters` as a query string.
  *
  * Called twice per change: once with an empty context to write the address bar,
@@ -191,9 +233,24 @@ export function isTowardHome(f: Filters): boolean {
  */
 export function filtersToQuery(
   f: Filters,
-  ctx: { current: StoredLocation | null; home: StoredLocation | null; bounds?: BoundsInput | null },
+  ctx: {
+    current: StoredLocation | null;
+    home: StoredLocation | null;
+    bounds?: BoundsInput | null;
+    /**
+     * The viewer's real stored slots, for the caller that blanked `current` and
+     * `home` above to keep coordinates out of the address bar. Used to answer
+     * one question and nothing else -- does this route search resolve -- so the
+     * shareable URL never claims a corridor the server is going to ignore (L02).
+     */
+    resolve?: { current: StoredLocation | null; home: StoredLocation | null };
+  },
 ): string {
   const sp = new URLSearchParams();
+  // A route that cannot filter writes no route keys. An address bar that says
+  // `routeMode=corridor&corridor=100` over an unfiltered board is the same lie
+  // the chip used to tell, in the one place a driver copies and sends on.
+  const route = routeApplied(f, ctx.resolve ?? ctx);
   // Omitted at the default, so the common URL stays short. The server ignores
   // it -- which end is drawn changes nothing about which jobs match.
   if (f.mapEnd === "delivery") sp.set("map", "delivery");
@@ -228,7 +285,7 @@ export function filtersToQuery(
     }
   };
 
-  if (f.routeMode === "corridor") {
+  if (f.routeMode === "corridor" && route) {
     // The corridor keeps its shape in the shareable URL even when its ends are
     // the viewer's own coordinates: the link then means "along MY way home",
     // which is what the person receiving it wants it to mean.
@@ -241,7 +298,7 @@ export function filtersToQuery(
     }
     if (f.dest) writePoint(f.dest, "dest", "destLat", "destLng");
     else for (const [k, v] of new URLSearchParams(homeQuery(ctx.home))) sp.set(k, v);
-  } else if (f.routeMode === "radius") {
+  } else if (f.routeMode === "radius" && route) {
     // "This city only" is `pickupCity`, an exact column match -- not a tiny
     // circle. It is emitted ALONE, with no `origin`, so a link carrying it
     // round-trips to exactly the search it describes and does not quietly
@@ -410,13 +467,23 @@ function radiusPhrase(place: RoutePlace, radius: string, end: "pickup" | "delive
   return `${where} within ${radius === EXACT || !radius ? DEFAULT_RADIUS : radius} mi of ${place.label}`;
 }
 
-/** "No jobs from FL to NJ." — the empty state says what was actually asked. */
-export function emptyStateTitle(f: Filters): string {
-  if (f.routeMode === "corridor") {
-    const route = f.origin && f.dest ? ` along ${f.origin.label} → ${f.dest.label}` : " along your route";
-    return `No jobs${route}.`;
-  }
-  if (f.routeMode === "radius" && (f.origin || f.dest)) {
+/**
+ * "No jobs from FL to NJ." — the empty state says what was actually asked.
+ *
+ * `ctx` is what stops it naming a constraint that is not in force: an
+ * incomplete corridor filters nothing, so "No jobs along your route" would be
+ * blaming the route for an empty result the size or ready filter produced (L02).
+ */
+export function emptyStateTitle(
+  f: Filters,
+  ctx: { current: StoredLocation | null; home: StoredLocation | null },
+): string {
+  if (routeApplied(f, ctx)) {
+    if (f.routeMode === "corridor") {
+      const { start, end } = routeEnds(f, ctx);
+      const route = start && end ? ` along ${start.label} → ${end.label}` : " along your route";
+      return `No jobs${route}.`;
+    }
     const phrase = f.origin
       ? radiusPhrase(f.origin, f.radius, "pickup")
       : radiusPhrase(f.dest!, f.destRadius, "delivery");
@@ -470,14 +537,22 @@ export function moreCount(f: Filters): number {
   );
 }
 
-/** How many controls are set at all — the mobile "Filters (2)" count. */
-export function activeCount(f: Filters): number {
+/**
+ * How many controls are actually narrowing the board — the "Filters (2)" badge.
+ *
+ * `routeApplied`, not `f.routeMode`: a badge that counts a half-filled route
+ * form is the same claim as the chip that used to appear beside it (L02).
+ */
+export function activeCount(
+  f: Filters,
+  ctx: { current: StoredLocation | null; home: StoredLocation | null },
+): number {
   return (
     (f.minCf || f.maxCf ? 1 : 0) +
     (f.unsized ? 0 : 1) +
     (f.ready === "any" ? 0 : 1) +
     (f.seenDays ? 1 : 0) +
-    (f.routeMode ? 1 : 0) +
+    (routeApplied(f, ctx) ? 1 : 0) +
     moreCount(f)
   );
 }
@@ -536,12 +611,18 @@ export function activeFilterChips(
     );
   }
 
-  if (f.routeMode) {
+  // Only a route that is actually filtering gets a chip (L02). An incomplete
+  // one is not silently dropped -- `SearchSummary` says "Route incomplete" in
+  // this same row, in warning colour, next to a "Discard route" action -- but
+  // it is not dressed as a constraint that is narrowing the board, because it
+  // is not one. `phrase` cannot be null here: a corridor is applied only when
+  // both ends resolve, and a radius only when it has an end.
+  if (routeApplied(f, ctx)) {
     const phrase = routePhrase(f, ctx);
     add(
       "route",
       f.routeMode === "corridor"
-        ? `Along ${phrase ?? "your route"} ±${f.corridor || CORRIDOR_MILES} mi`
+        ? `Along ${phrase} ±${f.corridor || CORRIDOR_MILES} mi`
         : (phrase ?? "Somewhere in particular"),
       { ...f, routeMode: "", origin: null, dest: null },
       STRAIGHT_LINE_NOTE,
@@ -570,24 +651,88 @@ export function activeFilterChips(
   return out;
 }
 
-function ActiveChips({
+/**
+ * What is actually narrowing the board, said out loud (L02, V02).
+ *
+ * Three things live on this line and they are deliberately different shapes:
+ *
+ *  - the applied constraints, one removable chip each. Every chip here
+ *    corresponds to a query parameter that changes the result;
+ *  - "no filters applied", when there are none. A blank row reads as "the
+ *    filters are somewhere else", which on a phone they are;
+ *  - "Route incomplete", when a route mode has been chosen and cannot filter.
+ *    It is a warning, not a chip: it says the corridor is NOT being applied,
+ *    which is the opposite of what a chip means.
+ */
+function SearchSummary({
   filters,
   onChange,
   current,
   home,
+  proximity,
 }: {
   filters: Filters;
   onChange(next: Filters): void;
   current: StoredLocation | null;
   home: StoredLocation | null;
+  /** True once the board is sorting by distance from a stored truck location. */
+  proximity: boolean;
 }) {
   const chips = activeFilterChips(filters, { current, home });
-  if (chips.length === 0) return null;
+  const incomplete = routeIncomplete(filters, { current, home });
   return (
     <div
       className="flex w-full flex-wrap items-center gap-[var(--sp-1)] px-[var(--sp-3)] pt-[var(--sp-2)] sm:px-[var(--sp-4)]"
-      aria-label="Active filters"
+      aria-label="Applied filters"
     >
+      <span className="mr-[2px] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+        {chips.length ? "Filtering by" : "No filters applied — every job on the board"}
+      </span>
+
+      {/* The one state that is neither a filter nor nothing: a route the driver
+          started and the board cannot use. Said here, with the popover shut,
+          because that is exactly where it used to be invisible. */}
+      {/* A live region on this one chip rather than on the row: the row holds
+          focusable controls, and announcing every chip a driver removes would
+          talk over them. "Your route is not being applied" is the one thing
+          here worth interrupting for. */}
+      {incomplete && (
+        <span
+          className="chip chip-warn"
+          role="status"
+          title={
+            filters.routeMode === "corridor"
+              ? "A corridor needs a start and an end. Until both resolve, no corridor is applied and every job is still listed."
+              : "Give this a place to search near. Until then no distance filter is applied."
+          }
+        >
+          Route incomplete — not applied
+        </span>
+      )}
+      {incomplete && (
+        <button
+          type="button"
+          className="chip chip-muted chip-button"
+          title="Forget the half-set route"
+          onClick={() => onChange({ ...filters, routeMode: "", origin: null, dest: null })}
+        >
+          Discard route
+        </button>
+      )}
+
+      {/* Whether proximity is being applied, which V02 asks a new user to be
+          able to answer without opening anything. Only when it IS: a line
+          saying "no truck location" on every anonymous visit is noise, and the
+          control itself already reads "Truck location". */}
+      {proximity && (
+        <span
+          className="chip chip-muted"
+          title="Sorted by straight-line distance from your truck location to the pickup. It orders the board; it does not remove any job."
+        >
+          Sorted by distance from you
+        </span>
+      )}
+
       {chips.map((c) => (
         <button
           key={c.key}
@@ -604,14 +749,16 @@ function ActiveChips({
       {/* A chip, not a button: on a phone every control in this row is 44 px
           tall for a thumb, and a `btn` among them was a taller, wider shape
           that pushed the wrap one item earlier than it had to. */}
-      <button
-        type="button"
-        className="chip chip-muted chip-button"
-        title="Remove every filter. Sort and map end are left alone."
-        onClick={() => onChange(clearedFilters(filters))}
-      >
-        Clear all
-      </button>
+      {!isDefault(filters) && (
+        <button
+          type="button"
+          className="chip chip-muted chip-button"
+          title="Remove every filter. Sort and map end are left alone."
+          onClick={() => onChange(clearedFilters(filters))}
+        >
+          Clear all
+        </button>
+      )}
     </div>
   );
 }
@@ -787,19 +934,61 @@ export function FilterBar({
     </PopoverButton>
   );
 
-  const routeTrigger = (
+  const setCount = activeCount(filters, { current, home });
+
+  /**
+   * "Filters (2)" — Lane, Capacity, Schedule and More, in one control (V02/V09).
+   *
+   * Everything that is not the lane or the ready date lives behind this. The
+   * desktop bar used to spread Route, Size, Ready, Listed, More, Toward home
+   * and the map-point switch across the same row as the lane inputs, which is
+   * eleven controls for one task and, at anything under 1200 px, two wrapped
+   * rows of them.
+   */
+  const filtersTrigger = (fullScreen: boolean) => (
     <PopoverButton
-      label={<>Route: {routeTriggerLabel(filters, { current, home })}</>}
-      active={filters.routeMode !== ""}
-      width={360}
-      fullScreen={compact}
-      panelTitle="Route"
-      ariaLabel="Search along a route or near a place"
+      label={
+        <>
+          Filters
+          {setCount > 0 && <span className="pill-chip">{setCount}</span>}
+        </>
+      }
+      active={setCount > 0}
+      triggerClassName="pill shrink-0"
+      width={380}
+      fullScreen={fullScreen}
+      panelTitle="Filters"
+      ariaLabel="All filters"
+      doneLabel={showJobsLabel(stats)}
     >
-      {() => (
-        <RoutePanel filters={filters} set={set} current={current} home={home} />
+      {(close) => (
+        <FilterGroups
+          filters={filters}
+          onChange={onChange}
+          set={set}
+          current={current}
+          home={home}
+          isAdmin={isAdmin}
+          q={qDraft}
+          onQ={setQDraft}
+          stats={stats}
+          sortOptions={sortOptions}
+          sortValue={sortAvailable ? filters.sort : ""}
+          compact={fullScreen}
+          onDone={close}
+        />
       )}
     </PopoverButton>
+  );
+
+  const summary = (
+    <SearchSummary
+      filters={filters}
+      onChange={onChange}
+      current={current}
+      home={home}
+      proximity={Boolean(current) && (filters.sort === "distance" || filters.sort === "")}
+    />
   );
 
   if (compact) {
@@ -823,79 +1012,34 @@ export function FilterBar({
             onSwap={swap}
             stats={stats}
           />
-          <PopoverButton
-            label={
-              <>
-                Filters
-                {activeCount(filters) > 0 && (
-                  <span className="pill-chip">{activeCount(filters)}</span>
-                )}
-              </>
-            }
-            active={activeCount(filters) > 0}
-            triggerClassName="pill shrink-0"
-            fullScreen
-            panelTitle="Filters"
-            ariaLabel="All filters"
-            doneLabel={showJobsLabel(stats)}
-          >
-            {() => (
-              <div className="flex flex-col gap-[var(--sp-4)]">
-                <Section title="Route">
-                  <RoutePanel filters={filters} set={set} current={current} home={home} />
-                </Section>
-                <Section title="Size">
-                  <SizePanel filters={filters} set={set} />
-                </Section>
-                <Section title="Ready">
-                  <ReadyPanel filters={filters} set={set} />
-                </Section>
-                <Section title="Listed">
-                  <ListedPanel filters={filters} set={set} />
-                </Section>
-                <Section title="More">
-                  <MorePanel
-                    filters={filters}
-                    set={set}
-                    isAdmin={isAdmin}
-                    q={qDraft}
-                    onQ={setQDraft}
-                    stats={stats}
-                  />
-                </Section>
-                <Section title="Sort">
-                  <SortPanel
-                    value={sortAvailable ? filters.sort : ""}
-                    options={sortOptions}
-                    stats={stats}
-                    onPick={(v) => set({ sort: v })}
-                  />
-                </Section>
-                {!isDefault(filters) && (
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => onChange(clearedFilters(filters))}
-                  >
-                    Clear all filters
-                  </button>
-                )}
-              </div>
-            )}
-          </PopoverButton>
+          {filtersTrigger(true)}
         </div>
-        <ActiveChips filters={filters} onChange={onChange} current={current} home={home} />
+        {summary}
       </div>
     );
   }
 
   return (
     <div className="flex w-full flex-col">
+      {/* ONE SEARCH AREA, in the order a mover with an empty truck works (V02).
+          Where the truck comes free, then the lane, then the date, then
+          everything else. The truck-location and home-base controls used to sit
+          in the header beside the account controls -- a different row, a
+          different visual group and, for a new visitor, no relation to the
+          search at all; `CurrentLocation` stands down here so there is exactly
+          one of each. */}
       <div className="flex w-full flex-wrap items-center gap-[var(--sp-2)] px-[var(--sp-4)]">
-        {/* The map end sits at the left edge, beside the two state pickers: it is
-            the same question they answer -- which end of the lane am I looking
-            at -- and putting it on the map itself would hide it under the pins. */}
-        <MapEndToggle value={filters.mapEnd} onChange={(mapEnd) => set({ mapEnd })} />
+        <SearchLocationControls />
+
+        {/* A rule, not a gap: the two groups are one task but they are answered
+            from different places -- one is about your truck, the rest is about
+            the freight. */}
+        <span
+          aria-hidden
+          className="mx-[var(--sp-1)] h-[24px] w-px shrink-0"
+          style={{ background: "var(--border)" }}
+        />
+
         <StatePicker
           label="Pickup"
           value={filters.pickupState}
@@ -916,17 +1060,6 @@ export function FilterBar({
           zipNote={<ZipCoverageNote stats={stats} end="delivery" />}
         />
 
-        {routeTrigger}
-
-        <PopoverButton
-          label={<>Size: {sizeLabel(filters)}</>}
-          active={Boolean(filters.minCf || filters.maxCf || !filters.unsized)}
-          width={320}
-          ariaLabel="Filter by size"
-        >
-          {() => <SizePanel filters={filters} set={set} />}
-        </PopoverButton>
-
         <PopoverButton
           label={<>Ready: {readyTriggerLabel(filters)}</>}
           active={filters.ready !== "any"}
@@ -936,39 +1069,7 @@ export function FilterBar({
           {() => <ReadyPanel filters={filters} set={set} />}
         </PopoverButton>
 
-        <PopoverButton
-          label={<>Listed: {seenTriggerLabel(filters)}</>}
-          active={filters.seenDays !== ""}
-          width={260}
-          ariaLabel="Filter by how recently the job was listed"
-        >
-          {() => <ListedPanel filters={filters} set={set} />}
-        </PopoverButton>
-
-        <PopoverButton
-          label={
-            <>
-              More
-              {moreCount(filters) > 0 && <span className="pill-chip">{moreCount(filters)}</span>}
-            </>
-          }
-          active={moreCount(filters) > 0}
-          width={340}
-          ariaLabel="More filters"
-        >
-          {() => (
-            <MorePanel
-              filters={filters}
-              set={set}
-              isAdmin={isAdmin}
-              q={qDraft}
-              onQ={setQDraft}
-              stats={stats}
-            />
-          )}
-        </PopoverButton>
-
-        {current && home && <TowardHomeToggle filters={filters} set={set} />}
+        {filtersTrigger(false)}
 
         {/* No "Clear" pill here any more. It appeared under exactly the
             condition the chip row does, and the row's own "Clear all" sits
@@ -977,9 +1078,142 @@ export function FilterBar({
 
         <div className="ml-auto">{sortTrigger}</div>
       </div>
-      <ActiveChips filters={filters} onChange={onChange} current={current} home={home} />
+      {summary}
     </div>
   );
+}
+
+/* ----------------------------- filter groups ------------------------------ */
+
+/**
+ * Lane, Capacity, Schedule, More and Sort — one grouping, both widths (V09).
+ *
+ * The phone sheet used to be six flat sections in the order the desktop pills
+ * happened to be in, with the only way out at the top. The groups are named for
+ * the question they answer, each header carries what it is currently set to so
+ * a closed group is still readable, and the sheet ends in a bar that stays on
+ * screen: Reset, and the count you are about to go back to.
+ */
+function FilterGroups({
+  filters,
+  onChange,
+  set,
+  current,
+  home,
+  isAdmin,
+  q,
+  onQ,
+  stats,
+  sortOptions,
+  sortValue,
+  compact,
+  onDone,
+}: {
+  filters: Filters;
+  onChange(next: Filters): void;
+  set(p: Partial<Filters>): void;
+  current: StoredLocation | null;
+  home: StoredLocation | null;
+  isAdmin: boolean;
+  q: string;
+  onQ(v: string): void;
+  stats?: ResultStats;
+  sortOptions: Array<{ value: SortKey | ""; label: string; needsViewer?: boolean }>;
+  sortValue: SortKey | "";
+  /** Full-screen sheet (a phone) rather than a popover under a pill. */
+  compact: boolean;
+  onDone(): void;
+}) {
+  return (
+    <div className="flex flex-col gap-[var(--sp-4)]">
+      <Section title="Lane" value={routeTriggerLabel(filters, { current, home })}>
+        {/* On a phone the header keeps the truck-location pill, but the home
+            base has never fitted beside it; both belong to the lane, so the
+            sheet is where the pair lives. */}
+        {compact && (
+          <div className="mb-[var(--sp-3)]">
+            <SearchLocationControls />
+          </div>
+        )}
+        <RoutePanel filters={filters} set={set} current={current} home={home} />
+        {current && home && (
+          <div className="mt-[var(--sp-2)]">
+            <TowardHomeToggle filters={filters} set={set} />
+          </div>
+        )}
+      </Section>
+
+      <Section title="Capacity" value={sizeLabel(filters)}>
+        <SizePanel filters={filters} set={set} />
+      </Section>
+
+      <Section title="Schedule" value={scheduleLabel(filters)}>
+        <div className="flex flex-col gap-[var(--sp-3)]">
+          {/* Ready has its own pill in the bar above on a wide screen, so the
+              sheet is the only place it appears on a phone. Printed at both
+              widths anyway: a group called Schedule that leaves out the ready
+              date is a group that sends people back to the bar. */}
+          <div>
+            <div className="label">Ready</div>
+            <ReadyPanel filters={filters} set={set} />
+          </div>
+          <div>
+            <div className="label">Listed</div>
+            <ListedPanel filters={filters} set={set} />
+          </div>
+          <DeliverByField filters={filters} set={set} stats={stats} />
+        </div>
+      </Section>
+
+      <Section title="More" value={moreCount(filters) > 0 ? `${moreCount(filters)} set` : "None"}>
+        <MorePanel filters={filters} set={set} isAdmin={isAdmin} q={q} onQ={onQ} />
+      </Section>
+
+      <Section title="Sort" value={sortOptions.find((o) => o.value === sortValue)?.label}>
+        <SortPanel
+          value={sortValue}
+          options={sortOptions}
+          stats={stats}
+          onPick={(v) => set({ sort: v })}
+        />
+      </Section>
+
+      {/* The way out, and it stays on screen. The sheet is roughly two phone
+          screens tall, so the "Show 42 jobs" button in the sticky header was
+          reachable only by scrolling back up past everything just changed. */}
+      <div
+        className={
+          compact
+            ? "sticky bottom-0 -mx-[var(--sp-4)] flex items-center gap-[var(--sp-2)] border-t border-border px-[var(--sp-4)] py-[var(--sp-3)]"
+            : "flex items-center gap-[var(--sp-2)] border-t border-border pt-[var(--sp-3)]"
+        }
+        style={compact ? { background: "var(--surface)" } : undefined}
+      >
+        <button
+          type="button"
+          className="btn"
+          disabled={isDefault(filters)}
+          onClick={() => onChange(clearedFilters(filters))}
+        >
+          Reset
+        </button>
+        {compact && (
+          <button type="button" className="btn btn-primary ml-auto flex-1" onClick={onDone}>
+            {showJobsLabel(stats)}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "Ready now · Last 3 days" — the Schedule group, read off its own controls. */
+function scheduleLabel(f: Filters): string {
+  const parts: string[] = [];
+  if (f.ready !== "any") parts.push(`Ready ${readyTriggerLabel(f)}`);
+  if (f.seenDays) parts.push(seenTriggerLabel(f));
+  if (f.deliverBy) parts.push(`Deliver by ${f.deliverBy}`);
+  return parts.length ? parts.join(" · ") : "Any";
 }
 
 /** "Show 42 jobs" — what the sheet's close button is actually going to do. */
@@ -1136,13 +1370,8 @@ function LaneSheet({
         ⇄ Swap pickup and delivery
       </button>
 
-      {/* The map end travels with the pickers rather than staying in the bar:
-          it answers the same question they do -- which end of the lane am I
-          looking at -- and at 390 px the segmented control alone was 168 of the
-          row's 290 usable pixels. */}
-      <Section title="Map points">
-        <MapEndToggle value={filters.mapEnd} onChange={(mapEnd) => set({ mapEnd })} />
-      </Section>
+      {/* The map-point switch used to be repeated here. It now has one home,
+          in Filters → More, so the two sheets do not each carry a copy of it. */}
     </div>
   );
 }
@@ -1215,10 +1444,36 @@ function MapEndToggle({ value, onChange }: { value: MapEnd; onChange(v: MapEnd):
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/**
+ * A named group of controls, with what it is currently set to beside the name.
+ *
+ * The value is the half V09 asks for: "keep the selected values visible after
+ * the sheet closes" starts with being able to read them while it is open,
+ * without scrolling into every group to find out which one holds the 500 cf
+ * floor you set a minute ago.
+ */
+function Section({
+  title,
+  value,
+  children,
+}: {
+  title: string;
+  value?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <div className="label">{title}</div>
+      <div className="flex items-baseline justify-between gap-[var(--sp-2)]">
+        <div className="label">{title}</div>
+        {value && (
+          <span
+            className="min-w-0 truncate text-(length:--fs-xs)"
+            style={{ color: "var(--muted)" }}
+          >
+            {value}
+          </span>
+        )}
+      </div>
       {children}
     </div>
   );
@@ -1429,13 +1684,46 @@ function SortPanel({
   );
 }
 
+/**
+ * The deadline filter, in the Schedule group where a date belongs.
+ *
+ * It used to sit under "More" beside the free-text box, which is where a
+ * control goes when nobody has decided what it is. `DeliverByNote` under it is
+ * the part that matters: the filter is wired correctly and inert, and it says
+ * which.
+ */
+function DeliverByField({
+  filters,
+  set,
+  stats,
+}: {
+  filters: Filters;
+  set(p: Partial<Filters>): void;
+  stats?: ResultStats;
+}) {
+  return (
+    <div>
+      <label className="label" htmlFor="filter-deliverby">
+        Deliver by
+      </label>
+      <input
+        id="filter-deliverby"
+        className="field"
+        type="date"
+        value={filters.deliverBy}
+        onChange={(e) => set({ deliverBy: e.target.value })}
+      />
+      <DeliverByNote stats={stats} />
+    </div>
+  );
+}
+
 function MorePanel({
   filters,
   set,
   isAdmin,
   q,
   onQ,
-  stats,
 }: {
   filters: Filters;
   set(p: Partial<Filters>): void;
@@ -1443,7 +1731,6 @@ function MorePanel({
   /** The debounced draft, owned by FilterBar so it survives this panel closing. */
   q: string;
   onQ(v: string): void;
-  stats?: ResultStats;
 }) {
   return (
     <div className="flex flex-col gap-[var(--sp-3)]">
@@ -1460,18 +1747,12 @@ function MorePanel({
         />
       </div>
 
+      {/* Not a filter -- it changes which end of each job the map draws, not
+          which jobs match -- so it is here rather than in the search row, where
+          it was the first thing a new visitor met and the least useful (V02). */}
       <div>
-        <label className="label" htmlFor="filter-deliverby">
-          Deliver by
-        </label>
-        <input
-          id="filter-deliverby"
-          className="field"
-          type="date"
-          value={filters.deliverBy}
-          onChange={(e) => set({ deliverBy: e.target.value })}
-        />
-        <DeliverByNote stats={stats} />
+        <div className="label">Map points</div>
+        <MapEndToggle value={filters.mapEnd} onChange={(mapEnd) => set({ mapEnd })} />
       </div>
 
       <label className="check-row">
@@ -1545,29 +1826,34 @@ function DeliverByNote({ stats }: { stats?: ResultStats }) {
 
 /* -------------------------------- route ---------------------------------- */
 
+/**
+ * What the Lane group is set to.
+ *
+ * "Route incomplete" and not "incomplete": the word on its own read as a
+ * property of the route rather than a statement that nothing is being applied,
+ * which is the whole of L02.
+ */
 function routeTriggerLabel(
   f: Filters,
   ctx: { current: StoredLocation | null; home: StoredLocation | null },
 ): string {
+  if (!routeApplied(f, ctx)) return f.routeMode ? "Route incomplete" : "Anywhere";
   if (f.routeMode === "corridor") {
     if (isTowardHome(f)) return `home ±${f.corridor || CORRIDOR_MILES} mi`;
     const phrase = routePhrase(f, ctx);
-    return phrase ? `${phrase} ±${f.corridor || CORRIDOR_MILES} mi` : "incomplete";
+    return phrase ? `${phrase} ±${f.corridor || CORRIDOR_MILES} mi` : "Route incomplete";
   }
-  if (f.routeMode === "radius") {
-    if (f.origin) {
-      return f.radius === EXACT && f.origin.city
-        ? f.origin.city
-        : `${f.radius === EXACT || !f.radius ? DEFAULT_RADIUS : f.radius} mi of ${shortPlace(f.origin.label)}`;
-    }
-    if (f.dest) {
-      return f.destRadius === EXACT && f.dest.city
-        ? `→ ${f.dest.city}`
-        : `→ ${f.destRadius === EXACT || !f.destRadius ? DEFAULT_RADIUS : f.destRadius} mi of ${shortPlace(f.dest.label)}`;
-    }
-    return "incomplete";
+  if (f.origin) {
+    return f.radius === EXACT && f.origin.city
+      ? f.origin.city
+      : `${f.radius === EXACT || !f.radius ? DEFAULT_RADIUS : f.radius} mi of ${shortPlace(f.origin.label)}`;
   }
-  return "Any";
+  if (f.dest) {
+    return f.destRadius === EXACT && f.dest.city
+      ? `→ ${f.dest.city}`
+      : `→ ${f.destRadius === EXACT || !f.destRadius ? DEFAULT_RADIUS : f.destRadius} mi of ${shortPlace(f.dest.label)}`;
+  }
+  return "Anywhere";
 }
 
 /** "Kearny, NJ 07032" -> "Kearny" — a trigger pill has room for one word. */
@@ -1647,8 +1933,11 @@ function RoutePanel({
 
           {!start || !end ? (
             <p className="text-(length:--fs-xs)" style={{ color: "var(--warn)" }} role="status">
-              A corridor needs both ends. {!start ? "Set where you are starting from" : "Set where you are ending"}
-              {" — until then this search is not being applied."}
+              <b>Route incomplete — no corridor is being applied.</b> A corridor needs both ends.{" "}
+              {!start ? "Set where you are starting from" : "Set where you are ending"}
+              {end ? "" : !start ? " and where you are ending" : ""}, or set your truck location and
+              home base. Until both resolve every job on the board is still listed, and no chip
+              above claims otherwise.
             </p>
           ) : (
             <p className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
@@ -1723,9 +2012,16 @@ function RoutePanel({
             />
           </div>
 
-          <p className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
-            {STRAIGHT_LINE_NOTE}
-          </p>
+          {!filters.origin && !filters.dest ? (
+            <p className="text-(length:--fs-xs)" style={{ color: "var(--warn)" }} role="status">
+              <b>Route incomplete — no distance filter is being applied.</b> Name a place on either
+              end. One is enough: “pickup near Newark” is a search on its own.
+            </p>
+          ) : (
+            <p className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+              {STRAIGHT_LINE_NOTE}
+            </p>
+          )}
         </>
       )}
     </div>
@@ -2049,39 +2345,63 @@ export function RouteStrip({
   if (filters.routeMode !== "corridor") return null;
   const { start, end } = routeEnds(filters, { current, home });
   const width = filters.corridor || String(CORRIDOR_MILES);
+  const incomplete = !start || !end;
 
   return (
     <div
-      className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] border border-border px-[var(--sp-3)] py-[var(--sp-2)]"
-      style={{ background: "var(--surface-2)" }}
+      className="mb-[var(--sp-2)] rounded-[var(--radius-sm)] border px-[var(--sp-3)] py-[var(--sp-2)]"
+      style={
+        incomplete
+          ? { background: "var(--warn-soft)", borderColor: "var(--warn)" }
+          : { background: "var(--surface-2)", borderColor: "var(--border)" }
+      }
+      role={incomplete ? "status" : undefined}
     >
       {/* One row that cannot wrap: the width control is the knob a driver
           reaches for while reading these results, and it should not move down
           the page as the route's name gets longer. The name truncates instead —
-          the chip in the filter bar above carries it in full. */}
+          the chip in the filter bar above carries it in full.
+
+          The heading is the honest half of L02. It used to read "Along your
+          route" over an unfiltered board whenever an end was missing, which is
+          the same sentence it prints when the corridor IS working. */}
       <div className="flex items-center gap-[var(--sp-2)]">
-        <span className="min-w-0 flex-1 truncate text-(length:--fs-sm) font-semibold">
-          {start && end ? (
+        <span
+          className="min-w-0 flex-1 truncate text-(length:--fs-sm) font-semibold"
+          style={incomplete ? { color: "var(--warn)" } : undefined}
+        >
+          {incomplete ? (
+            "Route incomplete — not applied"
+          ) : (
             <>
               Along {start.label} → {end.label}
             </>
-          ) : (
-            "Along your route"
           )}
         </span>
         <span className="shrink-0">
-          <CorridorSelect
-            value={filters.corridor}
-            onChange={(v) => onChange({ ...filters, corridor: v })}
-          />
+          {incomplete ? (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => onChange({ ...filters, routeMode: "", origin: null, dest: null })}
+            >
+              Discard route
+            </button>
+          ) : (
+            <CorridorSelect
+              value={filters.corridor}
+              onChange={(v) => onChange({ ...filters, corridor: v })}
+            />
+          )}
         </span>
       </div>
 
       <p className="mt-[var(--sp-1)] text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
-        {!start || !end ? (
+        {incomplete ? (
           <span style={{ color: "var(--warn)" }}>
-            This needs both ends of the route before it can filter anything. Set them in Route, or
-            set your truck location and home base.
+            A corridor needs both ends before it can filter anything, so no corridor is being
+            applied and every job that matches your other filters is listed below. Set both ends in
+            Filters → Lane, or set your truck location and home base.
           </span>
         ) : stats == null || stats.matched === 0 ? (
           <>
@@ -2122,18 +2442,26 @@ export function RouteStrip({
 export const LIFECYCLE_NOTE =
   "Senders re-post daily; jobs disappear when a sender's latest post no longer lists them.";
 
-/** Chips the empty state offers, given what is currently set. */
+/**
+ * Chips the empty state offers, given what is currently set.
+ *
+ * Only constraints that are actually in force get an offer to relax them:
+ * "Widen to ±150 mi" under an incomplete corridor is advice about a filter that
+ * is not running (L02).
+ */
 export function emptyStateSuggestions(
   f: Filters,
+  ctx: { current: StoredLocation | null; home: StoredLocation | null },
 ): Array<{ label: string; next: Filters }> {
   const out: Array<{ label: string; next: Filters }> = [];
-  if (f.routeMode === "corridor") {
+  const applied = routeApplied(f, ctx);
+  if (f.routeMode === "corridor" && applied) {
     const current = Number(f.corridor || CORRIDOR_MILES);
     const wider = CORRIDOR_OPTIONS.find((c) => c > current);
     if (wider) out.push({ label: `Widen to ±${wider} mi`, next: { ...f, corridor: String(wider) } });
     out.push({ label: "Anywhere", next: { ...f, routeMode: "", origin: null, dest: null } });
   }
-  if (f.routeMode === "radius") {
+  if (f.routeMode === "radius" && applied) {
     const current = Number(f.radius || DEFAULT_RADIUS);
     const wider = RADIUS_OPTIONS.find((r) => r > current);
     if (wider) out.push({ label: `Widen to ${wider} mi`, next: { ...f, radius: String(wider) } });
@@ -2164,7 +2492,13 @@ export function useFilterQuery(
 ): { visible: string; fetch: string } {
   const { current, home, bounds } = ctx;
   return useMemo(() => {
-    const visible = filtersToQuery(filters, { current: null, home: null });
+    // `resolve`, so the address bar answers "is this route applied" with the
+    // truth while still carrying none of the viewer's own coordinates (L02).
+    const visible = filtersToQuery(filters, {
+      current: null,
+      home: null,
+      resolve: { current, home },
+    });
     const full = filtersToQuery(filters, { current, home, bounds });
     return { visible, fetch: full ? `${full}&limit=500` : "limit=500" };
   }, [filters, current, home, bounds]);
