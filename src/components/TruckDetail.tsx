@@ -32,16 +32,22 @@ import {
   driverLine,
   freeSpaceLabel,
   truckFreshness,
-  truckLaneLabel,
   truckPlaceLabel,
   truckStatusMeta,
-  DEPARTURE_NOT_STATED,
   NO_DESTINATION_STATED,
 } from "@/lib/loads/truckPresent";
 import { TRUCK_CORRIDOR_OPTIONS } from "@/lib/loads/constants";
 import { ContactGate } from "./ContactGate";
+import {
+  reviewTitle,
+  APPROX_NOTE,
+  EvidenceChip,
+  NEEDS_REVIEW,
+  ReadinessChip,
+  RequirementBadge,
+} from "./LoadViews";
 import { MatchPanel } from "./MatchPanel";
-import { Chip, PrecisionNote } from "./ui";
+import { Chip } from "./ui";
 
 export interface TruckDetailProps {
   /** Null while a deep link is still loading: the detail fetches by `truckId`. */
@@ -227,24 +233,33 @@ export function TruckDetail({
           style={{ background: "var(--surface-glass)", backdropFilter: "blur(8px)" }}
         >
           <BackButton total={totalInList} onClose={onClose} />
+          {/* The leg is the title, in the same city-and-state form the job
+              drawer uses. The two-letter lane it replaced said less than the
+              line under it (V05). */}
           <h1 className="big mt-[var(--sp-1)] text-(length:--fs-xl) md:mt-[var(--sp-2)] md:text-(length:--fs-2xl)">
-            {truckLaneLabel(row)}
-          </h1>
-          <p
-            className="text-(length:--fs-base) md:text-(length:--fs-md)"
-            style={{ color: "var(--muted)" }}
-          >
             {from.text}
             {to.stated ? (
-              <> → {to.text}</>
+              <>
+                {" "}
+                <span aria-hidden>→</span>
+                <span className="sr-only">to</span> {to.text}
+              </>
             ) : (
               <span style={{ color: "var(--approx)" }}> · {NO_DESTINATION_STATED}</span>
             )}
-          </p>
-          <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)] md:mt-[var(--sp-2)]">
-            <Chip tone={fresh.tone} title={fresh.detail ?? undefined}>
-              {fresh.text}
-            </Chip>
+          </h1>
+          {/* V06 -- availability in plain text, our own doubts as outlined chips. */}
+          <div
+            className="mt-[var(--sp-1)] flex flex-wrap items-center gap-x-[var(--sp-2)] gap-y-[var(--sp-1)] text-(length:--fs-base) md:mt-[var(--sp-2)]"
+            style={{ color: "var(--muted)" }}
+          >
+            <span>{fresh.text}</span>
+            {fresh.detail && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{fresh.detail}</span>
+              </>
+            )}
             {row.status !== "available" && (
               <Chip tone={status.tone} title={status.title}>
                 {status.label}
@@ -259,63 +274,33 @@ export function TruckDetail({
               </Chip>
             )}
             {row.needs_review && (
-              <Chip tone="review" title={row.flags?.join(" · ") || undefined}>
-                Unverified
-              </Chip>
+              <EvidenceChip kind="review" title={reviewTitle(row.flags)}>
+                {NEEDS_REVIEW}
+              </EvidenceChip>
             )}
-            <PrecisionNote precision={row.origin_precision} />
-            {to.stated && row.origin_precision !== row.dest_precision && (
-              <PrecisionNote precision={row.dest_precision} />
-            )}
+            {/* No "approximate" chip up here: each Stop below carries its own,
+                beside the place it qualifies (V07). */}
           </div>
         </section>
 
         <div className="p-[var(--sp-4)]">
-          {/* 1 — the two numbers a dispatcher decides on. NOT size and price:
-              a truck has no price, and the second number is when it moves. */}
-          <section className="grid grid-cols-2 gap-[var(--sp-3)]">
-            <div>
-              <div className="label">Free space</div>
-              {space.stated ? (
-                <div className="big text-(length:--fs-3xl) nums" title={space.title}>
-                  {row.free_cf!.toLocaleString("en-US")}
-                  <span
-                    className="text-(length:--fs-md) font-medium"
-                    style={{ color: "var(--muted)" }}
-                  >
-                    {" cf free"}
-                  </span>
-                </div>
-              ) : (
-                <div className="text-(length:--fs-md)" style={{ color: "var(--approx)" }} title={space.title}>
-                  {space.text}
-                </div>
-              )}
-              {row.truck_cf != null && (
-                <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-                  of a {row.truck_cf.toLocaleString("en-US")} cf truck
-                </div>
-              )}
-            </div>
-            <div>
-              <div className="label">Departs</div>
-              {depart.stated ? (
-                <div className="big text-(length:--fs-xl)" title={depart.title ?? undefined}>
-                  {depart.text}
-                </div>
-              ) : (
-                <div className="text-(length:--fs-md)" style={{ color: "var(--approx)" }} title={depart.title ?? undefined}>
-                  {DEPARTURE_NOT_STATED}
-                </div>
-              )}
-            </div>
-          </section>
+          {/* ============================================================ *
+              V07 — the same four groups the job drawer uses: Leg and schedule ·
+              Space and requirements · Contact · Original post. The 2x2 grid of
+              bordered mini-cards is gone: it repeated the Listed value from the
+              header three lines above it and the swing distance from the Stop
+              directly above it, in a card inside a card inside a drawer.
+              ============================================================ */}
 
-          {/* 2 — the leg */}
-          <section className="mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]">
-            <Stop label="Empty at" place={from.text} precision={row.origin_precision} note={depart.text} />
+          {/* A — LEG AND SCHEDULE. */}
+          <Group title="Leg and schedule" first>
+            <Stop label="Empty at" place={from.text} approx={from.approx} approxLabel="Approximate origin">
+              <div className="mt-[var(--sp-1)]">
+                <ReadinessChip text={depart.text} tone={depart.tone} title={depart.title} />
+              </div>
+            </Stop>
             <div
-              className="my-[var(--sp-1)] ml-[5px] border-l border-dashed pl-[var(--sp-4)] text-(length:--fs-sm)"
+              className="my-[var(--sp-1)] ml-[5px] border-l border-dashed pl-[var(--sp-4)] text-(length:--fs-base)"
               style={{ borderColor: "var(--border-strong)", color: "var(--muted)", minHeight: 28 }}
             >
               {row.leg_miles != null
@@ -326,9 +311,13 @@ export function TruckDetail({
               <Stop
                 label="Headed for"
                 place={to.text}
-                precision={row.dest_precision}
-                note={`Will swing up to ${row.corridor_miles} mi off this line`}
-              />
+                approx={to.approx}
+                approxLabel="Approximate destination"
+              >
+                <div className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
+                  Will swing up to {row.corridor_miles} mi off this line
+                </div>
+              </Stop>
             ) : (
               <div className="flex gap-[var(--sp-3)]">
                 <span
@@ -337,27 +326,19 @@ export function TruckDetail({
                   style={{ borderColor: "var(--approx)" }}
                 />
                 <div className="min-w-0">
-                  <div
-                    className="text-(length:--fs-xs) font-semibold uppercase tracking-wide"
-                    style={{ color: "var(--muted)" }}
-                  >
-                    Headed for
-                  </div>
+                  <div className="label mb-0">Headed for</div>
                   <div className="text-(length:--fs-md) font-semibold" style={{ color: "var(--approx)" }}>
                     {NO_DESTINATION_STATED}
                   </div>
-                  <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                  <div className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
                     The post did not say. We do not guess a direction, and no match on this truck
                     will claim one.
                   </div>
                 </div>
               </div>
             )}
-          </section>
 
-          {/* 3 — facts */}
-          <section className="mt-[var(--sp-5)] grid grid-cols-2 gap-[var(--sp-2)]">
-            <Fact label="From you">
+            <Field label="From you">
               {row.distance_miles != null ? (
                 <span className="nums">
                   {from.approx ? "≈ " : ""}
@@ -366,79 +347,94 @@ export function TruckDetail({
               ) : (
                 <span style={{ color: "var(--muted)" }}>Set your location to see this</span>
               )}
-            </Fact>
-            <Fact label="Truck">{row.truck_text ? maskPhones(row.truck_text) : "Not described"}</Fact>
-            <Fact label="Will swing">
-              <span className="nums">{row.corridor_miles} mi off its line</span>
-            </Fact>
-            <Fact label="Listed">{listedRange(row)}</Fact>
-          </section>
+            </Field>
+          </Group>
 
-          {/* 4 — what it can and cannot take */}
-          {((row.equipment?.length ?? 0) > 0 || (row.cannot?.length ?? 0) > 0 || row.equipment_notes) && (
-            <section className="mt-[var(--sp-4)]">
-              <div className="label">What it can take</div>
-              <div className="flex flex-wrap gap-[var(--sp-1)]">
-                {row.equipment?.map((tag) => (
-                  <Chip key={`eq-${tag}`} tone={TAG_LABELS[tag]?.tone ?? "default"}>
-                    {TAG_LABELS[tag]?.label ?? tag}
-                  </Chip>
-                ))}
-                {row.cannot?.map((tag) => (
-                  <Chip key={`no-${tag}`} tone="danger">
-                    no {(TAG_LABELS[tag]?.label ?? tag).toLowerCase()}
-                  </Chip>
-                ))}
+          {/* B — SPACE AND REQUIREMENTS. */}
+          <Group title="Space and requirements">
+            <div className="label">Free space</div>
+            {space.stated ? (
+              <div className="big text-(length:--fs-3xl) nums" title={space.title}>
+                {row.free_cf!.toLocaleString("en-US")}
+                <span className="text-(length:--fs-md) font-medium" style={{ color: "var(--muted)" }}>
+                  {" cf free"}
+                </span>
               </div>
-              {row.equipment_notes && (
-                <p className="mt-[var(--sp-1)] text-(length:--fs-base)">
-                  {maskPhones(row.equipment_notes)}
+            ) : (
+              <EvidenceChip kind="unknown" title={space.title}>
+                {space.text}
+              </EvidenceChip>
+            )}
+            {row.truck_cf != null && (
+              <div className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
+                of a {row.truck_cf.toLocaleString("en-US")} cf truck
+              </div>
+            )}
+
+            <Field label="Truck">{row.truck_text ? maskPhones(row.truck_text) : "Not described"}</Field>
+
+            {((row.equipment?.length ?? 0) > 0 || (row.cannot?.length ?? 0) > 0 || row.equipment_notes) && (
+              <div className="mt-[var(--sp-4)]">
+                <div className="label">What it can take</div>
+                <div className="flex flex-wrap gap-[var(--sp-1)]">
+                  {row.equipment?.map((tag) => (
+                    <Chip key={`eq-${tag}`} tone={TAG_LABELS[tag]?.tone ?? "default"}>
+                      {TAG_LABELS[tag]?.label ?? tag}
+                    </Chip>
+                  ))}
+                  {row.cannot?.map((tag) => (
+                    <Chip key={`no-${tag}`} tone="danger">
+                      no {(TAG_LABELS[tag]?.label ?? tag).toLowerCase()}
+                    </Chip>
+                  ))}
+                </div>
+                {row.equipment_notes && (
+                  <p className="mt-[var(--sp-1)] text-(length:--fs-base)">
+                    {maskPhones(row.equipment_notes)}
+                  </p>
+                )}
+                <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                  The driver&apos;s own list. A job that never stated a requirement is still shown to
+                  this truck.
                 </p>
-              )}
-              <p className="mt-[var(--sp-1)] text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-                The driver&apos;s own list. A job that never stated a requirement is still shown to
-                this truck.
-              </p>
-            </section>
-          )}
-
-          {/* 5 — self-reported, and said so */}
-          {claims.length > 0 && (
-            <section className="mt-[var(--sp-4)]">
-              <div className="label">Self-reported — we do not verify any of this</div>
-              <div className="flex flex-wrap gap-[var(--sp-1)]">
-                {claims.map((c) => (
-                  <Chip key={c} tone="muted" title="The driver ticked this box. Nobody checked it.">
-                    {c}
-                  </Chip>
-                ))}
               </div>
-            </section>
-          )}
+            )}
 
-          {row.requirements && (
-            <section className="mt-[var(--sp-4)]">
-              <div className="label">Driver&apos;s requirements</div>
-              <div className="flex flex-wrap gap-[var(--sp-1)]">
-                {requirements.map((req) => (
-                  <Chip key={req.label} title={req.title}>
-                    {req.label}
-                  </Chip>
-                ))}
+            {claims.length > 0 && (
+              <div className="mt-[var(--sp-4)]">
+                <div className="label">Self-reported — we do not verify any of this</div>
+                <div className="flex flex-wrap gap-[var(--sp-1)]">
+                  {claims.map((c) => (
+                    <Chip key={c} tone="muted" title="The driver ticked this box. Nobody checked it.">
+                      {c}
+                    </Chip>
+                  ))}
+                </div>
               </div>
-              <p className="mt-[var(--sp-1)] text-(length:--fs-base)">{maskPhones(row.requirements)}</p>
-            </section>
-          )}
+            )}
 
-          {row.notes && (
-            <section className="mt-[var(--sp-4)]">
-              <div className="label">Notes</div>
-              <p className="text-(length:--fs-base)">{maskPhones(row.notes)}</p>
-            </section>
-          )}
+            {row.requirements && (
+              <div className="mt-[var(--sp-4)]">
+                <div className="label">Driver&apos;s requirements</div>
+                <div className="flex flex-wrap gap-[var(--sp-1)]">
+                  {requirements.map((req) => (
+                    <RequirementBadge key={req.label} label={req.label} title={req.title} />
+                  ))}
+                </div>
+                <p className="mt-[var(--sp-2)] text-(length:--fs-base)">{maskPhones(row.requirements)}</p>
+              </div>
+            )}
+
+            {row.notes && (
+              <div className="mt-[var(--sp-4)]">
+                <div className="label">Notes</div>
+                <p className="text-(length:--fs-base)">{maskPhones(row.notes)}</p>
+              </div>
+            )}
+          </Group>
 
           {/* 6 — the only place a phone number reaches the page. */}
-          {!mobile && <section className="mt-[var(--sp-5)]">{gate}</section>}
+          {!mobile && <Group title="Contact the driver">{gate}</Group>}
 
           {/* 6b — what this truck could carry.
               Public, like the truck itself, and phone-free: every job in it is
@@ -455,11 +451,11 @@ export function TruckDetail({
 
           {/* 7 — the post it came from, when there was one. */}
           {data?.source && (
-            <section className="mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]">
-              <div className="label">Original WhatsApp message</div>
-              <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+            <Group title="Original post">
+              <p className="text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
                 {data.source.author_name ?? "Unnamed sender"}
                 {data.source.group_name ? ` · ${data.source.group_name}` : ""}
+                {" · WhatsApp"}
               </p>
               <div
                 className="card mt-[var(--sp-2)] whitespace-pre-wrap p-[var(--sp-3)] text-(length:--fs-sm)"
@@ -470,7 +466,17 @@ export function TruckDetail({
               >
                 {revealed?.sourceBody ?? maskPhones(data.source.body) ?? ""}
               </div>
-            </section>
+              {/* Said in words next to the words it is about, not only in the
+                  chip's tooltip up in the header (V06). */}
+              {row.needs_review && (
+                <p className="mt-[var(--sp-2)] text-(length:--fs-base)" style={{ color: "var(--warn)" }}>
+                  {NEEDS_REVIEW}:{" "}
+                  {row.flags?.filter(Boolean).join(" · ") ||
+                    "the rules were not confident about this reading"}
+                  . Check the message above before you call.
+                </p>
+              )}
+            </Group>
           )}
 
           {/* 8 — edit and manage. Trucks only; jobs have no equivalent. */}
@@ -682,16 +688,50 @@ function BackButton({ total, onClose }: { total: number; onClose(): void }) {
   );
 }
 
+/** One of V07's groups. The sibling of `LoadDetail`'s, and the same rule. */
+function Group({
+  title,
+  first,
+  children,
+}: {
+  title: string;
+  first?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={first ? "" : "mt-[var(--sp-5)] border-t border-border pt-[var(--sp-4)]"}>
+      <h2 className="t-title mb-[var(--sp-3)]">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/** A labelled value inside a group. No card: see `Group`. */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-[var(--sp-3)]">
+      <div className="label">{label}</div>
+      <div className="text-(length:--fs-base)">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * One end of the leg. The uncertainty chip names the end rather than reading a
+ * bare "approximate location" (V06), and sits under the place it qualifies.
+ */
 function Stop({
   label,
   place,
-  precision,
-  note,
+  approx,
+  approxLabel,
+  children,
 }: {
   label: string;
   place: string;
-  precision: string | null;
-  note: string;
+  approx: boolean;
+  approxLabel: string;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="flex gap-[var(--sp-3)]">
@@ -701,37 +741,17 @@ function Stop({
         style={{ background: label === "Empty at" ? "var(--pickup)" : "var(--delivery)" }}
       />
       <div className="min-w-0">
-        <div
-          className="text-(length:--fs-xs) font-semibold uppercase tracking-wide"
-          style={{ color: "var(--muted)" }}
-        >
-          {label}
-        </div>
+        <div className="label mb-0">{label}</div>
         <div className="text-(length:--fs-md) font-semibold">{place}</div>
-        <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
-          {note}
-        </div>
-        <PrecisionNote precision={precision} />
+        {approx && (
+          <div className="mt-[var(--sp-1)]">
+            <EvidenceChip kind="unknown" title={APPROX_NOTE}>
+              {approxLabel}
+            </EvidenceChip>
+          </div>
+        )}
+        {children}
       </div>
     </div>
   );
-}
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="card p-[var(--sp-3)]">
-      <div className="label">{label}</div>
-      <div className="text-(length:--fs-base)">{children}</div>
-    </div>
-  );
-}
-
-/** "Sep 1 – Sep 6" / "Today" — how long this listing has been up. */
-function listedRange(row: PublicTruckRow): string {
-  const fmt = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }) : null;
-  const first = fmt(row.first_seen_at ?? row.created_at);
-  const last = fmt(row.last_seen_at ?? row.created_at);
-  if (!first || !last) return "Today";
-  return first === last ? first : `${first} – ${last}`;
 }
