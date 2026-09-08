@@ -17,6 +17,7 @@ import { computeExpiry } from "@/lib/extract/dates";
 import { normalizePhone } from "@/lib/extract/phone";
 import { geocode, geocodeDestination } from "@/lib/geo/geocode";
 import { haversineMiles } from "@/lib/geo/math";
+import { zipStateConflict } from "@/lib/geo/states";
 import { truckExpiresAt } from "@/lib/pipeline/trucks";
 import { READY_AFTER_DEADLINE } from "@/lib/loads/present";
 import { DEPARTURE_ALREADY_PASSED, departureHasPassed } from "@/lib/loads/truckPresent";
@@ -174,6 +175,15 @@ export async function insertWebJob(
     };
   }
 
+  // The pair as the ROW will hold it, which is the pair that has to agree.
+  // In the picked branch these are the two fields the body sent; in the
+  // geocoded branch they are one geocoder's own answer, and checking that too
+  // costs nothing and closes the only other way a disagreeing pair could reach
+  // the column.
+  const pickupState = pickup.state ?? twoLetter(body.pickupState);
+  const pickupClash = zipStateConflict(pickupState, pickup.zip, "pickup");
+  if (pickupClash) throw new WebJobValidationError("pickupZip", pickupClash.message);
+
   // --- delivery -------------------------------------------------------------
   const deliveryState = twoLetter(body.deliveryState);
   if (!deliveryState) throw new WebJobValidationError("deliveryState", "required");
@@ -186,6 +196,34 @@ export async function insertWebJob(
   if (!deliveryZip && !deliveryCity) {
     throw new WebJobValidationError("deliveryZip", "a delivery ZIP or city is required");
   }
+
+  /*
+   * A delivery ZIP that belongs to a different state than the one chosen.
+   *
+   * This is the review's own case: `deliveryState:"FL"` with
+   * `deliveryZip:"07102"` used to be accepted. Nothing was invented -- the
+   * geocoder saw the disagreement, refused the ZIP's point and stored the
+   * Florida centroid at `delivery_precision:'state'` with no city, and the
+   * board printed "Approximate delivery" -- but the row still held a Florida
+   * job carrying a Newark ZIP, and the only person who could say which of the
+   * two was meant was never asked.
+   *
+   * REFUSED rather than corrected, and the refusal is a question. Correcting
+   * would mean choosing a winner, and there is no rule that picks one: the
+   * poster who tabbed past the state select and the poster who pasted the ZIP
+   * off the wrong line send the identical body. Choosing would be inventing a
+   * fact -- the exact thing this product says it does not do -- and it would
+   * invent it silently, in the field a driver reads first.
+   *
+   * Refusing here is also what makes the guarantee absolute rather than
+   * conventional: this is the only writer for a posted job, so a `loads` row
+   * whose `delivery_state` and `delivery_zip` disagree cannot be created
+   * through the front door at all, by a form, by curl, or by a client that has
+   * not been updated. The browser offers the two repairs as buttons because it
+   * has a person in front of it; the API has only words, so it uses them.
+   */
+  const deliveryClash = zipStateConflict(deliveryState, deliveryZip, "delivery");
+  if (deliveryClash) throw new WebJobValidationError("deliveryZip", deliveryClash.message);
 
   const deliveryLabel =
     (deliveryCity ? `${titleCase(deliveryCity)}, ` : "") +
@@ -302,7 +340,7 @@ export async function insertWebJob(
      ) RETURNING id`,
     [
       user.id,
-      pickupLabel, pickup.city, pickup.state ?? twoLetter(body.pickupState), pickup.zip,
+      pickupLabel, pickup.city, pickupState, pickup.zip,
       pickup.lat, pickup.lng, pickup.precision,
       deliveryLabel,
       delivery?.city ?? (deliveryCity ? titleCase(deliveryCity) : null),
@@ -528,6 +566,13 @@ export async function insertWebTruck(
     precision: body.originPrecision,
   });
   if (!origin) throw new WebTruckValidationError("origin", "could not be found on the map");
+  // The same disagreement, on the truck's own two ends. A driver working the
+  // form cannot easily produce it -- both halves come from one picked
+  // suggestion rather than from a select and a text box -- but `originState`
+  // and `originZip` are two independent fields of a public POST body, and the
+  // guarantee is about the column, not about the form that usually fills it.
+  const originClash = zipStateConflict(origin.state, origin.zip, "origin");
+  if (originClash) throw new WebTruckValidationError("originZip", originClash.message);
 
   // --- where it is headed ---------------------------------------------------
   // Blank AND unticked is the error. The two are different answers and the form
@@ -558,6 +603,8 @@ export async function insertWebTruck(
       })
     : null;
   if (destLabel && !dest) throw new WebTruckValidationError("dest", "could not be found on the map");
+  const destClash = dest ? zipStateConflict(dest.state, dest.zip, "destination") : null;
+  if (destClash) throw new WebTruckValidationError("destZip", destClash.message);
 
   const legMiles = dest
     ? haversineMiles({ lat: origin.lat, lng: origin.lng }, { lat: dest.lat, lng: dest.lng })

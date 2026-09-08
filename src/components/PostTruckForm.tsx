@@ -29,6 +29,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/basePath";
+import { zipStateConflict } from "@/lib/geo/states";
 import { TRUCK_CORRIDOR_OPTIONS, DEFAULT_TRUCK_CORRIDOR_MILES } from "@/lib/loads/constants";
 import { TAG_LABELS } from "@/lib/loads/present";
 import {
@@ -134,6 +135,25 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
   const [preview, setPreview] = useState<MatchPreview | null>(null);
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
+  /*
+   * A ZIP that belongs to a different state than the one posted with it.
+   *
+   * `insertWebTruck` refuses both ends; this is the mirror, and on this form it
+   * is a thinner one than on the job form on purpose. There, the two halves are
+   * a select and a text box a poster can disagree with themselves in, so the
+   * question comes with buttons that repair each half. Here both halves arrive
+   * from ONE picked suggestion -- there is no pair of controls to reconcile,
+   * and the only repair is to choose the place again, which typing already
+   * does. So the question is stated and the Post button waits; inventing a
+   * two-button dialogue for a pair the driver cannot edit separately would be
+   * furniture.
+   */
+  const originClash = zipStateConflict(originPick?.state, originPick?.zip, "origin");
+  const destClash = destUndecided
+    ? null
+    : zipStateConflict(destPick?.state, destPick?.zip, "destination");
+  const clash = originClash ?? destClash;
+
   const errorFor = (field: string) =>
     fieldError?.field === field ? (
       <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--danger)" }}>
@@ -166,6 +186,16 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
       setFieldError({
         field: "dest",
         message: 'Give a destination, or tick "Not decided yet" — we will not guess which you meant.',
+      });
+      return;
+    }
+    // The same refusal `insertWebTruck` makes, in the same words. The Post
+    // button is already unavailable while this stands; the rule lives on the
+    // form so a second way to submit could not route around it.
+    if (clash) {
+      setFieldError({
+        field: clash === originClash ? "originZip" : "destZip",
+        message: clash.message,
       });
       return;
     }
@@ -389,7 +419,18 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
               {originPick.zip ? ` · ${originPick.zip}` : ""} recorded from the suggestion
             </p>
           )}
+          {originClash && (
+            <p
+              role="status"
+              className="mt-[var(--sp-1)] text-(length:--fs-sm)"
+              style={{ color: "var(--warn)" }}
+            >
+              {originClash.message} Choose the place again — the suggestion carries both halves, so
+              we cannot tell which of them you meant.
+            </p>
+          )}
           {errorFor("origin")}
+          {errorFor("originZip")}
         </Field>
 
         <Field label="Where you're headed" htmlFor="dest">
@@ -428,7 +469,18 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
               direction.
             </p>
           )}
+          {destClash && (
+            <p
+              role="status"
+              className="mt-[var(--sp-1)] text-(length:--fs-sm)"
+              style={{ color: "var(--warn)" }}
+            >
+              {destClash.message} Choose the place again — the suggestion carries both halves, so we
+              cannot tell which of them you meant.
+            </p>
+          )}
           {errorFor("dest")}
+          {errorFor("destZip")}
         </Field>
 
         <Field label="Free space (cf)" htmlFor="freeCf">
@@ -729,7 +781,9 @@ export function PostTruckForm({ user }: PostTruckFormProps) {
           </p>
         )}
 
-        <button className="btn btn-primary self-start" disabled={busy}>
+        {/* Unavailable while a ZIP contradicts its state: the board cannot post
+            a leg when it does not know which end of it is true. */}
+        <button className="btn btn-primary self-start" disabled={busy || !!clash}>
           {busy ? "Posting…" : "Post truck space"}
         </button>
 

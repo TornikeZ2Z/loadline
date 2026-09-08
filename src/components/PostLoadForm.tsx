@@ -16,7 +16,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/basePath";
-import { STATES } from "@/lib/geo/states";
+import { STATES, zipStateConflict, type ZipStateConflict } from "@/lib/geo/states";
 import { READY_AFTER_DEADLINE, TAG_LABELS } from "@/lib/loads/present";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
 
@@ -100,6 +100,24 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
           ).toFixed(2)}/cf`
         : null;
 
+  /*
+   * A ZIP that belongs to a different state than the one chosen beside it.
+   *
+   * Recomputed on every keystroke rather than checked on submit, because this
+   * is the one error the poster can answer instantly and the answer is two
+   * clicks away: the question appears under the delivery block the moment the
+   * fifth digit lands, and the repairs are right there.
+   *
+   * `insertWebJob` refuses the same pair, in the same words, out of the same
+   * function -- this is the half that saves a round trip, not the half that
+   * makes the rule true. A partial ZIP ("071") and a ZIP the table cannot place
+   * both come back null, so the panel does not flicker at somebody mid-type and
+   * does not accuse a ZIP we have no business judging.
+   */
+  const pickupClash = zipStateConflict(picked?.state, picked?.zip, "pickup");
+  const deliveryClash = zipStateConflict(deliveryState, deliveryZip, "delivery");
+  const clash = pickupClash ?? deliveryClash;
+
   const errorFor = (field: string) =>
     fieldError?.field === field ? (
       <p className="mt-[2px] text-(length:--fs-sm)" style={{ color: "var(--danger)" }}>
@@ -114,6 +132,18 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
 
     if (!deliveryZip.trim() && !deliveryCity.trim()) {
       setFieldError({ field: "deliveryZip", message: "Give a ZIP or a city for the delivery." });
+      return;
+    }
+    // The Post button is already unavailable while a ZIP contradicts its state,
+    // so this never fires from the form as it stands. It is here because the
+    // rule belongs to the FORM rather than to one button's disabled attribute:
+    // the day somebody adds a second way to submit, the question still has to
+    // be answered first.
+    if (clash) {
+      setFieldError({
+        field: clash === pickupClash ? "pickupZip" : "deliveryZip",
+        message: clash.message,
+      });
       return;
     }
     if (!contactPhone.trim()) {
@@ -254,7 +284,27 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
               {picked.zip ? ` · ${picked.zip}` : ""} recorded from the suggestion
             </p>
           )}
+          {pickupClash && (
+            <div className="mt-[var(--sp-2)]">
+              {/* One suggestion supplies both halves here, so this is all but
+                  unreachable from the browser -- and the repair is therefore
+                  not "edit one of them" but "choose the place again". */}
+              <ZipQuestion
+                clash={pickupClash}
+                repairs={[
+                  {
+                    label: "Choose the pickup again",
+                    onClick: () => {
+                      setPickup("");
+                      setPicked(null);
+                    },
+                  },
+                ]}
+              />
+            </div>
+          )}
           {errorFor("pickup")}
+          {errorFor("pickupZip")}
         </Field>
 
         <div className="grid gap-[var(--sp-3)] md:grid-cols-2">
@@ -289,6 +339,24 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
             {errorFor("deliveryZip")}
           </Field>
         </div>
+
+        {deliveryClash && (
+          <ZipQuestion
+            clash={deliveryClash}
+            repairs={[
+              {
+                // `clash.zip` is the five characters that were typed, so a
+                // leading zero survives into the label as well as into the row.
+                label: `Keep ${deliveryClash.zip} — set the state to ${deliveryClash.zipState.abbr}`,
+                onClick: () => setDeliveryState(deliveryClash.zipState.abbr),
+              },
+              {
+                label: `Keep ${deliveryClash.stated.name} — clear the ZIP`,
+                onClick: () => setDeliveryZip(""),
+              },
+            ]}
+          />
+        )}
 
         <Field label="Delivery city" htmlFor="deliveryCity">
           <input
@@ -537,10 +605,63 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
           </p>
         )}
 
-        <button className="btn btn-primary self-start" disabled={busy}>
+        {/* Unavailable, not silently ignoring the click: the unanswered
+            question is on screen a few fields above, and a board that would
+            not know which half to believe is a board that cannot post this. */}
+        <button className="btn btn-primary self-start" disabled={busy || !!clash}>
           {busy ? "Posting…" : "Post job"}
         </button>
       </form>
+    </div>
+  );
+}
+
+/**
+ * The ZIP/state disagreement, asked rather than ruled on.
+ *
+ * Amber and not red, and phrased as a question, because it is not a mistake the
+ * software has caught the poster in -- it is two statements the software cannot
+ * choose between. "07102 is a New Jersey ZIP, but the delivery state says
+ * Florida. Which is right?" is answerable in one click; "Invalid ZIP for the
+ * selected state" is a scolding that leaves the poster to work out which of the
+ * two boxes to touch.
+ *
+ * Every repair is a button whose LABEL names its own consequence, so nothing is
+ * discarded quietly: "Keep Florida — clear the ZIP" removes the value the
+ * poster typed, and says so before they press it. The poster picks; this
+ * component never picks for them, and there is deliberately no third button
+ * that means "post it anyway".
+ *
+ * `role="status"` so the question is announced when it appears, which is the
+ * only way a keyboard user learns why the Post button just went unavailable --
+ * a disabled button takes no focus and can carry no description.
+ */
+function ZipQuestion({
+  clash,
+  repairs,
+}: {
+  clash: ZipStateConflict;
+  repairs: Array<{ label: string; onClick: () => void }>;
+}) {
+  return (
+    <div
+      role="status"
+      className="rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-3)]"
+      style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
+    >
+      <p className="text-(length:--fs-base)" style={{ fontWeight: 600 }}>
+        {clash.message}
+      </p>
+      <p className="mt-[2px] text-(length:--fs-sm)">
+        Nothing is posted until you say which. We will not choose one for you.
+      </p>
+      <div className="mt-[var(--sp-2)] flex flex-wrap gap-[var(--sp-2)]">
+        {repairs.map((r) => (
+          <button key={r.label} type="button" className="btn btn-sm" onClick={r.onClick}>
+            {r.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
