@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "@/lib/basePath";
 import { isSafeNext, loginHref, registerHref, type Role } from "@/lib/session";
 import { Logo } from "./Logo";
+import { Button } from "./ui";
 
 export interface DemoOption {
   key: Role;
@@ -43,6 +44,8 @@ export function AuthForm({
   const [showForm, setShowForm] = useState(demoAccounts.length === 0);
   const [role, setRole] = useState<"driver" | "poster">(as ?? "driver");
   const isLogin = mode === "login";
+  const roleLabelId = useId();
+  const roleHintId = useId();
 
   function done() {
     router.replace(isSafeNext(next) ? next : "/");
@@ -101,10 +104,8 @@ export function AuthForm({
       <div className="w-full max-w-[440px]">
         <div className="mb-[var(--sp-5)] text-center">
           <Logo size={40} tagline className="mb-[var(--sp-5)]" />
-          <h1 className="big text-(length:--fs-2xl)">
-            {isLogin ? "Sign in" : "Create your account"}
-          </h1>
-          <p className="mt-[var(--sp-1)] text-(length:--fs-md) text-muted">
+          <h1 className="t-heading">{isLogin ? "Sign in" : "Create your account"}</h1>
+          <p className="t-body mt-[var(--sp-2)] text-muted">
             {/* "post a job" until the board had one kind of listing. Both
                 sentences describe what an account is FOR, and it is now for two
                 kinds of posting -- a driver who came here to find work can
@@ -117,12 +118,12 @@ export function AuthForm({
 
         {demoAccounts.length > 0 && (
           <div className="card p-5">
-            <div className="mb-1 text-(length:--fs-lg) font-bold">Try the demo</div>
+            <div className="t-title mb-[var(--sp-1)]">Try the demo</div>
             {/* This sentence used to end "...or run the admin console", which
                 was true when a third button opened one. The console is not a
                 demo any more -- it is password-only -- so the copy has to stop
                 promising it, and has to say where the door went instead. */}
-            <p className="mb-3 text-(length:--fs-sm) text-muted">
+            <p className="t-label mb-[var(--sp-3)] text-muted">
               Browsing the board needs no account. These two see a contact and post to the board.
               The admin console is not part of the demo — it needs a real password, through the
               form below.
@@ -132,8 +133,12 @@ export function AuthForm({
               {demoAccounts.map((a) => (
                 <button
                   key={a.key}
+                  type="button"
                   onClick={() => enterAsDemo(a.key)}
                   disabled={busy !== null}
+                  /* The arrow is decorative and hidden from assistive tech, so
+                     the "…" it turns into cannot be what announces the wait. */
+                  aria-busy={busy === a.key}
                   className="option-row flex w-full items-center gap-3 rounded-[var(--radius-md)] border p-[var(--sp-3)] text-left disabled:opacity-60"
                 >
                   <span
@@ -143,12 +148,10 @@ export function AuthForm({
                     {a.name.charAt(0)}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-(length:--fs-base) font-semibold">
-                      Sign in as demo {a.key}
-                    </span>
+                    <span className="block font-semibold">Sign in as demo {a.key}</span>
                     <span className="block text-(length:--fs-sm) text-muted">{a.blurb}</span>
                   </span>
-                  <span className="text-(length:--fs-base) font-semibold" style={{ color: "var(--accent)" }}>
+                  <span className="font-semibold" aria-hidden="true" style={{ color: "var(--accent)" }}>
                     {busy === a.key ? "…" : "→"}
                   </span>
                 </button>
@@ -157,7 +160,8 @@ export function AuthForm({
 
             {error && (
               <p
-                className="mt-3 rounded-md px-3 py-2 text-(length:--fs-base)"
+                role="alert"
+                className="mt-[var(--sp-3)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)]"
                 style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
               >
                 {error}
@@ -167,13 +171,17 @@ export function AuthForm({
             {!showForm && (
               /* A real button rather than an underlined line of 12 px text: it
                  is the alternative to every demo account above it, and it was
-                 a 17 px tall target. */
-              <button
-                className="btn btn-ghost mt-3 w-full"
+                 a 17 px tall target.
+                 V03 grades it: BORDERED, not ghost. The demo rows above are
+                 this card's main path, this is the alternative to them, and a
+                 borderless control reads as neither. */
+              <Button
+                variant="secondary"
+                className="mt-[var(--sp-3)] w-full"
                 onClick={() => setShowForm(true)}
               >
                 or sign in with an email and password
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -196,23 +204,31 @@ export function AuthForm({
                 for is exactly the person the old wording turned away. SPEC §20
                 flagged this copy as deferred and load-bearing here. */}
             {!isLogin && (
-              <div>
-                <label className="label">Mostly here to</label>
-                <div className="grid grid-cols-2 gap-2">
+              /* A radio group, said out loud. The heading was a bare <label>
+                 with nothing to label -- it read as a stray word to a screen
+                 reader, and the two choices arrived as two unrelated radios.
+                 role="radiogroup" + aria-labelledby names the question, and
+                 aria-describedby attaches the sentence that says the answer is
+                 not binding. */
+              <div role="radiogroup" aria-labelledby={roleLabelId} aria-describedby={roleHintId}>
+                <span className="label" id={roleLabelId}>
+                  Mostly here to
+                </span>
+                <div className="grid grid-cols-2 gap-[var(--sp-2)]">
                   {(
                     [
                       { value: "driver", title: "Find work for my truck" },
                       { value: "poster", title: "Post freight I need moved" },
                     ] as const
                   ).map((opt) => (
+                    /* .option-tile carries the border, the selected tint and --
+                       the reason this stopped being inline styles -- a focus
+                       ring. The radio inside is .sr-only, so a keyboard user
+                       tabbing here used to see absolutely nothing move. */
                     <label
                       key={opt.value}
-                      className="cursor-pointer rounded-lg border p-3 text-(length:--fs-sm)"
-                      style={
-                        role === opt.value
-                          ? { borderColor: "var(--accent)", background: "var(--accent-soft)" }
-                          : { borderColor: "var(--border-strong)" }
-                      }
+                      className="option-tile"
+                      data-selected={role === opt.value || undefined}
                     >
                       <input
                         type="radio"
@@ -226,7 +242,11 @@ export function AuthForm({
                     </label>
                   ))}
                 </div>
-                <p className="mt-2 text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                <p
+                  id={roleHintId}
+                  className="mt-[var(--sp-2)] text-(length:--fs-sm)"
+                  style={{ color: "var(--muted)" }}
+                >
                   This only sets what we show you first. Either account can browse the board, see
                   contacts, post a job, and post space on a truck.
                 </p>
@@ -288,18 +308,20 @@ export function AuthForm({
 
             {error && demoAccounts.length === 0 && (
               <p
-                className="rounded-md px-3 py-2 text-(length:--fs-base)"
+                role="alert"
+                className="rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)]"
                 style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
               >
                 {error}
               </p>
             )}
 
-            <button className="btn btn-primary w-full" disabled={busy !== null}>
+            {/* THE filled action on this screen, and the only one. */}
+            <Button type="submit" variant="primary" className="w-full" disabled={busy !== null} aria-busy={busy === "form"}>
               {busy === "form" ? "One moment…" : isLogin ? "Sign in" : "Create account"}
-            </button>
+            </Button>
 
-            <p className="text-center text-(length:--fs-base) text-muted">
+            <p className="text-center text-muted">
               {isLogin ? (
                 <>
                   No account yet?{" "}
