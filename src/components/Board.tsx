@@ -16,7 +16,7 @@
  */
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Role } from "@/lib/session";
 import type { BoundsInput, LoadSummary } from "@/lib/loads/types";
 import type { TruckSummary } from "@/lib/loads/truckTypes";
@@ -75,6 +75,60 @@ export interface BoardProps {
 }
 
 const NUDGE_KEY = "loadline.locnudge";
+/** V01: the desktop board's two view modes, and the divider the viewer moved. */
+const VIEW_KEY = "loadline.boardview";
+const LIST_W_KEY = "loadline.listw";
+
+/** Map + list, or the list on its own. There is no map-only desktop view. */
+type BoardView = "split" | "list";
+
+/**
+ * `useLayoutEffect` on the client, `useEffect` on the server.
+ *
+ * Restoring the list's scroll position has to happen BEFORE paint or the
+ * viewer sees the top of the board for a frame and then a jump. React logs a
+ * warning for `useLayoutEffect` during a server render, and this component is
+ * server-rendered even though it is a client component, so the choice is made
+ * once at module scope where it is a constant rather than a conditional hook.
+ */
+const useBeforePaint = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+/**
+ * How wide the results panel starts, before anybody drags it.
+ *
+ * The review measured the live board at 2560 x 1271 and found the map taking
+ * roughly five sixths of it with the cards -- the thing a dispatcher actually
+ * reads -- confined to a 420 px rail. So above 1280 the panel is a FRACTION of
+ * the board rather than a constant: 34 % leaves the map 66 %, which is the
+ * "cap the map around 65-70 % on very wide screens" the brief asks for, and at
+ * 1440 it comes out at 490 px, inside the 480-560 the brief asks for there.
+ *
+ * Below 1280 the old ladder stands. Those widths are a small laptop, a tablet
+ * and a phone lying down, where 34 % of the screen is not a readable card and
+ * the map would stop being a map. The floor of 480 only bites between 1280 and
+ * 1412, where the fraction would fall under it.
+ */
+function defaultListW(boardWidth: number): number {
+  if (boardWidth >= 1280) return Math.max(480, Math.round(boardWidth * 0.34));
+  if (boardWidth >= 1100) return 380;
+  if (boardWidth >= 900) return 340;
+  return 300;
+}
+
+/** How wide a card list is allowed to get before it stops being scannable. */
+const LIST_MEASURE: React.CSSProperties = { maxWidth: 1040, marginInline: "auto" };
+
+/** The map keeps at least this much, so dragging cannot close it by accident. */
+const MIN_MAP_W = 380;
+/** And the list keeps enough for a card's route line and its contact button. */
+const MIN_LIST_W = 320;
+
+function clampListW(want: number, boardWidth: number): number {
+  if (boardWidth <= 0) return want;
+  return Math.round(
+    Math.min(Math.max(want, MIN_LIST_W), Math.max(MIN_LIST_W, boardWidth - MIN_MAP_W)),
+  );
+}
 
 /** A stable empty array, so `show=jobs` does not hand the map a new one a frame. */
 const EMPTY_TRUCKS: PublicTruckRow[] = [];
@@ -207,6 +261,25 @@ export function Board({
   const [snap, setSnap] = useState<SheetSnap>("half");
   const [nudged, setNudged] = useState(false);
 
+  /* --- V01: how much of the board each column gets --------------------------
+   *
+   * `view` is Map + list or List. There is no Map-only view on the desktop
+   * board and there is not going to be one: the list is the thing a dispatcher
+   * reads, so the choice on offer is "keep the map" or "give the list the whole
+   * width", never "take the list away".
+   *
+   * `listW` is the width the VIEWER dragged the divider to, in px, or null for
+   * "whatever this screen's default is". Both are read from localStorage after
+   * mount rather than during render -- the server has no idea how wide the
+   * screen is, and reading storage in an initialiser is a hydration mismatch.
+   */
+  const [view, setView] = useState<BoardView>("split");
+  const [listW, setListW] = useState<number | null>(null);
+  /** The two-column grid's own width; the default panel is a fraction of it. */
+  const [boardW, setBoardW] = useState(0);
+  /** Live during a divider drag, so the columns move with the pointer. */
+  const [dragW, setDragW] = useState<number | null>(null);
+
   const [notice, setNotice] = useState<string | null>(() =>
     new URLSearchParams(initialQuery).get("notice") === "poster-only"
       ? "Posting needs a poster account."
@@ -218,6 +291,16 @@ export function Board({
   const root = useRef<HTMLDivElement>(null);
   const filterRow = useRef<HTMLDivElement>(null);
   const listScroller = useRef<HTMLDivElement>(null);
+  const columns = useRef<HTMLDivElement>(null);
+  /**
+   * Where the list was scrolled to when a detail took its place, and which card
+   * was opened. The scroller UNMOUNTS while the drawer is on screen -- it is
+   * the same column -- so the position has to be held outside it or every
+   * "Back to 98 jobs" lands at the top of the board (V01).
+   */
+  const listPos = useRef(0);
+  const lastOpened = useRef<number | null>(null);
+  const restore = useRef(false);
 
   // --- viewport ------------------------------------------------------------
   // Set after mount only: reading matchMedia during render would make the
@@ -282,6 +365,41 @@ export function Board({
       // Private mode: the nudge simply shows again next visit.
     }
   }, []);
+
+  /* --- V01: the divider, and the view the viewer left it in -----------------
+   *
+   * A client-side preference, in localStorage and NOT in the URL, for the same
+   * reason the map's emphasis control is: it is not a search. Nothing about the
+   * result set changes, so a shared link must not carry it.
+   */
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem(VIEW_KEY);
+      if (v === "list" || v === "split") setView(v);
+      const w = Number(window.localStorage.getItem(LIST_W_KEY));
+      if (Number.isFinite(w) && w > 0) setListW(w);
+    } catch {
+      // Private mode: the board simply starts at this screen's default.
+    }
+  }, []);
+
+  // The grid's own width, which is what the default panel is a fraction of.
+  // Measured rather than taken from `window.innerWidth`: the board is not
+  // always the whole window, and a fraction of the wrong number is the 420 px
+  // rail this item exists to fix.
+  useEffect(() => {
+    const el = columns.current;
+    if (!el) {
+      setBoardW(0);
+      return;
+    }
+    const measure = () => setBoardW(Math.round(el.getBoundingClientRect().width));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mobile, view]);
 
   // --- query ---------------------------------------------------------------
   const visibleQuery = useMemo(
@@ -543,6 +661,118 @@ export function Board({
   /** The one way out of a narrowed list, shared by the chip and the map. */
   const clearPlace = useCallback(() => setPlace(null), []);
 
+  /* --- V01: the view control and the divider ------------------------------- */
+
+  const chooseView = useCallback((next: BoardView) => {
+    setView(next);
+    try {
+      window.localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // Private mode: the choice lasts this visit and no longer.
+    }
+  }, []);
+
+  /** The panel's width right now: mid-drag, the viewer's, or this screen's. */
+  const panelW = clampListW(dragW ?? listW ?? defaultListW(boardW), boardW);
+
+  const dividerPointer = useRef<number | null>(null);
+
+  const onDividerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dividerPointer.current = e.pointerId;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragW(panelW);
+  };
+
+  const onDividerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dividerPointer.current !== e.pointerId) return;
+    const box = columns.current?.getBoundingClientRect();
+    if (!box) return;
+    // From the RIGHT edge, because that is the edge the panel is pinned to:
+    // taking the delta from where the drag started would drift by however far
+    // the pointer sat from the divider when it went down.
+    setDragW(clampListW(Math.round(box.right - e.clientX), Math.round(box.width)));
+  };
+
+  const endDividerDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dividerPointer.current !== e.pointerId) return;
+    dividerPointer.current = null;
+    const settled = dragW;
+    setDragW(null);
+    if (settled == null) return;
+    setListW(settled);
+    try {
+      window.localStorage.setItem(LIST_W_KEY, String(settled));
+    } catch {
+      // ignore
+    }
+  };
+
+  /** The divider is a real control, so it moves without a pointer too. */
+  const onDividerKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 80 : 24;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const next = clampListW(panelW + (e.key === "ArrowLeft" ? step : -step), boardW);
+      setListW(next);
+      try {
+        window.localStorage.setItem(LIST_W_KEY, String(next));
+      } catch {
+        // ignore
+      }
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      setListW(null);
+      try {
+        window.localStorage.removeItem(LIST_W_KEY);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  /* --- V01: the list comes back where it was --------------------------------
+   *
+   * The drawer takes the list column's place, so the scroller unmounts while a
+   * job is open and a fresh one mounts at scrollTop 0 when it closes. Nine
+   * cards down the board, "Back to 98 jobs" therefore landed on card one. The
+   * position is held out here, and the card that was opened is scrolled back
+   * into view rather than merely restored to a pixel -- the list may have been
+   * re-sorted by a background refresh in between, and the ANSWER the viewer
+   * wants is "where was I", not "what was scrollTop".
+   */
+  const detailOpen = selectedId != null || selectedTruckId != null;
+
+  useEffect(() => {
+    if (detailOpen) {
+      lastOpened.current = selectedId;
+      restore.current = true;
+    }
+  }, [detailOpen, selectedId]);
+
+  // A new search, or the other population, is a new list -- so the old
+  // position means nothing and must not be restored onto it.
+  useEffect(() => {
+    listPos.current = 0;
+    lastOpened.current = null;
+    restore.current = false;
+  }, [visibleQuery, show]);
+
+  // Layout, not effect: the browser must never paint the list at the top and
+  // then jump it. Runs when the drawer closes and the scroller remounts.
+  useBeforePaint(() => {
+    if (detailOpen || !restore.current) return;
+    restore.current = false;
+    const el = listScroller.current;
+    if (!el) return;
+    const id = lastOpened.current;
+    const card =
+      id == null
+        ? null
+        : el.querySelector<HTMLElement>(`[data-job-card][data-job-id="${id}"]`);
+    if (card) card.scrollIntoView({ block: "nearest" });
+    else el.scrollTop = listPos.current;
+  }, [detailOpen]);
+
   const dismissNudge = () => {
     setNudged(true);
     try {
@@ -655,7 +885,13 @@ export function Board({
    */
   const tabs = (
     <div
-      className="mb-[var(--sp-1)] flex items-center gap-[var(--sp-1)] md:mb-[var(--sp-2)]"
+      /* No bottom margin on compact. The sheet's handle is a fixed 104 px
+         (`--sheet-handle-h`) and this row grew from 44 to 50 when the view
+         control joined it -- `.seg` is `--tap-min + 6` so the OPTION inside it
+         is a 44 px target. At 320 x 568, where the summary underneath already
+         wraps to two lines, the handle's content measured 115 px before and
+         121 after; giving the four pixels back puts it at 117. */
+      className="flex items-center gap-[var(--sp-1)] md:mb-[var(--sp-2)]"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <Tab
@@ -670,6 +906,54 @@ export function Board({
         active={listKind === "trucks"}
         onClick={chooseTrucks}
       />
+      {/* V01 / V08: WHICH OF THE TWO IS ON SCREEN, said as a control rather
+          than left to a drag handle.
+
+          On a phone it moves the sheet between its own existing snaps -- Map is
+          the peek, List is the full -- so it is a shortcut to the drag, not a
+          second mechanism with its own state to get out of step. Neither is
+          pressed at the half snap, which is a real third position and is what
+          the board opens in; saying otherwise would be the control lying about
+          where the sheet is.
+
+          On the desktop it chooses between Map + list and List. There is no
+          Map-only view: the list is what a dispatcher reads. */}
+      <div
+        className="seg ml-auto"
+        role="group"
+        aria-label="What to show"
+        /* 320 px is the reflow floor the brief names, and at 320 the two tabs
+           and this control are 331 px of content in a 288 px row. The words
+           are the last thing that may go, so the padding goes first. */
+        style={mobile ? { paddingInline: 2 } : undefined}
+      >
+        <button
+          type="button"
+          className="seg-option"
+          aria-pressed={mobile ? snap === "peek" : view === "split"}
+          data-on={(mobile ? snap === "peek" : view === "split") ? "" : undefined}
+          onClick={() => (mobile ? setSnap("peek") : chooseView("split"))}
+          title={mobile ? "Drop the sheet and show the map" : "Show the map beside the results"}
+          style={mobile ? { paddingInline: 10 } : undefined}
+        >
+          {mobile ? "Map" : "Map + list"}
+        </button>
+        <button
+          type="button"
+          className="seg-option"
+          aria-pressed={mobile ? snap === "full" : view === "list"}
+          data-on={(mobile ? snap === "full" : view === "list") ? "" : undefined}
+          onClick={() => (mobile ? setSnap("full") : chooseView("list"))}
+          title={
+            mobile
+              ? "Raise the sheet and read the results"
+              : "Give the results the whole width"
+          }
+          style={mobile ? { paddingInline: 10 } : undefined}
+        >
+          List
+        </button>
+      </div>
     </div>
   );
 
@@ -1288,20 +1572,69 @@ export function Board({
     >
       {filterBar}
 
-      {/* `minmax(0, 1fr)`, not `minmax(560px, 1fr)`. A phone held sideways is
+      {/* THE SPLIT, AND WHO GETS TO SET IT (V01).
+          `minmax(0, 1fr)`, not `minmax(560px, 1fr)`. A phone held sideways is
           844 px wide -- past the 768 breakpoint, so it gets this layout -- and
           560 + 340 is 900. The two tracks overflowed by 56 px, `.board`'s
           `overflow: hidden` clipped the difference, and what got clipped was
           the right edge of the list column: every card's Show contact button,
           which is `ml-auto` against exactly that edge. A floor the container
-          cannot honour is not a floor, it is a clipped column. */}
-      <div
-        className="grid min-h-0 flex-1"
-        style={{ gridTemplateColumns: "minmax(0, 1fr) var(--list-w)" }}
-      >
-        <section className="min-w-0 border-r border-border">{map}</section>
+          cannot honour is not a floor, it is a clipped column.
 
-        <section className="flex min-h-0 flex-col" style={{ background: "var(--bg)" }}>
+          The second track is no longer `var(--list-w)`, a constant that left
+          the results a 420 px rail beside a 2,139 px map. It is `panelW`: a
+          measured fraction of the board above 1280, whatever the viewer
+          dragged the divider to, or -- in List view -- the whole width. */}
+      <div
+        ref={columns}
+        className="grid min-h-0 flex-1"
+        style={{
+          gridTemplateColumns:
+            view === "list" ? "minmax(0, 1fr)" : `minmax(0, 1fr) 5px ${panelW}px`,
+        }}
+      >
+        {view === "split" && (
+          <>
+            <section className="min-w-0">{map}</section>
+            {/* A real separator, not a decorated border: it takes a pointer, it
+                takes the keyboard (arrows move it, Home returns it to this
+                screen's default), and it reports where it is. `col-resize`
+                everywhere on it, so the affordance is the whole five pixels. */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Results panel width"
+              aria-valuenow={panelW}
+              aria-valuemin={MIN_LIST_W}
+              aria-valuemax={Math.max(MIN_LIST_W, boardW - MIN_MAP_W)}
+              tabIndex={0}
+              onPointerDown={onDividerDown}
+              onPointerMove={onDividerMove}
+              onPointerUp={endDividerDrag}
+              onPointerCancel={endDividerDrag}
+              onKeyDown={onDividerKey}
+              onDoubleClick={() => {
+                setListW(null);
+                try {
+                  window.localStorage.removeItem(LIST_W_KEY);
+                } catch {
+                  // ignore
+                }
+              }}
+              style={{
+                cursor: "col-resize",
+                background: dragW == null ? "var(--border)" : "var(--accent)",
+                touchAction: "none",
+              }}
+              title="Drag to resize · double-click to reset"
+            />
+          </>
+        )}
+
+        <section
+          className="flex min-h-0 flex-col"
+          style={{ background: "var(--bg)" }}
+        >
           {detail ? (
             detail
           ) : (
@@ -1310,14 +1643,27 @@ export function Board({
                   way the map has its panel, and the cards below then sit in a
                   recess rather than floating on the same plane as their own
                   title. */}
+              {/* In List view the column is the whole board, and a card set on
+                  a 1,440 px line is a line nobody can scan back along. The
+                  measure is capped and centred; the scroller itself stays full
+                  width, so the scrollbar is still at the edge of the screen
+                  where a hand expects it. */}
               <header
                 className="border-b border-border px-[var(--sp-4)] py-[var(--sp-3)]"
                 style={{ background: "var(--surface)" }}
               >
-                {header}
+                <div style={view === "list" ? LIST_MEASURE : undefined}>{header}</div>
               </header>
-              <div ref={listScroller} className="min-h-0 flex-1 overflow-y-auto p-[var(--sp-3)]">
-                {listKind === "trucks" ? truckBody : listBody}
+              <div
+                ref={listScroller}
+                onScroll={(e) => {
+                  listPos.current = e.currentTarget.scrollTop;
+                }}
+                className="min-h-0 flex-1 overflow-y-auto p-[var(--sp-3)]"
+              >
+                <div style={view === "list" ? LIST_MEASURE : undefined}>
+                  {listKind === "trucks" ? truckBody : listBody}
+                </div>
               </div>
             </>
           )}
