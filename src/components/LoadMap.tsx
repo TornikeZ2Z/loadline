@@ -3986,10 +3986,42 @@ export function LoadMap({
                     for ever. It says "= 28.3 truckloads", which is a statement
                     about how much freight is on screen; handed a count of free
                     space it would divide free space by a truck size and print
-                    how many trucks fit in your trucks. */}
-                {totalCf > 0
-                  ? truckLine(totalCf, viewer?.truckCf ?? null)
-                  : "No stated sizes on screen"}
+                    how many trucks fit in your trucks.
+
+                    V04, AND THE REASON IT IS BEHIND A DISCLOSURE HERE TOO.
+                    The list header moved this line one click back because
+                    1,500 cf is a reference vehicle this board invented and the
+                    reader does not own one. That argument does not stop at the
+                    edge of the map: leaving it printed here left the same
+                    assumption standing, unqualified, in the other summary on
+                    the same screen. Counts stay on the face of the panel;
+                    anything computed from an assumption goes inside, with the
+                    assumption named next to it -- the same words the list
+                    header uses, so the two cannot drift apart.
+
+                    On compact the whole PANEL is already that one disclosure
+                    (V08), so a second one inside it would be two taps to a
+                    caveat. There it stays inline. */}
+                {totalCf <= 0 ? (
+                  "No stated sizes on screen"
+                ) : compact ? (
+                  truckLine(totalCf, viewer?.truckCf ?? null)
+                ) : (
+                  <details className="inline">
+                    <summary className="inline cursor-pointer" style={{ color: "var(--accent)" }}>
+                      Statistics
+                    </summary>
+                    <div
+                      className="mt-[var(--sp-2)] rounded-[var(--radius-sm)] px-[var(--sp-3)] py-[var(--sp-2)] text-(length:--fs-xs)"
+                      style={{ background: "var(--surface-2)" }}
+                    >
+                      {truckLine(totalCf, viewer?.truckCf ?? null)} —{" "}
+                      {viewer?.truckCf && viewer.truckCf > 0
+                        ? "against the truck size you stored."
+                        : "against an assumed reference vehicle. It is not the space in your truck; store yours in Truck empty at and this line changes."}
+                    </div>
+                  </details>
+                )}
                 {/* Total capacity and free space are two different numbers and
                     this line has always quoted the first one. Saying the
                     second one next to it is the whole distinction: a truck is
