@@ -47,6 +47,8 @@
  *       driver deliberately asks to include unknown dates.
  *   R2  the requirement chips are the sender's own words: HHG + DOT +
  *       insurance produces exactly those three and never an MC nobody wrote.
+ *   R3  the website form cannot publish an assumed readiness, and refuses a
+ *       ready date that falls after the delivery deadline.
  *
  * And then the OTHER lifecycle, which shares none of that machinery:
  *
@@ -763,11 +765,11 @@ async function readinessAndRequirements(
 ) {
   console.log(`\n${DIM}R1-R3: readiness is what the post said; requirements are the sender's words${RESET}`);
 
-  const { queryOne } = await import("../src/lib/db");
+  const { query, queryOne } = await import("../src/lib/db");
   const { searchLoads } = await import("../src/lib/loads/query");
-  const { boardDay, readyLabel, requirementChips, READY_NOT_STATED } = await import(
-    "../src/lib/loads/present"
-  );
+  const { boardDay, readyLabel, requirementChips, READY_AFTER_DEADLINE, READY_NOT_STATED } =
+    await import("../src/lib/loads/present");
+  const { insertWebJob, WebJobValidationError } = await import("../src/lib/pipeline/web");
 
   const today = boardDay(T0);
 
@@ -890,6 +892,102 @@ async function readinessAndRequirements(
     `R2: a post naming both stays two distinct requirements (got ${JSON.stringify(mixedChips)})`,
   );
 
+  // --- R3: the form cannot publish an assumption ---------------------------
+  await query(
+    `INSERT INTO users (email, password_hash, name, role, phone, company, is_demo, can_post)
+     VALUES ('ready@lifecycle.test','x','Ready Poster','poster','+12015550123','Lifecycle Movers',false,true)
+     ON CONFLICT (email) DO NOTHING`,
+  );
+  const poster = (await queryOne<{ id: number }>(
+    `SELECT id FROM users WHERE email = 'ready@lifecycle.test'`,
+  ))!;
+  const actor = { id: poster.id, name: "Ready Poster", phone: "+12015550123", isDemo: false };
+  const jobBody = (extra: Record<string, string>) => ({
+    pickup: "Kearny, NJ 07032",
+    pickupLat: "40.7684",
+    pickupLng: "-74.1454",
+    pickupState: "NJ",
+    pickupZip: "07032",
+    pickupPrecision: "zip",
+    deliveryState: "FL",
+    deliveryZip: "33435",
+    cubicFeet: "800",
+    contactPhone: "+12015550123",
+    ...extra,
+  });
+  const stateOf = async (id: number) =>
+    (await queryOne<{ ready_state: string; ready_now: boolean; ready_date: string | null }>(
+      `SELECT ready_state, ready_now, ready_date::text AS ready_date FROM loads WHERE id = $1`,
+      [id],
+    ))!;
+
+  const unknownPost = await insertWebJob(actor, jobBody({ readyState: "unknown" }));
+  const unknownRow = await stateOf(unknownPost.id);
+  expect(
+    unknownRow.ready_state === "unknown" && !unknownRow.ready_now && unknownRow.ready_date === null,
+    `R3: "Not stated yet" publishes as unknown (got ${JSON.stringify(unknownRow)})`,
+  );
+
+  const nowPost = await insertWebJob(actor, jobBody({ readyState: "now" }));
+  expect((await stateOf(nowPost.id)).ready_state === "now", "R3: \u201cReady now\u201d publishes as a stated now");
+
+  // The legacy shape: a client that says nothing about readiness at all. It
+  // used to publish ready_now = true, which is the same invention through the
+  // front door.
+  const silentPost = await insertWebJob(actor, jobBody({}));
+  const silentRow = await stateOf(silentPost.id);
+  expect(
+    silentRow.ready_state === "unknown" && !silentRow.ready_now,
+    `R3: a body that says nothing about readiness is unknown, never now (got ${JSON.stringify(silentRow)})`,
+  );
+
+  const refusalOf = async (extra: Record<string, string>) => {
+    const before = (await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM loads`))!.n;
+    try {
+      await insertWebJob(actor, jobBody(extra));
+      return { err: null as unknown, wrote: 1 };
+    } catch (e) {
+      const after = (await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM loads`))!.n;
+      return { err: e, wrote: after - before };
+    }
+  };
+
+  const dateless = await refusalOf({ readyState: "date" });
+  expect(
+    dateless.err instanceof WebJobValidationError &&
+      dateless.err.field === "readyDate" &&
+      dateless.wrote === 0,
+    `R3: "ready on" with no date is refused rather than quietly stored (got ${
+      dateless.err instanceof Error ? dateless.err.message : "a 201"
+    })`,
+  );
+
+  // Ready three days AFTER it must be delivered: two dates the same poster
+  // typed, contradicting each other.
+  const day = (n: number) => boardDay(new Date(T0.getTime() + n * DAY));
+  const backwards = await refusalOf({
+    readyState: "date",
+    readyDate: day(6),
+    deliverBy: day(3),
+  });
+  expect(
+    backwards.err instanceof WebJobValidationError &&
+      backwards.err.message === READY_AFTER_DEADLINE &&
+      backwards.wrote === 0,
+    `R3: a ready date after the delivery deadline is refused in the board's calendar (got ${
+      backwards.err instanceof Error ? backwards.err.message : "a 201"
+    })`,
+  );
+
+  const ordered = await insertWebJob(
+    actor,
+    jobBody({ readyState: "date", readyDate: day(3), deliverBy: day(6) }),
+  );
+  const orderedRow = await stateOf(ordered.id);
+  expect(
+    orderedRow.ready_state === "date" && orderedRow.ready_date === day(3) && !orderedRow.ready_now,
+    `R3: and the same two dates the right way round publish as a stated date (got ${JSON.stringify(orderedRow)})`,
+  );
 }
 
 /**

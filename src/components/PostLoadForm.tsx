@@ -17,7 +17,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/basePath";
 import { STATES } from "@/lib/geo/states";
-import { TAG_LABELS } from "@/lib/loads/present";
+import { READY_AFTER_DEADLINE, TAG_LABELS } from "@/lib/loads/present";
 import { LocationInput, type ResolvedPlace } from "./LocationInput";
 
 export interface PostLoadFormProps {
@@ -42,6 +42,17 @@ type PickedPlace = ResolvedPlace & {
 
 type PriceMode = "percf" | "flat" | "";
 
+/**
+ * The readiness answer, with no default (review L07).
+ *
+ * "" is not a fourth state -- it is the question still unanswered, and the form
+ * refuses to submit on it. The board's whole claim is that it does not invent,
+ * and a pre-ticked "Ready now" invents on behalf of a poster who never read the
+ * question. The truck form has offered "not decided" since it shipped; a job
+ * may now say the same thing, and must say something.
+ */
+type ReadyChoice = "" | "now" | "date" | "unknown";
+
 export function PostLoadForm({ user }: PostLoadFormProps) {
   const [pickup, setPickup] = useState("");
   const [picked, setPicked] = useState<PickedPlace | null>(null);
@@ -55,7 +66,7 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
   const [pricePerCf, setPricePerCf] = useState("");
   const [priceFlat, setPriceFlat] = useState("");
 
-  const [readyNow, setReadyNow] = useState(true);
+  const [readyChoice, setReadyChoice] = useState<ReadyChoice>("");
   const [readyDate, setReadyDate] = useState("");
   const [deliverBy, setDeliverBy] = useState("");
 
@@ -112,6 +123,23 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
       });
       return;
     }
+    if (!readyChoice) {
+      setFieldError({
+        field: "readyState",
+        message: "Say when the job is ready. If you do not know yet, choose \u201cNot stated yet\u201d.",
+      });
+      return;
+    }
+    if (readyChoice === "date" && !readyDate) {
+      setFieldError({ field: "readyDate", message: "Give the date, or choose \u201cNot stated yet\u201d." });
+      return;
+    }
+    // Checked here and again in `insertWebJob`: the same sentence, so the form
+    // and the API cannot disagree about which pair of dates is impossible.
+    if (readyChoice === "date" && readyDate && deliverBy && readyDate > deliverBy) {
+      setFieldError({ field: "readyDate", message: READY_AFTER_DEADLINE });
+      return;
+    }
 
     setBusy(true);
     try {
@@ -133,8 +161,8 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
         priceMode,
         pricePerCf: priceMode === "percf" ? pricePerCf : "",
         priceFlat: priceMode === "flat" ? priceFlat : "",
-        readyNow: readyNow ? "on" : "",
-        readyDate: readyNow ? "" : readyDate,
+        readyState: readyChoice,
+        readyDate: readyChoice === "date" ? readyDate : "",
         deliverBy,
         tags: tags.join(","),
         requirements,
@@ -178,6 +206,10 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
       setPriceFlat("");
       setNotes("");
       setTags([]);
+      // Readiness is a fact about the job just posted, not about the warehouse:
+      // the next one asks again rather than inheriting an answer.
+      setReadyChoice("");
+      setReadyDate("");
     } finally {
       setBusy(false);
     }
@@ -348,27 +380,47 @@ export function PostLoadForm({ user }: PostLoadFormProps) {
           {errorFor("priceFlat")}
         </Field>
 
-        <Field label="Ready">
+        <Field label="Ready" required>
           <label className="check-row">
-            <input type="radio" name="ready" checked={readyNow} onChange={() => setReadyNow(true)} />
+            <input
+              type="radio"
+              name="ready"
+              checked={readyChoice === "now"}
+              onChange={() => setReadyChoice("now")}
+            />
             Ready now — already picked up / in the warehouse
           </label>
           <label className="check-row mt-[var(--sp-1)] flex-wrap">
-            <input type="radio" name="ready" checked={!readyNow} onChange={() => setReadyNow(false)} />
+            <input
+              type="radio"
+              name="ready"
+              checked={readyChoice === "date"}
+              onChange={() => setReadyChoice("date")}
+            />
             Ready on
             <input
               className="field"
               style={{ width: "auto" }}
               type="date"
               aria-label="Ready date"
-              disabled={readyNow}
+              disabled={readyChoice !== "date"}
               value={readyDate}
               onChange={(e) => {
-                setReadyNow(false);
+                setReadyChoice("date");
                 setReadyDate(e.target.value);
               }}
             />
           </label>
+          <label className="check-row mt-[var(--sp-1)]">
+            <input
+              type="radio"
+              name="ready"
+              checked={readyChoice === "unknown"}
+              onChange={() => setReadyChoice("unknown")}
+            />
+            Not stated yet — the board will say &ldquo;Ready date not stated&rdquo;
+          </label>
+          {errorFor("readyState")}
           {errorFor("readyDate")}
         </Field>
 

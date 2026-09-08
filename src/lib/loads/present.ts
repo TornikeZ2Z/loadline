@@ -359,6 +359,16 @@ export function readyEvidence(job: ReadyJob): string {
   return job.ready_source ? `as posted (${job.ready_source})` : "";
 }
 
+/**
+ * The one sentence for "this job is ready only after it is due".
+ *
+ * One string, checked in the browser and again in `insertWebJob`, for the
+ * reason `DEPARTURE_ALREADY_PASSED` is one string: the way a cross-field rule
+ * goes wrong is a second copy of it that drifts, and a POST is a public
+ * interface that has to refuse what the form refuses.
+ */
+export const READY_AFTER_DEADLINE = "That is after the delivery deadline — check the two dates";
+
 /** "Deliver by Sep 20", warn tone inside three days. Null when the post gave none. */
 export function deliverByLabel(
   job: Pick<LoadRow, "deliver_by">,

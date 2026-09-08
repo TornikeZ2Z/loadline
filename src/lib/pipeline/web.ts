@@ -18,6 +18,7 @@ import { normalizePhone } from "@/lib/extract/phone";
 import { geocode, geocodeDestination } from "@/lib/geo/geocode";
 import { haversineMiles } from "@/lib/geo/math";
 import { truckExpiresAt } from "@/lib/pipeline/trucks";
+import { READY_AFTER_DEADLINE } from "@/lib/loads/present";
 import { DEPARTURE_ALREADY_PASSED, departureHasPassed } from "@/lib/loads/truckPresent";
 import { DEFAULT_TRUCK_CORRIDOR_MILES, TRUCK_CORRIDOR_OPTIONS } from "@/lib/loads/constants";
 
@@ -35,6 +36,13 @@ export interface WebJobBody {
   priceMode?: "percf" | "flat" | "";
   pricePerCf?: string;
   priceFlat?: string;
+  /**
+   * Which of the three things the poster said about readiness (review L07).
+   * "now" and "date" are claims; "unknown" is the honest absence of one, and
+   * there is no fourth value meaning "we picked for you".
+   */
+  readyState?: "now" | "date" | "unknown" | "";
+  /** Legacy: the tick-box the form sent before `readyState` existed. */
   readyNow?: "on" | "";
   readyDate?: string;                               // YYYY-MM-DD
   deliverBy?: string;                               // YYYY-MM-DD
@@ -211,15 +219,36 @@ export async function insertWebJob(
   const rateUsd = priceFlat ?? (pricePerCf != null ? pricePerCf * cubicFeet : null);
 
   // --- readiness ------------------------------------------------------------
-  // A body that says nothing about readiness is a body that says nothing: it
-  // stores `unknown`, not `now` (review L01). It used to store ready_now = true
-  // with ready_source = 'assumed' -- the same invention the WhatsApp path made,
-  // through the front door.
+  // The third option is the point of it (review L07). The form used to offer
+  // "ready now" or a date, defaulting to "ready now", so a poster who did not
+  // know published a green claim by tabbing past the question -- the same
+  // invention the WhatsApp path made, through the front door.
+  //
+  // A body with no `readyState` is a legacy client (scripts/check-demo.ts posts
+  // one): its tick-box still means "now", but its SILENCE now means unknown.
   const readyDate = optionalIsoDate(body.readyDate, "readyDate");
   const deliverBy = optionalIsoDate(body.deliverBy, "deliverBy");
-  const readyNow = body.readyNow === "on";
-  const readyState = readyNow ? "now" : readyDate ? "date" : "unknown";
-  const readySource = readyNow || readyDate ? "line" : null;
+  const stated = body.readyState || (body.readyNow === "on" ? "now" : readyDate ? "date" : "unknown");
+  if (stated !== "now" && stated !== "date" && stated !== "unknown") {
+    throw new WebJobValidationError(
+      "readyState",
+      "say whether the job is ready now, ready on a date, or not stated yet",
+    );
+  }
+  if (stated === "date" && !readyDate) {
+    throw new WebJobValidationError("readyDate", "give the date the job is ready, or choose \u201cNot stated yet\u201d");
+  }
+  // Freight that is ready only after it is due is a job nobody can run. Both
+  // fields are calendar days typed against the same board -- neither is a
+  // timestamp, so there is no zone to convert between and the ISO compare IS
+  // the board's calendar.
+  if (stated === "date" && readyDate && deliverBy && readyDate > deliverBy) {
+    throw new WebJobValidationError("readyDate", READY_AFTER_DEADLINE);
+  }
+  const readyNow = stated === "now";
+  const readyDateStored = stated === "date" ? readyDate : null;
+  const readyState = stated;
+  const readySource = stated === "unknown" ? null : "line";
 
   // --- contact --------------------------------------------------------------
   const contactName = (body.contactName ?? "").trim() || user.name;
@@ -282,10 +311,10 @@ export async function insertWebJob(
       delivery?.lat ?? null, delivery?.lng ?? null, delivery?.precision ?? null,
       tripMiles,
       cubicFeet, pricePerCf, priceFlat, rateUsd,
-      readyNow, readyDate, readySource, deliverBy, readyDate,
+      readyNow, readyDateStored, readySource, deliverBy, readyDateStored,
       tags, (body.notes ?? "").trim() || null, (body.requirements ?? "").trim() || null,
       contactName, contactPhone, rawPhone || null,
-      computeExpiry(readyDate, now),
+      computeExpiry(readyDateStored, now),
       user.isDemo,
       readyState,
     ],
