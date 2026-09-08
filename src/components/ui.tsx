@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * The primitives every board screen is built from: a chip, a status chip, an
- * empty state and the popover the filter bar hangs off.
+ * The primitives every board screen is built from: a button, a chip, a status
+ * chip, an empty state and the popover the filter bar hangs off.
  *
  * Colour is applied only through the `.chip-*` classes in globals.css, never as
  * a literal in a component: the whole point of the token system is that a chip
@@ -13,6 +13,73 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { LoadStatus } from "@/lib/loads/types";
 import { isApproxPlace, type Tone } from "@/lib/loads/present";
+
+/* -------------------------------- buttons -------------------------------- */
+
+/**
+ * V03's action hierarchy, as a type rather than as a habit.
+ *
+ *   primary    filled blue. THE action in this context, and there is one.
+ *   secondary  bordered. The alternatives to it. The default, because most
+ *              buttons on a board are alternatives.
+ *   ghost      no border. A control in a dense row or a toolbar, where a box
+ *              around every item is a grid of boxes.
+ *   link       underlined text. A rare action, still a real <button>.
+ *
+ * The rule the review is actually asking for cannot be enforced by a type --
+ * "one filled primary per context" is a property of a screen, not of a button
+ * -- but naming the four ranks makes a second primary something a person has to
+ * type on purpose.
+ */
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "link";
+/** `sm` is 32 px tall on a mouse and 44 on a touch screen; `md` is 36 and 44. */
+export type ButtonSize = "md" | "sm";
+
+const VARIANT_CLASS: Record<ButtonVariant, string> = {
+  primary: "btn btn-primary",
+  secondary: "btn",
+  ghost: "btn btn-ghost",
+  link: "btn btn-link",
+};
+
+/**
+ * The class list for a button of a given rank.
+ *
+ * Exported next to <Button> because half the buttons on this site are not
+ * <button> elements: `next/link` renders an anchor, and an action that
+ * NAVIGATES has to stay an anchor -- middle-click, copy-link and the browser's
+ * own back stack all depend on it. Those call sites take this and keep their
+ * semantics, instead of a component wrapping a component.
+ */
+export function buttonClass(
+  variant: ButtonVariant = "secondary",
+  size: ButtonSize = "md",
+  className?: string,
+) {
+  return [VARIANT_CLASS[variant] ?? VARIANT_CLASS.secondary, size === "sm" ? "btn-sm" : "", className]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * A real <button>, with a rank.
+ *
+ * `type="button"` by default and not by accident: an unqualified <button> in a
+ * <form> submits it, which is how a "Clear filters" control ends up posting a
+ * sign-in form. A submit button passes type="submit" and means it.
+ */
+export function Button({
+  variant = "secondary",
+  size = "md",
+  className,
+  type = "button",
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}) {
+  return <button type={type} className={buttonClass(variant, size, className)} {...rest} />;
+}
 
 /**
  * `delisted` is the status the lifecycle produces most often, and it is not a
@@ -111,10 +178,10 @@ export function EmptyState({
           strokeLinecap="round"
         />
       </svg>
-      <div className="big text-(length:--fs-lg)">{title}</div>
+      <div className="t-title">{title}</div>
       {hint && (
         <div
-          className="mx-auto mt-[var(--sp-2)] max-w-[38ch] text-(length:--fs-base) leading-relaxed"
+          className="t-body mx-auto mt-[var(--sp-2)] max-w-[38ch]"
           style={{ color: "var(--muted)" }}
         >
           {hint}
@@ -271,10 +338,13 @@ export function PopoverButton({
               className="sticky top-0 z-10 mb-[var(--sp-3)] flex items-center justify-between gap-[var(--sp-2)] border-b border-border px-[var(--sp-4)] py-[var(--sp-2)]"
               style={{ background: "var(--surface)" }}
             >
-              <span className="big text-(length:--fs-lg)">{panelTitle ?? ariaLabel}</span>
-              <button type="button" className="btn btn-primary" onClick={close}>
+              <span className="t-title">{panelTitle ?? ariaLabel}</span>
+              {/* The one filled action in this sheet, and V03's rule is that
+                  there is exactly one: everything inside the panel is a filter
+                  control, and the only thing that finishes the task is this. */}
+              <Button variant="primary" onClick={close}>
                 {doneLabel ?? "Done"}
-              </button>
+              </Button>
             </div>
             <div className="px-[var(--sp-4)] pb-[var(--sp-6)]">{children(close)}</div>
           </div>

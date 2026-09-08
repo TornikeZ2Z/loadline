@@ -3,12 +3,21 @@
 import { useState } from "react";
 import { api } from "@/lib/basePath";
 
-export function LogoutButton() {
+/**
+ * `className` because this control moved (V03). It used to be a bordered button
+ * standing in the header row beside the truck-location pill, which is what the
+ * review objected to: on a phone the two competed, and signing out is not a
+ * thing anyone does often enough to earn that place. It lives in the account
+ * menu now, where it is a row among rows -- so its caller decides what it looks
+ * like, and the default is still the button it was for anyone else.
+ */
+export function LogoutButton({ className = "btn" }: { className?: string }) {
   const [busy, setBusy] = useState(false);
 
   return (
     <button
-      className="btn"
+      type="button"
+      className={className}
       disabled={busy}
       onClick={async () => {
         setBusy(true);

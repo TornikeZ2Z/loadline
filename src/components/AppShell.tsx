@@ -74,7 +74,13 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
     // "Post a job" until the board had one kind of listing. `/post` is a chooser
     // now -- freight, or space on a truck -- and naming one of the two in the
     // nav would have told a driver the other was not on offer.
-    { key: "post", href: "/post", label: "Post", short: "Post", show: true },
+    //
+    // "Post a listing" and not "Post" (V03): a bare verb in a row of nouns reads
+    // as a state -- the tab you are on -- rather than as the thing it does. The
+    // short form is what a narrow window gets, and every account gets it now
+    // rather than only an admin: the abbreviation exists because the header runs
+    // out of room, and the header runs out of room for everyone.
+    { key: "post", href: "/post", label: "Post a listing", short: "Post", show: true },
     { key: "admin", href: "/admin", label: "Admin", show: isAdmin },
     { key: "test", href: "/admin/test", label: "WhatsApp console", short: "Console", show: isAdmin },
   ];
@@ -149,17 +155,15 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
               to have. The board stays first: the word mark links to it, and it
               is the first item in the menu. Nothing here opens a popover, which
               is why the More menu is NOT in this row. */}
-          <nav
-            className={
-              // An admin carries four items instead of two, which is 230 px
-              // more than a 768 px window has to spare, so their nav waits for
-              // `lg`. Two literal strings rather than a computed class name:
-              // Tailwind only emits what it can see in the source.
-              isAdmin
-                ? "hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex lg:flex-none lg:shrink-0 lg:overflow-x-visible"
-                : "hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex md:flex-none md:shrink-0 md:overflow-x-visible"
-            }
-          >
+          {/* From `lg`, for everyone. An admin's four items never fitted a
+              768 px window, so their nav already waited for `lg`; the type
+              scale put everybody else in the same position -- measured, the row
+              ran 22 px past a 768 px window with the nav in it, and a header
+              that scrolls the page sideways is worse than a nav one tap away.
+              Nothing is lost between 768 and 1023: SITE_SECTIONS opens with
+              "Board" and "Post to the board", so the More menu below `lg`
+              already carries both of these links. */}
+          <nav className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex lg:flex-none lg:shrink-0 lg:overflow-x-visible">
             {nav
               .filter((n) => n.show)
               .map((n) => (
@@ -173,7 +177,7 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                       : { color: "var(--text-2)" }
                   }
                 >
-                  {isAdmin && n.short ? (
+                  {n.short ? (
                     <>
                       <span className="xl:hidden">{n.short}</span>
                       <span className="hidden xl:inline">{n.label}</span>
@@ -210,8 +214,14 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                     ? { background: "var(--accent-soft)", color: "var(--accent-deep)" }
                     : { color: "var(--text-2)" }
                 }
-                title="About, how it works, contact and legal"
-                aria-label="More pages"
+                title={
+                  user
+                    ? "Your account, about, how it works, contact and legal"
+                    : "About, how it works, contact and legal"
+                }
+                /* The menu holds the account now (V03: Sign out moved in here),
+                   so the name it announces has to say so. */
+                aria-label={user ? "Account and more pages" : "More pages"}
               >
                 <span className="hidden md:inline">More</span>
                 {/* Three dots wherever the nav is folded in here, because the
@@ -244,6 +254,30 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                   with no way to reach the last item is worse than one that
                   scrolls. `dvh` so the browser's own retracting toolbar counts. */}
               <div className="popover fixed inset-x-[var(--sp-2)] top-[var(--header-h)] z-50 grid max-h-[calc(100dvh-var(--header-h)-var(--sp-3))] grid-cols-2 gap-[var(--sp-3)] overflow-y-auto sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1 sm:w-[380px] sm:grid-cols-3">
+                {/* V03. Sign out used to stand in the header row, next to the
+                    truck-location pill -- which on a phone put a destructive,
+                    rarely-used action beside the control a driver touches most.
+                    It is an account menu item now.
+
+                    FIRST in the grid, and spanning both columns on a phone: it
+                    is the only thing in this menu that is about the person
+                    rather than about the site, and a visitor who opened the
+                    menu to sign out should not have to read past Legal to find
+                    it. The name and role come with it, so the button says whose
+                    account it is ending. */}
+                {user ? (
+                  <div className="col-span-2 sm:col-span-3">
+                    <div className="label">Account</div>
+                    <div className="px-1 pb-[var(--sp-2)]">
+                      <div className="font-semibold">{user.name}</div>
+                      <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+                        {ROLE_LABEL[user.role]}
+                      </div>
+                    </div>
+                    <LogoutButton className="btn w-full" />
+                  </div>
+                ) : null}
+
                 {SITE_SECTIONS.map((section) => (
                   <div key={section.heading}>
                     <div className="label">{section.heading}</div>
@@ -294,23 +328,31 @@ export function AppShell({ user, active, currentPath, children }: AppShellProps)
                 and no query is made on their behalf. */}
             {user ? <NotificationBell userId={user.id} /> : null}
 
+            {/* Who is signed in stays in the row -- it is a fact, not a control,
+                and it costs no target. What left is the button (V03): Sign out
+                is in the account menu above. From `lg`, because "Post a listing"
+                takes the room the abbreviation used to save at `md`. */}
             {user ? (
-              <>
-                <div className="hidden text-right leading-tight sm:block">
-                  <div className="text-(length:--fs-base) font-semibold">{user.name}</div>
-                  <div className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
-                    {ROLE_LABEL[user.role]}
-                  </div>
+              <div className="hidden text-right leading-tight lg:block">
+                <div className="font-semibold">{user.name}</div>
+                <div className="text-(length:--fs-xs)" style={{ color: "var(--muted)" }}>
+                  {ROLE_LABEL[user.role]}
                 </div>
-                <LogoutButton />
-              </>
+              </div>
             ) : active === "auth" ? null : (
               <Link
                 className="btn"
                 href={loginHref(currentPath ?? "/")}
                 title="Sign in to see contacts — browsing needs no account"
               >
-                Sign in · contacts
+                {/* "· contacts" is what the button is FOR, and it stays
+                    wherever there is room for it. Below 380 px there is not:
+                    measured, the header row ran 30 px past a 320 px window
+                    before this pass and 39 after, and this phrase is 62 of
+                    them. Dropping two words is not the same as truncating the
+                    label -- "Sign in" is still the whole action, and the title
+                    still carries the rest. */}
+                Sign in<span className="max-[379px]:hidden"> · contacts</span>
               </Link>
             )}
           </div>

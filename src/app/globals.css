@@ -29,19 +29,45 @@
    *
    * Navy is the ink -- the wordmark's "Mover", the dark plane of the mark, and
    * from here on every line of type on the site. Blue is the wordmark's "Mesh",
-   * the bright plane, and the app's single action accent (it was already a blue
-   * -- #2563eb -- so this is a shift of hue, not a new idea). Green is the
-   * mark's second pin and is used sparingly: the board is dense with numbers
-   * and a third accent is easy to overspend.
+   * the bright plane, and the app's single action accent. Green is the mark's
+   * second pin and is used sparingly: the board is dense with numbers and a
+   * third accent is easy to overspend.
+   *
+   * THE BLUE MOVED (branding review, "Visual identity"): #1B6EF5 -> #155EEF,
+   * the review's action colour. 2.7 degrees of hue and 2.4% of value apart, so
+   * it is the same blue to look at; what it buys is measured, and it is bought
+   * in three places at once.
+   *
+   *                                    #1B6EF5      #155EEF
+   *   as type/fill on white              4.57         5.41
+   *   as type on --accent-soft           3.99         4.73   <- was under AA
+   *   a job point over OSM plains        3.91         4.63
+   *   a job point over OSM woodland      3.26         3.86
+   *   a job point over open water        3.08         3.66
+   *
+   * The second row is the one that changes the system rather than the numbers:
+   * --accent-deep existed because the brand blue could not be set as WORDS on
+   * its own tint. It can now, so --accent-deep is only the hover/pressed step;
+   * the call sites that still take it for type are correct but no longer forced.
+   * The map rows are re-measured on the painted canvas, not inferred -- see
+   * .design/impl/rev-tokens.md; every one of them went UP, because the review's
+   * blue is darker and the basemap is pale.
    *
    * A step of a brand colour is still that colour: --accent-deep and --ok are
    * the same hue as --brand-blue and --brand-green, moved only in lightness,
-   * because #1B6EF5 and #1FA463 are mark colours and neither is dark enough to
-   * set 12-13 px type in (measured below).
+   * because #155EEF and #1FA463 are mark colours and neither is dark enough to
+   * set small type in (measured below).
+   *
+   * src/app/icon.svg carries these same three hexes as literals -- it is a
+   * static file with no custom properties to read. Change it with this line.
    */
-  --brand-navy: #17284A; --brand-blue: #1B6EF5; --brand-green: #1FA463;
+  --brand-navy: #17284A; --brand-blue: #155EEF; --brand-green: #1FA463;
   /* surfaces */
-  --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eef0f4; --surface-3: #e3e6ec;
+  /* --bg is the review's canvas, #F4F6F9. It was #f5f6f8, which is one point of
+     red and one of blue away from it -- an invisible move, taken so the brand
+     document and this file name the same colour rather than two that merely
+     look alike. */
+  --bg: #F4F6F9; --surface: #ffffff; --surface-2: #eef0f4; --surface-3: #e3e6ec;
   --surface-glass: rgb(255 255 255 / .92);
   /* Lighter than --glass on purpose: this backs the labels that float ON the
      map, where an opaque card would punch a hole in the country under it. At
@@ -49,6 +75,18 @@
      now, and a quarter of a green forest coming through a state total is a
      tinted label. .86 keeps it a veil and stops it taking the colour on. */
   --surface-veil: rgb(255 255 255 / .86);
+  /* KEPT, against the review's single #D0D5DD. The review names one border for
+     "component separation"; this file has two, and they do two jobs -- --border
+     is the hairline between things, --border-strong is the outline that says a
+     control is a control. #D0D5DD sits between them, so adopting it would
+     either darken every card edge or lighten every field edge, and the review
+     itself asks for "one visible border instead of several nested card
+     treatments", which is a structural rule rather than a hex.
+     Measured, and stated rather than buried: --border-strong is 1.58:1 against
+     white and 1.46:1 against --bg; the review's #D0D5DD would be 1.44:1. NEITHER
+     meets WCAG 1.4.11's 3:1 for a control boundary, which needs an ink around
+     #8A93A1. That is a change to every field and button on every surface, so it
+     is written down here as an open decision rather than made quietly. */
   --border: #e2e5ea; --border-strong: #c9ced7;
   /* ink
    *
@@ -58,20 +96,39 @@
    * is left alone. What changes is that the darkest thing on the page is now
    * the logo's own colour rather than a neutral that happened to look like it.
    * Measured on white: 14.6:1, against slate-900's 18.0:1 -- both far past AA,
-   * and the page reads a shade warmer. */
+   * and the page reads a shade warmer.
+   *
+   * KEPT, against the review's single "secondary text #475569". The review
+   * sketches one secondary ink; this is a four-step ramp on the brand's own hue,
+   * measured on white at 14.6 / 10.4 / 4.76 / 2.56. #475569 is 7.58:1 and lands
+   * between --text-2 and --muted, so adopting it collapses the ramp to three
+   * steps and buys nothing: --muted already passes AA at every size the app sets
+   * it in. What the reviewer was actually looking at when they called the
+   * metadata thin is its SIZE -- 12 px -- and that is fixed in the type scale
+   * below, where it belongs. */
   --text: var(--brand-navy); --text-2: #334155; --muted: #64748b; --muted-2: #94a3b8; --placeholder: #9aa4b2;
   /* brand + map
    *
-   * --accent-deep is the accent one step down, and it has two jobs, not one.
-   * It is the hover fill (--accent-hover is it), and it is the accent as TYPE
-   * on a tinted ground: the brand blue measures 4.62:1 on white but only
-   * 4.03:1 on --accent-soft, which is under AA for the 13 px an active filter
-   * pill is set in. --accent-deep measures 5.18:1 there. Nothing draws a plain
-   * accent-coloured word on a tint any more. */
+   * --accent-deep is the accent one step down. It had two jobs; it has one now.
+   * It is still the hover fill (--accent-hover is it). It was ALSO the accent as
+   * TYPE on a tinted ground, because the old brand blue measured 4.03:1 on
+   * --accent-soft -- under AA at the size an active filter pill is set in. The
+   * review's blue measures 4.73:1 on that same tint, so that job is gone: the
+   * call sites that still take --accent-deep for type are correct and can stay,
+   * but nothing is forced onto it any more.
+   *
+   * Left at #175ED0 rather than re-derived from the new accent. It is 3 degrees
+   * of hue away from it, which is nothing to look at, and its 5.92:1 on white is
+   * already measured; re-deriving would move every hover state in the app for a
+   * difference no one can see. */
   --accent: var(--brand-blue); --accent-deep: #175ED0; --accent-hover: var(--accent-deep);
   --accent-soft: #e9f0fe;
   --route: var(--brand-blue); --route-start: var(--brand-blue); --route-end: var(--brand-navy);
-  --route-dim: rgb(27 110 245 / .22);
+  /* The accent at 22%, written out rather than mixed: LoadMap reads these back
+     through getComputedStyle and hands them to MapLibre paint expressions, which
+     take no var() and no colour-mix(). Moves with --brand-blue, by hand:
+     rgb(27 110 245) -> rgb(21 94 239). */
+  --route-dim: rgb(21 94 239 / .22);
   /* Pickups and deliveries are the same hue two steps apart, not two hues:
      the board has one accent. --delivery was slate-900, which is ink rather
      than colour -- fine as a crisp dot, but the map now draws a guessed
@@ -131,12 +188,46 @@
    * 4.09 on the tint, and no tint light enough to rescue it exists (pure white
    * only reaches 4.55). The mark colour itself is spent where green is a MARK
    * and never type: --brand-green is the logo's second pin, and --you is the
-   * "you are here" dot on the map. */
+   * "you are here" dot on the map.
+   *
+   * KEPT, against the review's "available #067647". #067647 measures 5.69:1 on
+   * white and 5.12:1 on --ready-soft, against this step's 5.44 and 4.89 -- a
+   * quarter of a point, and both pass AA on both grounds. What it costs is the
+   * only reason this green is the green it is: #14794A is 1.4 degrees of hue
+   * from the mark's own pin, #067647 is 4.1 away. The review's own text says
+   * these values are "acceptance targets, not a claim that every current color
+   * fails", and this one does not fail. So the green stays the mark's. */
   --ok: #14794A; --ok-soft: #e9f6ef; --ready: #14794A; --ready-soft: #e9f6ef;
   --fresh: var(--brand-blue); --fresh-soft: #e9f0fe;
-  --warn: #d97706; --warn-soft: #fdf3e3; --danger: #dc2626; --danger-soft: #fdeaea;
-  /* shape */
-  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px; --radius-pill: 999px;
+  /* ADOPTED, and these two are the reason to take a colour review seriously.
+     Both were failing where they are read, and both were failing invisibly --
+     as chip text on the chip's own tint, which is the only ground either of
+     them is ever set on.
+   *
+   *                            was                     now
+   *   --warn   #d97706  3.19 white / 2.90 on tint   #B54708  5.43 / 4.94
+   *   --danger #dc2626  4.83 white / 4.17 on tint   #B42318  6.57 / 5.68
+   *
+     2.90:1 is the number that matters: that is .chip-warn -- "Urgent", "COD",
+     the sender's own words -- set in amber on cream at the smallest size on the
+     card. It was not close. The review's caution and error inks fix both, and
+     they are the review's values unchanged.
+
+     --approx (#b45309, 5.02:1 on white, always on a plain ground) is left where
+     it is. It is now 12 points of green from --warn, which is to say the board
+     has one caution colour in practice, which is what the review asked for; the
+     distinction it still draws -- the sender's urgency filled, our own
+     uncertainty framed -- is carried by the fill and the frame, not by the hue.
+     Keeping the literal also keeps LoadMap's getComputedStyle fallback honest. */
+  --warn: #B54708; --warn-soft: #fdf3e3; --danger: #B42318; --danger-soft: #fdeaea;
+  /* shape
+   *
+   * The review asks for "10-pixel card radii and 8-pixel input radii".
+   * --radius-md was already 10 and .card already takes it; --radius-sm was 6 and
+   * is what every field and button is cut with, so it goes to 8. That is the
+   * whole change: two radii, a card and a control, and the control sits inside
+   * the card so it has to be the tighter of the two. */
+  --radius-sm: 8px; --radius-md: 10px; --radius-lg: 14px; --radius-pill: 999px;
   /* elevation */
   --shadow-1: 0 1px 2px rgb(15 23 42 / .06), 0 1px 1px rgb(15 23 42 / .04);
   --shadow-2: 0 4px 12px rgb(15 23 42 / .10), 0 1px 3px rgb(15 23 42 / .06);
@@ -145,10 +236,51 @@
      of --accent-soft (#e8efff) which, on a white card, is very nearly white:
      a focus indicator nobody can see is not one. */
   --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
-  /* type scale */
-  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-md: 14px; --fs-lg: 16px;
-  --fs-xl: 20px; --fs-2xl: 24px; --fs-3xl: 32px; --lh-tight: 1.15; --lh-base: 1.45;
-  /* spacing, 4px grid */
+  /* ---- type ------------------------------------------------------------
+   *
+   * The branding review asks for a real scale and gives it as six named styles
+   * with paired leadings, and the visual review's V05 says why: the board's
+   * body was 13 px and its metadata 12, which is a density complaint, not a
+   * taste one. "Metadata is normally 14px or larger" is V05's acceptance line.
+   *
+   * So the ladder keeps every name it had -- 86 call sites say --fs-base and 146
+   * say --fs-sm, and a rename would be a rewrite of files this pass does not own
+   * -- and the VALUES move up onto the review's steps. Every call site grows or
+   * stays; nothing shrinks.
+   *
+   *   token        was   now   the review's style it now is
+   *   --fs-xs      11    12    (below the review's floor; the smallest chip)
+   *   --fs-sm      12    13    (below the floor; dense metadata inside a chip row)
+   *   --fs-base    13    14    compact labels 14/20  <- and the app's default
+   *   --fs-md      14    16    body and inputs 16/24
+   *   --fs-lg      16    16    card route 16/22 semibold
+   *   --fs-xl      20    20    primary quantity 20/26
+   *   --fs-2xl     24    28    page heading 28/34
+   *   --fs-3xl     32    32    marketing headline, mobile 32/38
+   *   --fs-4xl      -    48    marketing headline, desktop 48/54
+   *
+   * --fs-md and --fs-lg are both 16 px and that is not an oversight: the review
+   * has ONE 16 px size used two ways -- body at 16/24 and a card's route at
+   * 16/22 semibold -- so the two names carry the two leadings and the two
+   * weights, through .t-body and .t-title below.
+   *
+   * TWO STEPS ARE STILL UNDER THE REVIEW'S 14 px FLOOR, deliberately. --fs-xs is
+   * a chip and a map label -- a word in a lozenge, never a sentence -- and
+   * --fs-sm is metadata that sits inside a chip row. 12 is the floor the mobile
+   * pass set for this product and it is kept; the review's floor is for content
+   * a person READS, and this is content a person scans past.
+   *
+   * SYNTAX. Tailwind v4 wants `text-(length:--fs-x)`. The bracket form
+   * `text-[var(--fs-x)]` is parsed as a COLOUR and silently dropped -- it once
+   * made this entire scale dead code, so it is worth the line: length: or
+   * nothing. */
+  --fs-xs: 12px; --fs-sm: 13px; --fs-base: 14px; --fs-md: 16px; --fs-lg: 16px;
+  --fs-xl: 20px; --fs-2xl: 28px; --fs-3xl: 32px; --fs-4xl: 48px;
+  --lh-tight: 1.15; --lh-base: 1.45;
+  /* spacing, 4px grid.
+     The review's steps are 8, 12, 16, 24, 32 on a 4 px base -- which is this
+     ladder with --sp-5 (20) as one extra rung. Kept: it is in use, it is on the
+     4 px base, and dropping it would move surfaces this pass does not own. */
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
   /* chrome */
   --header-h: 56px; --filters-h: 56px; --list-w: 420px; --control-h: 36px; --tap-min: 44px;
@@ -205,6 +337,58 @@ body {
 .nums { font-variant-numeric: tabular-nums; }
 .big { font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; line-height: var(--lh-tight); }
 
+/* ---------------------------------------------------------------------------
+ * THE TYPE SCALE, as the six styles the branding review names.
+ *
+ * A size token on its own is half a style: the review gives every one of them
+ * as a PAIR -- 48/54, 32/38, 28/34, 20/26, 16/24, 16/22, 14/20 -- and a size
+ * applied without its leading is how 16 px body text ends up on 23 px of
+ * line-height because it inherited a ratio meant for 14. These six classes are
+ * the pairs, plus the weight and the numerals that belong with each, so a
+ * surface asks for a STYLE and gets the whole style.
+ *
+ * "Tabular numerals for capacity, mileage, rates and dates" is the review's
+ * line, and it is why .t-quantity and .t-route carry them: a route reads
+ * "Newark, NJ -> Orlando, FL" but the card next to it reads "07105", and a
+ * column of quantities that does not line up is a column you cannot compare.
+ *
+ * These are the vocabulary the rest of this pass and the next one build on.
+ * Nothing here is required -- `text-(length:--fs-xl)` still works and 200-odd
+ * call sites still say it -- but a surface that takes .t-quantity cannot get
+ * the leading wrong, and a surface that takes --fs-xl can.
+ * ------------------------------------------------------------------------- */
+/* One clear promise, on a marketing page and nowhere else. 32/38 on a phone,
+   48/54 from `sm` up -- the review specifies both, and a 48 px headline in
+   390 px of screen is four words on three lines. */
+.t-display {
+  font-size: var(--fs-3xl); line-height: 38px;
+  font-weight: 700; letter-spacing: -0.02em;
+}
+@media (min-width: 640px) { .t-display { font-size: var(--fs-4xl); line-height: 54px; } }
+/* Board detail and form titles: the one h1 on the page. */
+.t-heading { font-size: var(--fs-2xl); line-height: 34px; font-weight: 600; letter-spacing: -0.015em; }
+/* The review's "card route, 16/22 semibold" -- the strongest thing on a listing
+   card and the reason the card exists, against the 13 px it used to be set in.
+   Named for the job rather than for the content, because the same style is what
+   a panel's or an empty state's own headline wants: it is "the title of the
+   thing you are looking at", and on a listing that thing is the route. */
+.t-title {
+  font-size: var(--fs-lg); line-height: 22px; font-weight: 600;
+  letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+}
+/* Cubic feet, a rate, a mileage. The second-strongest thing, and always a
+   number, so always tabular. */
+.t-quantity {
+  font-size: var(--fs-xl); line-height: 26px; font-weight: 600;
+  letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+}
+/* Forms and explanations. Prose a person actually reads, at 16/24. */
+.t-body { font-size: var(--fs-md); line-height: 24px; }
+/* Filters, metadata and secondary actions: 14/20, the review's floor for
+   anything that is not a chip. This is also what <body> is set in, so a surface
+   only needs the class where it is overriding something else. */
+.t-label { font-size: var(--fs-base); line-height: 20px; }
+
 /* cards */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-1); }
 /* The transition belongs on the base, not inside :hover -- declared only in the
@@ -224,6 +408,19 @@ body {
 a:focus-visible, summary:focus-visible, .sheet-handle:focus-visible {
   outline: none; border-radius: var(--radius-sm); box-shadow: var(--focus);
 }
+/* V15, and the reason it is a catch-all rather than a longer list: the app
+   builds controls out of <div role="button"> and <div tabindex="0"> in several
+   places, and every one of them that is not named above got the platform's
+   default ring or, where a component had already set `outline: none`, no ring
+   at all. "Visible keyboard focus" cannot be a list somebody has to remember to
+   add to. `:where()` keeps this at zero specificity, so any component that
+   declares its own focus treatment still wins without !important. No
+   border-radius here on purpose: a box-shadow ring already follows whatever
+   radius the element has, and forcing one would round the corners of a card
+   the moment it took focus. */
+:where([tabindex]:not([tabindex="-1"]), [role="button"], [role="link"], [role="tab"], [role="option"]):focus-visible {
+  outline: none; box-shadow: var(--focus);
+}
 
 /* A job card is a div role="button" (it contains a real button), so it gets no
    focus ring for free. Keyboard users walk the list with the arrow keys, which
@@ -241,6 +438,23 @@ textarea.field { height: auto; padding: 8px 10px; }
 .field:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
 .field::placeholder { color: var(--placeholder); }
 .label { display: block; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+/* V03 -- ONE ACTION HIERARCHY, four ranks, and the rank is the class:
+ *
+ *   .btn .btn-primary   FILLED. The main action in this context. One per
+ *                       context. If a screen wants two, one of them is not the
+ *                       main action.
+ *   .btn                BORDERED. The alternatives to it.
+ *   .btn .btn-ghost     QUIET. A control in a toolbar or a dense row, where a
+ *                       border on every item would be a grid of boxes.
+ *   .btn .btn-link      TEXT. A rare action -- "or sign in with a password",
+ *                       "clear this filter". It reads as a link and behaves as
+ *                       a button, which is the point: a <button> that LOOKS
+ *                       like a link keeps the semantics honest for a screen
+ *                       reader while telling a sighted reader how rare it is.
+ *
+ * Everything here is a real <button> or <a>. That matters for V15's sibling
+ * rule below: an action that is a real control can sit BESIDE a link instead of
+ * inside one. */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: var(--control-h); padding: 0 13px; border-radius: var(--radius-sm); font-size: var(--fs-base); font-weight: 600; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
 .btn:hover:not(:disabled) { background: var(--surface-2); }
 .btn:focus-visible { outline: none; box-shadow: var(--focus); }
@@ -249,13 +463,61 @@ textarea.field { height: auto; padding: 8px 10px; }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
-.btn-sm { height: 28px; padding: 0 10px; font-size: var(--fs-sm); }
+/* --accent-deep rather than --accent: this one is often set on --bg or on a
+   tinted row rather than on white, and the deep step is the measured value for
+   type on a ground that is not paper. Underlined, because "it is blue" is not
+   an affordance -- the review's own rule is that colour alone never carries a
+   consequential action. */
+.btn-link {
+  background: transparent; border-color: transparent; color: var(--accent-deep);
+  padding: 0 var(--sp-1); text-decoration: underline; text-underline-offset: 3px;
+}
+.btn-link:hover:not(:disabled) { background: transparent; color: var(--accent-hover); text-decoration-thickness: 2px; }
+/* The review measured a 28 px contact button on a listing card and called it
+   density. 32 is the smallest a real action gets on a mouse-driven screen, and
+   the touch block at the end takes every one of them to 44. The label goes up
+   with it: --fs-sm was 12 px and is 13 now, and a button is a thing a person
+   has to read before they press it. */
+.btn-sm { height: 32px; padding: 0 10px; font-size: var(--fs-sm); }
 /* A button whose whole label is one glyph: it has to stay square as the control
    height changes, and it has to not shrink. */
 .btn-square { width: var(--control-h); min-width: var(--control-h); padding: 0; }
 /* A chip that is a control rather than a label -- a size preset, a tag you turn
-   on. It reads as a chip and is sized as a button. */
-.chip-button { height: 28px; cursor: pointer; }
+   on. It reads as a chip and is sized as a button, which is now 32 rather than
+   28 for the same reason .btn-sm is. */
+.chip-button { height: 32px; cursor: pointer; }
+
+/* ---------------------------------------------------------------------------
+ * V15 -- SIBLING CONTROLS, NEVER NESTED ONES.
+ *
+ * The specific defect the review names is a button inside a link: a listing
+ * card whose whole body navigates, with "Show contact" drawn inside it. There
+ * is no correct markup for that. A <button> inside an <a> is invalid HTML, and
+ * the two common workarounds are both worse -- a div role="button" wrapping a
+ * real button gives a screen reader a control inside a control with no way to
+ * reach the inner one, and stopPropagation on the inner click makes the outer
+ * one a trap that keyboard users cannot see.
+ *
+ * The pattern that works, and the one these two classes are for:
+ *
+ *   <article class="card link-parent">
+ *     <h3><a class="link-cover" href="/jobs/42">Newark, NJ to Orlando, FL</a></h3>
+ *     ...
+ *     <button class="btn btn-sm link-sibling">Show contact</button>
+ *   </article>
+ *
+ * ONE link, whose ::after covers the card, so the whole card is the navigation
+ * target -- and every real control is its SIBLING, lifted above the cover. The
+ * tab order is the source order: route, then contact. The accessible name of
+ * the link is its own text, not the whole card read aloud. And selecting text
+ * inside the card still works, which it does not when the card is one big
+ * click handler.
+ * ------------------------------------------------------------------------- */
+.link-parent { position: relative; }
+.link-cover::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+/* Above the cover, and given its own stacking context so a focus ring is not
+   painted under it. */
+.link-sibling { position: relative; z-index: 2; }
 /* Marks a control that must still reach the touch target on a screen where its
    own layout is sized for a mouse: the header's More menu and the footer links
    both go compact from `md`, which a tablet and a phone lying down are. It does
@@ -276,6 +538,28 @@ input[type="checkbox"], input[type="radio"] {
 .option-row { background: var(--surface); border-color: var(--border-strong); cursor: pointer; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
 .option-row:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
 .option-row:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+
+/* A choice drawn as a tile, with the real radio or checkbox inside it and
+   visually hidden: the sign-up form's "Mostly here to", and anywhere else two
+   or three mutually exclusive answers want to be readable rather than a row of
+   16 px circles.
+ *
+ * The focus rule is the whole reason this is a class and not four inline
+ * styles. The input is .sr-only, so the browser's own ring is drawn on a 1 px
+ * box in the corner and nobody sees it -- a keyboard user tabbing into the
+ * chooser had NO indication of where they were. `:has()` puts the ring on the
+ * tile, and it is :focus-visible rather than :focus-within so a mouse click
+ * does not light it up. */
+.option-tile {
+  display: block; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: var(--sp-3); font-size: var(--fs-sm);
+  background: var(--surface); color: var(--text);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.option-tile:hover { border-color: var(--muted-2); }
+.option-tile[data-selected] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); font-weight: 600; }
+.option-tile:has(input:focus-visible) { border-color: var(--accent); box-shadow: var(--focus); }
 
 /* segmented control — one question, two mutually exclusive answers (Pickups /
    Deliveries). Distinct from .pill on purpose: a pill is an independent filter
@@ -558,16 +842,20 @@ button.map-pill:focus-visible { outline: none; box-shadow: var(--focus); }
  * pointer on a screen too short to be a laptop", which catches the landscape
  * phone and matches no mouse-driven window.
  *
- * What changes here: every control reaches the 44 px target, and the smallest
- * step of the type scale stops being 11 px. 11 px is legible on a desk at
- * 60 cm; it is not legible in a cab in daylight, and --fs-xs is what every chip
- * on every card is set in.
+ * What changes here: every control reaches the 44 px target. 44 x 44 is V15's
+ * product target -- stronger than WCAG 2.2 AA's 24 px minimum, and named as
+ * such by the review.
+ *
+ * WHAT NO LONGER CHANGES HERE: `--fs-xs: 12px`. That override used to lift the
+ * smallest step from 11 to 12 on a phone, on the argument that 11 px is legible
+ * on a desk at 60 cm and not in a cab in daylight. The scale now starts at 12
+ * everywhere, which is the same argument applied to the desk as well -- so the
+ * override is gone rather than duplicated, and there is one type scale instead
+ * of one and a phone's.
  * ------------------------------------------------------------------------- */
 @media (max-width: 767px), (max-height: 540px) and (any-pointer: coarse) {
-  :root { --fs-xs: 12px; }
-
   .btn, .field, .pill, .seg-option, .select-pill > select, .option-row,
-  .chip-button, .tap { min-height: var(--tap-min); }
+  .option-tile, .chip-button, .tap { min-height: var(--tap-min); }
   /* "Flat" and "Safe" are four letters wide; the target is not. `.tap` is put
      on rows whose text is left-aligned, so only the chip re-centres. */
   .chip-button { min-width: var(--tap-min); justify-content: center; }
