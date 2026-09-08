@@ -116,9 +116,15 @@ export function LogoMark({ size = 24, tone = "brand", className }: LogoMarkProps
       ? {
           navy: "#ffffff",
           blue: "#ffffff",
+          /* The dashes are a knockout THROUGH the ribbon, so they take the
+             ground; the pins sit in the counters, ON the ground, so they take
+             the mark. Reversed inverts the two, and getting it backwards paints
+             a navy pin on a navy ground -- invisible, and only caught because
+             the variants were rendered and read back rather than reasoned about
+             (.design/impl/rev-tokens-logo.png). */
           road: "var(--brand-navy, #17284A)",
-          pinA: "var(--brand-navy, #17284A)",
-          pinB: "var(--brand-navy, #17284A)",
+          pinA: "#ffffff",
+          pinB: "#ffffff",
         }
       : tone === "mono"
         ? {
