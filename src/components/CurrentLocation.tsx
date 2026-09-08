@@ -81,7 +81,11 @@ export function CurrentLocation() {
        without this the wide board would paint the header pills for the one
        frame between HTML and hydration and then drop them, which reads as a
        layout bug. Off the board the wrapper carries no class and nothing hides. */
-    <div className={isBoardPath(pathname) ? "md:[@media(min-height:541px)]:hidden" : undefined}>
+    /* `min-w-0` so the pill inside can be the header row's shock absorber --
+       see the button below for why the vw cap it used to carry is gone. */
+    <div
+      className={`min-w-0${isBoardPath(pathname) ? " md:[@media(min-height:541px)]:hidden" : ""}`}
+    >
       <LocationControls variant="header" />
     </div>
   );
@@ -127,13 +131,22 @@ function LocationControls({ variant }: { variant: "header" | "search" }) {
        a fixed-height bar -- and below `sm` it only ever shows one pill anyway. */
     <div
       ref={box}
-      className={`relative flex items-center gap-[var(--sp-2)]${inHeader ? "" : " flex-wrap"}`}
+      className={`relative flex min-w-0 items-center gap-[var(--sp-2)]${inHeader ? "" : " flex-wrap"}`}
     >
       <button
         type="button"
-        className={inHeader ? "pill max-w-[32vw] sm:max-w-none" : "pill min-w-0 max-w-full"}
+        className={inHeader ? "pill min-w-0" : "pill min-w-0 max-w-full"}
         onClick={() => setOpen((s) => (s === "current" ? null : "current"))}
-        title="Where your truck will be empty — sorts the board by distance to the pickup"
+        /* The stored place is named here as well as on the face of the pill.
+           A city long enough to be ellipsised on a 320 px header ("Fort
+           Lauder…") is the one case where the face cannot carry the whole
+           value, and the answer is to keep it reachable rather than to shorten
+           the fact into a state it did not state. */
+        title={
+          current
+            ? `Your truck comes free near ${current.label} — the board is sorted by distance to the pickup`
+            : "Where your truck will be empty — sorts the board by distance to the pickup"
+        }
         aria-label="Where will your truck be empty?"
         style={
           hydrated && !current
@@ -148,14 +161,40 @@ function LocationControls({ variant }: { variant: "header" | "search" }) {
             "Where are you?" read as a question about the person; on a board
             whose whole subject is an empty truck it has to be a statement about
             the truck (§5.1). The popover under it already asks the longer
-            question, "Where will you be when you're empty?". */}
+            question, "Where will you be when you're empty?".
+
+            V03 RESIDUAL -- "EMPTY AT", NOT "TRUCK LOCATION", AND THE ARITHMETIC
+            THAT DECIDED IT.
+
+            "◎ Truck location" sets 111 px at 14/500. With the caret, the gap
+            and .pill's own 12 px of padding either side it wants a 155 px
+            control -- and a 320 px header has 118 px to give it once the logo
+            (44), the More menu (44), "Sign in" (74), two 8 px gaps and the
+            row's own padding have been paid. So the old label could not fit,
+            was capped at 32vw = 102 px, and read "Truck l…" -- a control cut
+            in the middle of its own name.
+
+            "◎ Empty at" is 75 px, which makes the whole pill 117: it fits 320
+            with room over, and it is not a new word. It is the phrase this
+            board already uses for this control everywhere else -- the search
+            area's "◎ Truck empty at …", the map's "Where will you be empty?"
+            and this button's own aria-label. The one width that could still
+            cut it is a stored place whose city name is long; that is a VALUE
+            being shortened, with the full text on the title and in the popover,
+            not the control failing to say what it is. */}
+        {/* `md`, not `sm`, for the long form -- measured, not guessed. At 640
+            the header carries the wordmark, the More menu, BOTH location pills
+            and "Sign in · contacts"; "◎ Near Miami, FL" wants 116 px there and
+            has 108, so `sm` was eight pixels too early and cut a second label.
+            From `md` the row has room to spare. Nothing is lost between the two
+            breakpoints: the short form is the same place, named by its city. */}
         {inHeader ? (
           <>
-            <span className="truncate sm:hidden">
-              ◎ {current ? shortLabel(current.label) : "Truck location"}
+            <span className="truncate md:hidden">
+              ◎ {current ? shortLabel(current.label) : "Empty at"}
             </span>
-            <span className="hidden truncate sm:inline">
-              ◎ {current ? `Near ${current.label}` : "Truck location"}
+            <span className="hidden truncate md:inline">
+              ◎ {current ? `Near ${current.label}` : "Empty at"}
             </span>
           </>
         ) : (
