@@ -11,11 +11,11 @@
   </defs>
   <g fill="none" stroke-width="5.15" stroke-linecap="butt" stroke-linejoin="miter">
     <path d="M 5.6 28.9 L 5.6 12.5 L 16 19.8 L 26.4 12.5 L 26.4 28.9" stroke="#17284A" clip-path="url(#a)"/>
-    <path d="M 5.6 28.9 L 5.6 12.5 L 16 19.8 L 26.4 12.5 L 26.4 28.9" stroke="#1B6EF5" clip-path="url(#b)"/>
+    <path d="M 5.6 28.9 L 5.6 12.5 L 16 19.8 L 26.4 12.5 L 26.4 28.9" stroke="#155EEF" clip-path="url(#b)"/>
     <path d="M 5.6 27.7 L 5.6 13.7" stroke="#fff" stroke-width="1.5" stroke-dasharray="2.9 2.8"/>
   </g>
-  <path d="M 10.534 24.804 L 12.2 28.255 L 13.866 24.804 Z" fill="#1B6EF5"/>
-  <circle cx="12.2" cy="24" r="1.85" fill="#1B6EF5"/>
+  <path d="M 10.534 24.804 L 12.2 28.255 L 13.866 24.804 Z" fill="#155EEF"/>
+  <circle cx="12.2" cy="24" r="1.85" fill="#155EEF"/>
   <path d="M 19.844 7.448 L 21.6 11.085 L 23.356 7.448 Z" fill="#1FA463"/>
   <circle cx="21.6" cy="6.6" r="1.95" fill="#1FA463"/>
 </svg>
