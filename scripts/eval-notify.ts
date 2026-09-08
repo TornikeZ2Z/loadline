@@ -133,8 +133,20 @@ async function main() {
   const { DEFAULT_TZ, isoOf, toLocalDate } = await import("../src/lib/extract/dates");
 
   // Midday UTC, so "+12 h is the same board day" holds for every clock below.
+  //
+  // T0 must also be in the PAST, and that is not decoration. Most of this suite
+  // moves the clock by argument, but two writers do not take one: `insertWebJob`
+  // stamps first_seen_at/last_seen_at with SQL now(), and so does insertTruck's
+  // form path. The sweep's whole state is a watermark, and it advances the
+  // watermark to the instant it was handed. So a T0 of "today at 12:00 UTC",
+  // run at 10:07 UTC, wrote a watermark twelve hours into the future, and every
+  // later form-posted row arrived with created_at BEHIND it -- invisible to
+  // `subjectTrucks`, and N2/N5/N6/C4 went quiet. The suite passed after noon
+  // UTC and failed before it. Anchor to the last midday that has actually
+  // happened and the ordering the scenarios assume holds at every hour.
   const base = new Date();
-  const T0 = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), 12));
+  const midday = Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), 12);
+  const T0 = new Date(midday > base.getTime() ? midday - DAY : midday);
   const at = (ms: number) => new Date(T0.getTime() + ms);
   const day = (n: number) => at(n * DAY);
   const localDay = (d: Date) => isoOf(toLocalDate(d, DEFAULT_TZ));
