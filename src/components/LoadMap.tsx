@@ -198,15 +198,11 @@ const CONUS: [[number, number], [number, number]] = [
 /** Above this zoom the state totals would sit on top of the points they count. */
 const PILL_MAX_ZOOM = 5.4;
 
-/**
- * Below this zoom a state pill drops the job count and reads "FL · 4,900 cf".
- *
- * The tier is chosen by ZOOM and not by whether the long string happens to
- * fit, because "fits" changes on every frame of a pan and a label whose words
- * rewrite themselves while you drag is worse than one that is merely narrow.
- * The full sentence is always on the pill's `title`.
- */
-const PILL_SHORT_ZOOM = 4.6;
+/* There used to be a second tier here: under z 4.6 a state pill dropped its
+ * job count and read "FL · 4,900 cf". It is gone with V10 -- the pill now
+ * reads "FL · 9 jobs" at every zoom it is drawn at, and the volume comes back
+ * under the pointer -- so there is one string per pill instead of two, and no
+ * label on this map rewrites its own words while somebody drags the country. */
 
 /* --------------------------- label decluttering ---------------------------
  *
@@ -577,6 +573,119 @@ const APPROX_BLUR: maplibregl.ExpressionSpecification = [
   0.6,
   0,
 ];
+
+/* --------------------- SHAPE, NOT ONLY COLOUR (V10) ------------------------
+ *
+ * Three marks a driver has to be able to tell apart at a glance, and the
+ * review's acceptance criterion is the third one: "approximate locations
+ * cannot look like precise street addresses."
+ *
+ *   one job, placed      a filled disc with a white ring
+ *   several jobs, placed the same disc with a white pip through its middle
+ *   placed only to a     the disc, out of focus, inside a DASHED ring
+ *   state or a region
+ *
+ * The dash is not a new idea on this map: a truck whose post never said how
+ * much room it has is already drawn with a dashed outline, so on this board a
+ * broken edge already means "the post did not say". An approximate position is
+ * the same sentence about a different field, and it now looks like it.
+ *
+ * What this deliberately does NOT do is bring back the amber ring. That mark
+ * was built twice and rejected twice (`.design/impl/map-beauty.md` §3): a warm
+ * halo bleeding round a cool core reads as a rust stain, and in Deliveries mode
+ * -- where most ends resolve to a ZIP or a state centroid -- it turned the
+ * whole country into a field of orange rings shouting about our uncertainty
+ * louder than the freight it was qualifying. The ring here is the mark's OWN
+ * colour and carries the same white paper every other mark on this map carries.
+ * Softness still says "we guessed"; the dashes say it in a second register, so
+ * it survives being small.
+ */
+
+/** The ring bitmap's box, in CSS px, and where the ring sits inside it. */
+const APPROX_RING_BOX = 64;
+const APPROX_RING_R = 27;
+/** Drawn at 2x, so a 2 px dashed stroke has real edges when it is scaled up. */
+const APPROX_RING_SCALE = 2;
+/** How far outside the disc the ring stands, in CSS px. */
+const APPROX_RING_GAP = 3.5;
+
+function approxRingImage(color: string): ImageData | null {
+  if (typeof document === "undefined") return null;
+  const px = APPROX_RING_BOX * APPROX_RING_SCALE;
+  const canvas = document.createElement("canvas");
+  canvas.width = px;
+  canvas.height = px;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.scale(APPROX_RING_SCALE, APPROX_RING_SCALE);
+  const c = APPROX_RING_BOX / 2;
+  // Paper first and wider, exactly as `truckGlyph` does it: the ground under
+  // this ring is woodland, or water, or a town, and a mark with no paper
+  // behind it is only as legible as whatever it is parked on.
+  ctx.setLineDash([5.5, 4.5]);
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(c, c, APPROX_RING_R, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(c, c, APPROX_RING_R, 0, Math.PI * 2);
+  ctx.stroke();
+  return ctx.getImageData(0, 0, px, px);
+}
+
+/**
+ * `icon-size` for a bitmap whose drawn feature sits at `unit` CSS px, scaled so
+ * it lands `extra` px outside the disc this mark is drawn as.
+ *
+ * The zoom interpolation has to be the OUTERMOST expression -- MapLibre will
+ * not take a `["zoom"]` input nested inside anything, and a rejected paint or
+ * layout expression makes it drop the whole layer with one line on the console
+ * (`map-beauty.md`, "one bug found on the way"). So the arithmetic goes inside
+ * each stop, exactly as `zoomRadius` does it.
+ */
+function zoomIconSize(extra: number, unit: number): maplibregl.ExpressionSpecification {
+  const at = (scale: number): maplibregl.ExpressionSpecification => [
+    "/",
+    ["+", ["*", RADIUS_BY_CF, scale], extra],
+    unit,
+  ];
+  return [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
+    RADIUS_ZOOM[0]![0],
+    at(RADIUS_ZOOM[0]![1]),
+    RADIUS_ZOOM[1]![0],
+    at(RADIUS_ZOOM[1]![1]),
+  ];
+}
+
+/**
+ * The pip through the middle of a marker that holds more than one job.
+ *
+ * Proportional to the disc, so it reads as a hole in the mark rather than as a
+ * second mark, and clamped at both ends: under 1.6 px it is a smudge, over
+ * 4.5 px it starts eating the freight the disc is drawing.
+ */
+function zoomPip(): maplibregl.ExpressionSpecification {
+  const at = (scale: number): maplibregl.ExpressionSpecification => [
+    "max",
+    1.6,
+    ["min", 4.5, ["*", RADIUS_BY_CF, scale * 0.3]],
+  ];
+  return [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
+    RADIUS_ZOOM[0]![0],
+    at(RADIUS_ZOOM[0]![1]),
+    RADIUS_ZOOM[1]![0],
+    at(RADIUS_ZOOM[1]![1]),
+  ];
+}
 
 /** The soft ground under a job marker, graded by freight. */
 function liftOpacity(scale = 1): maplibregl.ExpressionSpecification {
@@ -1041,6 +1150,25 @@ export function LoadMap({
   /** One flaky tile is weather; a dozen is an outage or a blocked host. */
   const tileErrors = useRef(0);
 
+  /* --- V08: the map's own furniture, folded up on a phone -------------------
+   *
+   * On a 390 px screen the "on screen" panel and the legend were two opaque
+   * cards on a 261 px band of map, and at 320 they overlapped each other: the
+   * panel measured y 125-205 and the legend y 165-198, so a third of the key
+   * was printed underneath the statistics. They are both reference material,
+   * both duplicated in words a thumb's width away in the list, and neither is
+   * what a driver opened the board to look at.
+   *
+   * So on compact each becomes ONE control that opens. Nothing is deleted --
+   * every line is one tap away, and the collapsed panel says how many notes it
+   * is holding rather than swallowing them silently. On the desktop, where
+   * there is room, both are open and this state is never read.
+   */
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+  /** The map's own box, so the chrome can be told how much room it has. */
+  const [shellH, setShellH] = useState(0);
+
   // Callbacks are held in refs so the map is built once and never torn down by
   // a parent re-render; a remount would drop the viewport the user set.
   const cb = useRef({
@@ -1232,9 +1360,6 @@ export function LoadMap({
   // every wheel gesture, and rebuilding a screenful of HTML markers per frame
   // is the one thing that makes this map feel slow.
   const detailed = zoom > PILL_MAX_ZOOM;
-  /** Same reasoning as `detailed`: a boolean, so a wheel gesture rebuilds the
-      pills at most twice instead of once a frame. */
-  const shortPills = zoom < PILL_SHORT_ZOOM;
   /**
    * Too many trucks on screen to name them all.
    *
@@ -1636,6 +1761,21 @@ export function LoadMap({
         }
       }
 
+      // ONE DASHED RING PER END, baked rather than tinted. `icon-color` needs
+      // an SDF, and an SDF has no gradient outside its mask for the white
+      // paper under this ring to come from -- the same reason the truck glyphs
+      // are bitmaps. Two images, and the layer swaps between them when the
+      // board switches between Pickups and Deliveries.
+      for (const [id, color] of [
+        ["approx-ring-pickup", colors.pickup],
+        ["approx-ring-delivery", colors.delivery],
+      ] as const) {
+        const ring = approxRingImage(color);
+        if (ring && !instance.hasImage(id)) {
+          instance.addImage(id, ring, { pixelRatio: APPROX_RING_SCALE });
+        }
+      }
+
       instance.addSource("points", { type: "geojson", data: EMPTY, promoteId: "key" });
       // THE SECOND POPULATION, IN ITS OWN SOURCE. Not a second layer over the
       // first: `cf` is freight on a job feature and free space on a truck one,
@@ -1791,6 +1931,47 @@ export function LoadMap({
           "circle-stroke-color": "#ffffff",
           "circle-stroke-opacity": presence(1),
         },
+      });
+
+      /* ------------------- and what SHAPE each disc is (V10) ---------------
+       *
+       * Two layers over the disc, both driven entirely by properties the
+       * source already carries -- `count` and `approx` -- so `buildGroups`
+       * and its frozen GeoJSON (T-A3, `npm run check:equiv`) are untouched.
+       */
+
+      // More than one job standing here: a pip through the middle. Not drawn
+      // on an approximate mark, which is soft on purpose and would turn a
+      // white dot inside a cloud into mush.
+      instance.addLayer({
+        id: "points-multi",
+        type: "circle",
+        source: "points",
+        filter: ["all", [">", ["get", "count"], 1], ["!", ["get", "approx"]]],
+        paint: {
+          "circle-color": "#ffffff",
+          "circle-radius": zoomPip(),
+          "circle-opacity": presence(0.8),
+        },
+      });
+
+      // Placed no more finely than a state or a region: a dashed ring around
+      // the soft disc, in the mark's own colour. See the note above the image.
+      instance.addLayer({
+        id: "points-approx",
+        type: "symbol",
+        source: "points",
+        filter: ["get", "approx"],
+        layout: {
+          "icon-image": "approx-ring-pickup",
+          "icon-size": zoomIconSize(APPROX_RING_GAP, APPROX_RING_R),
+          // Never dropped for collision: a ring that vanished because a label
+          // wanted its pixels would leave a soft dot claiming to be exact,
+          // which is the one thing this mark exists to stop.
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+        paint: { "icon-opacity": presence(0.8) },
       });
 
       /* ----------------------- the trucks ---------------------------------
@@ -1987,6 +2168,40 @@ export function LoadMap({
           ],
           "circle-stroke-opacity": presence(1),
         },
+      });
+
+      // The same two shape rules inside an opened marker (V10). A destination
+      // known only to a state centroid is exactly as approximate here as it is
+      // on the board, and the fan is where false precision would hurt most --
+      // its whole point is telling the viewer where things really are.
+      instance.addLayer({
+        id: "focus-multi",
+        type: "circle",
+        source: "focus",
+        filter: [
+          "all",
+          ["==", ["get", "role"], "leaf"],
+          [">", ["get", "count"], 1],
+          ["!", ["get", "approx"]],
+        ],
+        paint: {
+          "circle-color": "#ffffff",
+          "circle-radius": zoomPip(),
+          "circle-opacity": presence(0.8),
+        },
+      });
+      instance.addLayer({
+        id: "focus-approx",
+        type: "symbol",
+        source: "focus",
+        filter: ["all", ["==", ["get", "role"], "leaf"], ["get", "approx"]],
+        layout: {
+          "icon-image": "approx-ring-pickup",
+          "icon-size": zoomIconSize(APPROX_RING_GAP + 2, APPROX_RING_R),
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+        paint: { "icon-opacity": presence(0.8) },
       });
 
       // The selected job's road, drawn ON TOP of the points: it is the one
@@ -2346,6 +2561,15 @@ export function LoadMap({
     m.setPaintProperty("points", "circle-opacity", pointsOpacity(jobs));
     m.setPaintProperty("points", "circle-stroke-opacity", presence(1, jobs));
     m.setPaintProperty("points-lift", "circle-opacity", liftOpacity(jobs));
+    // The two shape layers are part of the job mark, so they go quiet with it:
+    // a pip and a dashed ring left at full strength over a de-emphasised disc
+    // would be the loudest thing left on the map.
+    if (m.getLayer("points-multi")) {
+      m.setPaintProperty("points-multi", "circle-opacity", presence(0.8, jobs));
+    }
+    if (m.getLayer("points-approx")) {
+      m.setPaintProperty("points-approx", "icon-opacity", presence(0.8, jobs));
+    }
     if (m.getLayer("trucks")) {
       m.setPaintProperty("trucks", "icon-opacity", truckOpacity(trucksScale));
     }
@@ -2405,6 +2629,15 @@ export function LoadMap({
     // told apart by being soft, not by being a different thing.
     m.setPaintProperty("points", "circle-color", solid);
     m.setPaintProperty("points-lift", "circle-color", solid);
+    // The dashed ring is a baked bitmap and cannot be repainted, so the layer
+    // swaps to the image baked in the other end's colour.
+    if (m.getLayer("points-approx")) {
+      m.setLayoutProperty(
+        "points-approx",
+        "icon-image",
+        end === "pickup" ? "approx-ring-pickup" : "approx-ring-delivery",
+      );
+    }
   }, [end, ready]);
 
   /* ------------------- what is inside the opened marker --------------------
@@ -2424,7 +2657,14 @@ export function LoadMap({
     // a map showing pickups and deliveries in one frame answers neither
     // question. The place itself stays, as the anchor.
     const hideBoard = focused?.mode === "outward";
-    for (const id of ["points", "points-lift", "points-active", "points-active-gap"]) {
+    for (const id of [
+      "points",
+      "points-lift",
+      "points-active",
+      "points-active-gap",
+      "points-multi",
+      "points-approx",
+    ]) {
       if (m.getLayer(id)) {
         m.setLayoutProperty(id, "visibility", hideBoard ? "none" : "visible");
       }
@@ -2432,6 +2672,13 @@ export function LoadMap({
     const mark = drawnEnd === "pickup" ? palette.current.pickup : palette.current.delivery;
     if (m.getLayer("focus-points")) m.setPaintProperty("focus-points", "circle-color", mark);
     if (m.getLayer("focus-leader")) m.setPaintProperty("focus-leader", "line-color", mark);
+    if (m.getLayer("focus-approx")) {
+      m.setLayoutProperty(
+        "focus-approx",
+        "icon-image",
+        drawnEnd === "pickup" ? "approx-ring-pickup" : "approx-ring-delivery",
+      );
+    }
 
     for (const marker of focusMarkers.current) marker.remove();
     focusMarkers.current = [];
@@ -3119,6 +3366,15 @@ export function LoadMap({
     source.setData(corridor ? corridorFeatures(corridor, viewer, home) : EMPTY);
   }, [corridor, viewer, home, ready]);
 
+  /**
+   * Whether the STATE totals are the aggregation on screen right now.
+   *
+   * The state effect below draws them when the zoom is under PILL_MAX_ZOOM and
+   * no marker is open outward; this is the same condition, hoisted, because the
+   * count badges have to be its exact complement (V10).
+   */
+  const statesAggregating = !detailed && focused?.mode !== "outward";
+
   // --- counts on the markers that hold more than one job -------------------
   // Only the groups that need it: a singleton's name is on its card and in its
   // hover, and a label per dot would bury the map in text.
@@ -3127,6 +3383,35 @@ export function LoadMap({
     if (!ready || !m) return;
     for (const marker of countMarkers.current) marker.remove();
     countMarkers.current = [];
+
+    /* ONE CLUSTERING STRATEGY AT A TIME (V10).
+     *
+     * These badges and the state totals are two different aggregations of the
+     * same jobs -- this dot holds 8, that state holds 22 -- and until now both
+     * were drawn at the national view. They did not overlap, because the
+     * placer would not let them; what they did instead was take each other's
+     * slots. Measured at 1440 over the seeded board at z 3.7: 25 labels
+     * placed, 14 state pills and 11 badges, with two states and fourteen piles
+     * silently unlabelled because the other family had already claimed the
+     * pixels. A map that hides half of each of two answers is worse than one
+     * that gives all of one.
+     *
+     * So the zoom picks the aggregation and the other one stands down. Under
+     * PILL_MAX_ZOOM the state is the cluster; over it the place is, and the
+     * badge picks up the place's name and becomes the place pill. Nothing is
+     * lost at the national view that the map was not already saying: the
+     * disc's AREA is the freight standing there, which is the number this
+     * board says a driver is actually filling a truck against, and the pile's
+     * own tally is one hover away and in the dot's `title`.
+     *
+     * Inside an opened marker there are no state pills to compete with -- they
+     * are suppressed there for their own reasons -- so the badges stay, and
+     * the rule holds: one aggregation on screen, whatever the zoom.
+     */
+    if (statesAggregating) {
+      setLabels("count", []);
+      return;
+    }
 
     const next: MapLabel[] = [];
     // The markers actually drawn, which while a place is open outward are the
@@ -3190,7 +3475,7 @@ export function LoadMap({
       });
     }
     setLabels("count", next);
-  }, [drawn, detailed, drawnEnd, focused, ready, setLabels, fadeLabel]);
+  }, [drawn, detailed, drawnEnd, focused, ready, setLabels, fadeLabel, statesAggregating]);
 
   /* ------------------------- the truck labels ------------------------------
    *
@@ -3343,12 +3628,36 @@ export function LoadMap({
       k.textContent = st;
       const v = document.createElement("span");
       v.className = "v";
-      // Zoomed all the way out the count is the least of the three: the dots
-      // already show where the freight is and the badges already count the
-      // piles, so the pill spends its width on the state and the volume.
-      v.textContent = shortPills
-        ? `${t.cf.toLocaleString("en-US")} cf`
-        : `${t.jobs} job${t.jobs === 1 ? "" : "s"} · ${t.cf.toLocaleString("en-US")} cf`;
+      /* VOLUME ON DEMAND, NOT ON EVERY PILL FOREVER (V10).
+       *
+       * Sixteen of these used to print "FL · 9 jobs · 4,900 cf" over the
+       * country at once -- three facts each, forty-eight readings of a number
+       * nobody had asked for, and the pill wide enough that the placer had to
+       * hide several of them to fit the rest. The volume that IS asked for on
+       * arrival is the one the panel gives: the total on screen.
+       *
+       * So the pill carries the state and its count, and the cubic feet come
+       * back the moment somebody asks about this state -- a pointer on it or
+       * the keyboard focus. The full sentence is on the `title` at all times,
+       * which is what a screen reader and a long hover both read.
+       *
+       * Swapping the text rather than un-hiding a second span is deliberate:
+       * the placer caches a label's measured box under its class and its text,
+       * so a changed string is a new measurement rather than a stale one.
+       */
+      const quiet = `${t.jobs} job${t.jobs === 1 ? "" : "s"}`;
+      const loud = `${quiet} · ${t.cf.toLocaleString("en-US")} cf`;
+      v.textContent = quiet;
+      const show = () => {
+        v.textContent = loud;
+      };
+      const hide = () => {
+        v.textContent = quiet;
+      };
+      el.addEventListener("pointerenter", show);
+      el.addEventListener("focus", show);
+      el.addEventListener("pointerleave", hide);
+      el.addEventListener("blur", hide);
       if (trucksHere > 0) {
         // Two rows in one pill, not two facts in one sentence.
         const row = document.createElement("span");
@@ -3386,7 +3695,7 @@ export function LoadMap({
       });
     }
     setLabels("state", next);
-  }, [jobs, end, detailed, focused, ready, shortPills, setLabels, truckBuilt, fadeLabel]);
+  }, [jobs, end, detailed, focused, ready, setLabels, truckBuilt, fadeLabel]);
 
   // --- re-place the labels whenever the viewport moves ---------------------
   // On `move`, not `moveend`: markers follow the camera every frame, so waiting
@@ -3418,6 +3727,22 @@ export function LoadMap({
     if (!searchAsMove) onBoundsChange(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchAsMove]);
+
+  // --- how much map there actually is ---------------------------------------
+  // The shell is full height and the sheet floats over its lower part, so the
+  // BAND a viewer can see is the shell less whatever the sheet is covering.
+  // The key below is placed against that number rather than against the
+  // viewport, because at 320 x 568 those two are 455 px and 143 px.
+  useEffect(() => {
+    const el = shell.current;
+    if (!el) return;
+    const measure = () => setShellH(Math.round(el.getBoundingClientRect().height));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // --- retrying just the tiles ---------------------------------------------
   // Pointing the raster source at its URL again is what makes MapLibre drop the
@@ -3454,6 +3779,53 @@ export function LoadMap({
   const hasUndirectedTruck = truckBuilt.points.groups.some(
     (g) => truckBuilt.facts.get(g.key)?.bearing == null,
   );
+  /** At least one drawn marker is a pile, so the pip key has something to key. */
+  const anyMulti = drawn.groups.some((g) => g.ids.length > 1 && !g.approx);
+
+  /* --- V08: what the folded panel says, and how much it is holding --------- */
+
+  /** The one line the compact control shows before anybody opens it. */
+  const compactSummary = error
+    ? "No count — the board did not load"
+    : inViewJobs == null || loading
+      ? null
+      : `${allShown ? "All " : ""}${inViewJobs.count} job${
+          inViewJobs.count === 1 ? "" : "s"
+        } · ${totalCf.toLocaleString("en-US")} cf on screen`;
+
+  /**
+   * How many CAVEATS are folded away -- never how many facts.
+   *
+   * The distinction is the whole reason this number exists. A statistic behind
+   * a disclosure is a statistic somebody can go and get; a caveat behind one is
+   * a thing the board knows and did not say, and this board's one claim is that
+   * it does not quietly leave things out. So the collapsed row carries the
+   * count in amber, and every one of them is a tap away.
+   */
+  const compactNotes = [
+    truckNoDest > 0,
+    truckLabelsHidden,
+    notPlotted > 0,
+    (inViewJobs?.unsized ?? 0) > 0,
+    inViewTrucks != null && inViewTrucks.unstated > 0,
+  ].filter(Boolean).length;
+
+  /**
+   * Is there enough map left for a key to stand on?
+   *
+   * Measured, not assumed. The statistics control is 60 px, the key is 44,
+   * MapLibre's attribution is 34, and the three of them want two gaps: 174 px
+   * of chrome. At 320 x 568 with the sheet at its default snap the visible
+   * band is 143 px, which is how the key came to be printed inside the
+   * statistics panel -- the panel measured y 125-205 and the key y 154-198.
+   *
+   * The key is what goes, because of the three it is the only one that is
+   * reference material: the statistics are about THIS view and the attribution
+   * is a licence condition. It comes back the moment the sheet drops, which is
+   * one tap on the Map control the same board now carries.
+   */
+  const mapBand = Math.max(0, shellH - bottomPadding);
+  const roomForKey = !compact || mapBand >= 200;
 
   // Re-read on every write to the location record, which is what `setAt`
   // stamps -- and not on every render, which on this component means once per
@@ -3520,6 +3892,47 @@ export function LoadMap({
         style={{ top: focused ? "calc(var(--sp-3) + 72px)" : "var(--sp-3)" }}
         title={`Jobs whose ${drawnEnd} is on screen, and the cubic feet standing there. Hollow markers sit on a state centroid rather than a real address. Jobs without a stated size are counted but add nothing to the total.`}
       >
+        {/* V08: ON A PHONE THIS PANEL IS ONE CONTROL.
+            Collapsed it is a single row -- the count, the volume, and how many
+            caveats are waiting underneath -- and opening it brings back every
+            line the desktop panel prints. It is a button rather than a card
+            with a chevron in the corner because the whole row is the target,
+            and at 320 px the two cards this replaces were printing over each
+            other (the panel measured y 125-205 and the legend y 165-198). */}
+        {compact && (
+          <button
+            type="button"
+            aria-expanded={statsOpen}
+            onClick={() => setStatsOpen((v) => !v)}
+            className="flex w-full items-center gap-[var(--sp-2)] text-left"
+            style={{ background: "none", minHeight: "var(--tap-min)", color: "var(--text)" }}
+            title="What is on this view, and the controls for it"
+          >
+            {compactSummary == null ? (
+              <span className="skeleton h-[16px] w-[150px]" />
+            ) : (
+              <span
+                className="big nums text-(length:--fs-md)"
+                style={error ? { color: "var(--approx)" } : undefined}
+              >
+                {compactSummary}
+              </span>
+            )}
+            {/* Folded, never dropped: a caveat that is one tap away is still
+                disclosed, a caveat nobody is told about is not. */}
+            {!statsOpen && compactNotes > 0 && (
+              <span className="text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
+                {compactNotes} note{compactNotes === 1 ? "" : "s"}
+              </span>
+            )}
+            <span aria-hidden className="ml-auto" style={{ color: "var(--muted)" }}>
+              {statsOpen ? "▴" : "▾"}
+            </span>
+          </button>
+        )}
+
+        {(!compact || statsOpen) && (
+          <>
         {/* The list header counts the whole result; this counts the viewport.
             Saying which is which costs one small line and stops the two
             reading as the same number printed twice. */}
@@ -3544,26 +3957,31 @@ export function LoadMap({
           // saying the same sentence in one rectangle is the failure this
           // map's error states were arranged to avoid. This one only has to
           // explain the missing number.
-          <div className="text-(length:--fs-sm)" style={{ color: "var(--approx)" }}>
-            {compact ? "No count" : "No count — the board did not load."}
-          </div>
+          // On compact the collapsed control above already says it, so this
+          // would be the same sentence twice in a 231 px box.
+          compact ? null : (
+            <div className="text-(length:--fs-sm)" style={{ color: "var(--approx)" }}>
+              No count — the board did not load.
+            </div>
+          )
         ) : inViewJobs == null || loading ? (
-          <>
-            <span className="skeleton h-[16px] w-[150px]" />
-            {compact ? null : <span className="skeleton mt-[4px] h-[12px] w-[110px]" />}
-          </>
+          compact ? null : (
+            <>
+              <span className="skeleton h-[16px] w-[150px]" />
+              <span className="skeleton mt-[4px] h-[12px] w-[110px]" />
+            </>
+          )
         ) : (
           <>
-            <div className={compact ? "big nums text-(length:--fs-md)" : "big nums text-(length:--fs-lg)"}>
-              {`${allShown ? "All " : ""}${inViewJobs.count} job${inViewJobs.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
-              {compact && (
-                <span className="font-normal" style={{ color: "var(--muted)" }}>
-                  {" on screen"}
-                </span>
-              )}
-            </div>
-            {compact ? null : (
-              <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+            {!compact && (
+              <div className="big nums text-(length:--fs-lg)">
+                {`${allShown ? "All " : ""}${inViewJobs.count} job${inViewJobs.count === 1 ? "" : "s"} · ${totalCf.toLocaleString("en-US")} cf`}
+              </div>
+            )}
+            {/* Compact used to drop this line entirely; now it is behind the
+                disclosure with everything else, which is where V08 asks for
+                it -- one control, and the statistics inside it. */}
+            <div className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
                 {/* `truckLine` is fed from the JOB total and from nothing else,
                     for ever. It says "= 28.3 truckloads", which is a statement
                     about how much freight is on screen; handed a count of free
@@ -3579,8 +3997,7 @@ export function LoadMap({
                     this screenful you could actually take. */}
                 {freeCf != null && ` · ${freeCf.toLocaleString("en-US")} cf free`}
                 {inViewJobs.unsized > 0 && ` · ${inViewJobs.unsized} without size`}
-              </div>
-            )}
+            </div>
 
             {/* THE SECOND BLOCK. A blank line, a second noun, a second total,
                 and no arithmetic between them: "61 jobs · 24,110 cf" and
@@ -3608,7 +4025,7 @@ export function LoadMap({
                     </span>
                   )}
                 </div>
-                {!compact && inViewTrucks.unstated > 0 && (
+                {inViewTrucks.unstated > 0 && (
                   <div className="text-(length:--fs-xs)" style={{ color: "var(--approx)" }}>
                     {inViewTrucks.unstated} space{inViewTrucks.unstated === 1 ? "" : "s"} not stated
                   </div>
@@ -3639,7 +4056,7 @@ export function LoadMap({
             truckload divisor cannot answer. Shown only when they have said
             how much room they have; there is no honest default for it, and
             guessing one is how "≈ 28.3 truckloads" got written. */}
-        {!compact && !error && freeCf != null && focusJob && (
+        {!error && freeCf != null && focusJob && (
           <div className="mt-[var(--sp-2)] border-t border-border pt-[var(--sp-2)]">
             <div className="text-(length:--fs-sm)" style={{ color: "var(--text-2)" }}>
               {focusJob.cubic_feet == null
@@ -3732,6 +4149,8 @@ export function LoadMap({
           />
           Search as I move{compact ? "" : " the map"}
         </label>
+          </>
+        )}
       </div>
 
       {/* The two ways this map degrades without dying, stacked so they cannot
@@ -3827,7 +4246,28 @@ export function LoadMap({
           current sentence: the route's two end labels, or a fan of discs on
           leader lines. This is reference material, and reference material
           loses. */}
-      {compact && (open != null || focused) ? null : (
+      {/* V08: on a phone the key is asked for, not printed.
+          It is reference material -- the same four rows on every screen of
+          every session -- and on a 390 px board it was a 249 px opaque card
+          permanently parked on a 261 px band of map, which at 320 landed
+          inside the statistics panel above it. Collapsed it is a 44 px "Key"
+          button in the same corner; open it is exactly the panel it was. On
+          the desktop nothing changes: there is room, and it stays open. */}
+      {compact && roomForKey && !legendOpen && !(open != null || focused) && (
+        <button
+          type="button"
+          data-map-chrome
+          aria-expanded={false}
+          className="glass point-legend px-[var(--sp-3)]"
+          style={{ minHeight: "var(--tap-min)", color: "var(--muted)" }}
+          onClick={() => setLegendOpen(true)}
+          title="What the marks on this map mean"
+        >
+          Key
+        </button>
+      )}
+      {compact && (open != null || focused) ? null : compact &&
+        (!legendOpen || !roomForKey) ? null : (
       <div
         data-map-chrome
         className="glass point-legend px-[var(--sp-3)] py-[var(--sp-2)]"
@@ -3837,12 +4277,79 @@ export function LoadMap({
           } as React.CSSProperties
         }
       >
+        {compact && (
+          <button
+            type="button"
+            aria-expanded
+            onClick={() => setLegendOpen(false)}
+            style={{ background: "none", color: "var(--muted)", minHeight: "var(--tap-min)" }}
+            title="Hide the key"
+          >
+            Key ✕
+          </button>
+        )}
         <b>
           <i className="sm" />
           <i className="lg" /> size = cubic feet
         </b>
-        <b>
-          <i className="approx" /> approximate
+        {/* A key is only worth having if it is the mark the map draws, so it
+            gets the pip the map now puts through a pile (V10). Earned, not
+            permanent: on a board where every marker holds one job this row
+            would be explaining something that is not on screen. */}
+        {anyMulti && (
+          <b title="More than one job standing at this place. The disc's size is still the freight, not the count; the number is on the label and on the hover.">
+            <span
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                width: 14,
+                height: 14,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <i style={{ width: 14, height: 14 }} />
+              <span
+                style={{
+                  position: "absolute",
+                  width: 4.5,
+                  height: 4.5,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  opacity: 0.85,
+                }}
+              />
+            </span>{" "}
+            {compact ? "2+" : "2+ jobs here"}
+          </b>
+        )}
+        {/* The dashed ring, drawn the way the map draws it: the soft dot
+            inside its own broken edge. The swatch used to be the blurred dot
+            alone, which stopped being the whole mark the moment V10 gave an
+            approximate position a shape of its own. */}
+        <b title="Placed no more finely than a state or a region — the post never gave an address. The dot is soft and the ring is broken because we are guessing, and the map says so rather than drawing a street.">
+          <span
+            style={{
+              position: "relative",
+              display: "inline-flex",
+              width: 19,
+              height: 19,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <i className="approx" />
+            <span
+              style={{
+                position: "absolute",
+                inset: 0,
+                borderRadius: "50%",
+                border: "1.5px dashed var(--map-point, var(--pickup))",
+                opacity: 0.8,
+              }}
+            />
+          </span>{" "}
+          approximate
         </b>
         {/* Only once there is a truck in the source. On day one the map is
             unchanged and says nothing about a population that is not there --
