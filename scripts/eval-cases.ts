@@ -24,10 +24,14 @@ export interface ExpectedJob {
   cf: number | null;
   pricePerCf?: number | null;
   priceFlat?: number | null;
+  /** `ready_now`: the post SAID ready now. Not "we have no reason to think otherwise". */
   ready?: boolean;
   /** ISO date */
   readyDate?: string;
-  readySource?: string;
+  /** null asserts the row carries NO marker source, which is not the same as not checking. */
+  readySource?: string | null;
+  /** "now" | "date" | "not_ready" | "unknown" -- the stored four-state value (L01). */
+  readyState?: string;
   tags?: string[];
   notesIncludes?: string;
   flagsInclude?: string[];
@@ -67,17 +71,36 @@ export function realMessageCases(): EvalCase[] {
         if (tags.length) e.tags = tags;
         const date = f.match(/\b(\d{1,2})\/(\d{1,2})\b/);
         if (date) {
+          // A stated day is a stated day even when it has already come round:
+          // `ready_now` means the sender wrote "ready", and whether the date has
+          // arrived is a question for the calendar at query time, not for the row.
           e.readyDate = `2026-${date[1].padStart(2, "0")}-${date[2].padStart(2, "0")}`;
           e.ready = false;
+          e.readyState = "date";
         } else if (/\bRFD\b/.test(f)) {
           e.ready = true;
+          e.readyState = "now";
         }
         // Message-level rules.
-        if (letter === "A" || letter === "B" || letter === "C") e.ready = true;
-        if (letter === "D" && !flag) e.ready = false;
-        if (letter === "E" || letter === "F") {
+        if ((letter === "A" || letter === "B" || letter === "C") && !date) {
           e.ready = true;
-          e.readySource = "assumed";
+          e.readyState = "now";
+        }
+        if (letter === "D" && !flag) {
+          // D marks other lines RFD, so an unmarked line is the sender's own
+          // distinction rather than our silence.
+          e.ready = false;
+          e.readyState = "not_ready";
+        }
+        if (letter === "E" || letter === "F") {
+          // THE INVENTION, AND ITS CORRECTION (review L01). These two posts say
+          // nothing at all about readiness. They used to be recorded as
+          // ready_now = true / ready_source = 'assumed' -- 20 of the 94 real
+          // jobs wearing a green "Ready now" chip that no sender ever wrote,
+          // and passing `?readyOnly=1`. The ground truth is that we do not know.
+          e.ready = false;
+          e.readyState = "unknown";
+          e.readySource = null;
         }
         return e;
       }),
@@ -339,6 +362,91 @@ export const CASES: EvalCase[] = [
     name: "continuation lines attach to the destination above",
     body: "Pickup: Kearny NJ\nDelivery: Miami FL 33101\n350 cf\nRFD",
     expect: [{ origin: "Kearny, NJ", dest: "FL 33101", cf: 350, ready: true }],
+  },
+
+  // ------------------------------------------------------- readiness (L01)
+  // The four states, one case each. The first is the one the product's central
+  // claim rests on: a post that says nothing about readiness must leave the
+  // board saying nothing, not saying "Ready now".
+  {
+    name: "L01 a post with no readiness marker is unknown, not ready",
+    body: "FROM NEWARK NJ\nFL 33180 400",
+    expect: [
+      {
+        origin: "Newark, NJ",
+        dest: "FL 33180",
+        cf: 400,
+        ready: false,
+        readyState: "unknown",
+        readySource: null,
+      },
+    ],
+  },
+  {
+    name: "L01 RFD on the line is ready now, and says where it was read",
+    body: "FROM NEWARK NJ\nFL 33180 400 RFD",
+    expect: [
+      { origin: "Newark, NJ", dest: "FL 33180", cf: 400, ready: true, readyState: "now", readySource: "line" },
+    ],
+  },
+  {
+    name: "L01 a stated future date is a date, not a ready-now",
+    body: "FROM NEWARK NJ\nFL 33180 400 9/12",
+    expect: [
+      {
+        origin: "Newark, NJ",
+        dest: "FL 33180",
+        cf: 400,
+        ready: false,
+        readyDate: "2026-09-12",
+        readyState: "date",
+        readySource: "line",
+      },
+    ],
+  },
+  {
+    name: "L01 a stated date that has already come round keeps its own day",
+    body: "FROM NEWARK NJ\nFL 33180 400 9/1",
+    expect: [
+      {
+        origin: "Newark, NJ",
+        dest: "FL 33180",
+        cf: 400,
+        // ready_now stays false: the sender wrote a DATE, and whether it has
+        // arrived is the board's question at query time, not the row's.
+        ready: false,
+        readyDate: "2026-09-01",
+        readyState: "date",
+        readySource: "line",
+      },
+    ],
+  },
+  {
+    name: "L01 an unmarked line under a post that marks others is not ready",
+    body: "FROM NEWARK NJ\nFL 33180 400 RFD\nGA 30303 300",
+    expect: [
+      { origin: "Newark, NJ", dest: "FL 33180", cf: 400, ready: true, readyState: "now" },
+      { origin: "Newark, NJ", dest: "GA 30303", cf: 300, ready: false, readyState: "not_ready" },
+    ],
+  },
+
+  // ---------------------------------------------------- requirements (L03)
+  // The text the chips are read from. Job 111's post names HHG, an active DOT
+  // and insurance and never mentions MC; the compact "DOT & MC" badge it used
+  // to wear both invented an authority and hid two requirements, so the three
+  // shapes are pinned here at the source and again over a stored row in
+  // scripts/eval-lifecycle.ts.
+  {
+    name: "L03 an HHG + DOT + insurance line is one requirement line",
+    body: "FROM NEWARK NJ\nFL 33180 400\nMUST HAVE HHG, ACTIVE DOT AND INSURANCE.",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33180", cf: 400 }],
+    expectRequirements: 1,
+  },
+  {
+    name: "L03 an MC-only line is one requirement line",
+    body: "FROM NEWARK NJ\nFL 33180 400\nMC number required, no brokers.",
+    expect: [{ origin: "Newark, NJ", dest: "FL 33180", cf: 400 }],
+    expectRequirements: 1,
   },
 
   // -------------------------------------------------------------- not loads

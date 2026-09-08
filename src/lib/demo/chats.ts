@@ -11,6 +11,7 @@
 import { query, queryOne } from "@/lib/db";
 import type { ExtractionOutcome } from "@/lib/extract/schema";
 import { pageLimit } from "@/lib/loads/query";
+import type { ReadyState } from "@/lib/loads/types";
 
 export interface ChatGroup {
   id: number;
@@ -57,6 +58,7 @@ export interface ChatLoad {
   ready_now: boolean;
   ready_date: string | null;
   ready_source: string | null;
+  ready_state: ReadyState;
   deliver_by: string | null;
   tags: string[];
   flags: string[];
@@ -144,7 +146,7 @@ const LOAD_COLUMNS = `
   l.pickup_label, l.pickup_state,
   l.delivery_label, l.delivery_state, l.delivery_zip,
   l.cubic_feet, l.price_per_cf, l.price_flat, l.rate_usd,
-  l.ready_now, l.ready_date::text AS ready_date, l.ready_source,
+  l.ready_now, l.ready_date::text AS ready_date, l.ready_source, l.ready_state,
   l.deliver_by::text AS deliver_by,
   coalesce(l.tags, '{}') AS tags,
   coalesce(l.flags, '{}') AS flags,

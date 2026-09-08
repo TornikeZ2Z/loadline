@@ -1234,7 +1234,10 @@ function TryMessage() {
                     <span className="nums">{l.cubic_feet != null ? formatCf(l.cubic_feet) : "no size"}</span>
                     {l.price_per_cf != null && <span className="nums"> · ${l.price_per_cf}/cf</span>}
                     {" · "}
-                    {l.ready_now ? "ready now" : (l.ready_date ?? "not ready")}
+                    {l.ready_now
+                      ? "ready now"
+                      : (l.ready_date ??
+                        (l.ready_state === "not_ready" ? "not ready" : "ready date not stated"))}
                     {(l.flags?.length ?? 0) > 0 && (
                       <span style={{ color: "var(--warn)" }}> · {l.flags.join(", ")}</span>
                     )}

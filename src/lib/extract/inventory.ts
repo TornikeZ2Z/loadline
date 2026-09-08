@@ -11,7 +11,7 @@
 import { STATE_BY_ABBR } from "@/lib/geo/states";
 import type { HeaderParse } from "./header";
 import { originLabel, resolveCityState } from "./header";
-import { localSendDate, resolveDate, type DestParse, type Line, type MessagePass } from "./lines";
+import { type DestParse, type Line, type MessagePass } from "./lines";
 import type { ExtractedJob, MessageContext, OriginRef } from "./schema";
 
 export interface Assembly {
@@ -257,7 +257,6 @@ export function assemble(lines: Line[], pass: MessagePass, ctx: MessageContext):
   const contact = pass.contacts.find((c) => c.phone) ?? null;
   const contactName = contact?.name ?? (isPhoneShaped(ctx.authorName) ? null : (ctx.authorName ?? null));
   const contactPhone = contact?.phone ?? ctx.authorPhone ?? null;
-  const sendDate = localSendDate(ctx.sentAt);
   const seen = new Map<string, number>();
   const loads: ExtractedJob[] = [];
   const lineSeen = new Map<string, number>();
@@ -274,35 +273,44 @@ export function assemble(lines: Line[], pass: MessagePass, ctx: MessageContext):
     lineSeen.set(lt, (lineSeen.get(lt) ?? 0) + 1);
     if (lineSeen.get(lt)! > 1 && !flags.includes("dup_line")) flags.push("dup_line");
 
-    // Ready.
+    // Ready. Four states, and the last branch is the one the product's central
+    // claim rests on: a post with no marker says NOTHING about readiness, so
+    // that is what we write down (review L01). It used to write `ready_now =
+    // true, ready_source = "assumed"`, which is the board inventing a fact.
+    //
+    // A stated DATE is not a stated "now" even when the day has already come:
+    // `ready_now` means "the sender wrote ready", and whether the date has
+    // arrived is a question about today's calendar, asked at query time
+    // (`ready_now OR ready_date <= today`) so the answer cannot go stale in the
+    // row.
     let ready_now = false;
     let ready_date_text: string | null = null;
     let ready_source: ExtractedJob["ready_source"] = null;
+    let ready_state: ExtractedJob["ready_state"] = "unknown";
     if (d.readyDateText) {
       ready_date_text = d.readyDateText;
-      const iso = resolveDate(d.readyDateText, ctx.sentAt);
-      ready_now = !!iso && iso <= sendDate;
       ready_source = "line";
+      ready_state = "date";
     } else if (d.rfd) {
       ready_now = true;
       ready_source = "line";
+      ready_state = "now";
     } else if (p.block.blockReadyDate) {
       ready_date_text = p.block.blockReadyDate;
-      const iso = resolveDate(p.block.blockReadyDate, ctx.sentAt);
-      ready_now = !!iso && iso <= sendDate;
       ready_source = "header";
+      ready_state = "date";
     } else if (p.block.blockReady) {
       ready_now = true;
       ready_source = "header";
+      ready_state = "now";
     } else if (pass.messageReady.ready_now) {
       ready_now = true;
       ready_source = pass.messageReady.source;
+      ready_state = "now";
     } else if (pass.rfdAnywhere) {
-      ready_now = false;
-      ready_source = null;
-    } else {
-      ready_now = true;
-      ready_source = "assumed";
+      // The sender marked other lines ready and left this one unmarked: a
+      // distinction they drew, not one we invented.
+      ready_state = "not_ready";
     }
 
     const price_per_cf = d.price?.kind === "per_cf" ? d.price.value : null;
@@ -333,6 +341,7 @@ export function assemble(lines: Line[], pass: MessagePass, ctx: MessageContext):
       ready_now,
       ready_date_text,
       ready_source,
+      ready_state,
       deliver_by_text: d.deliverByText,
       tags: d.tags,
       notes: d.notes,

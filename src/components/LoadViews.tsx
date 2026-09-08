@@ -25,7 +25,7 @@ import {
   laneLabel,
   placeLabel,
   readyLabel,
-  requirementChip,
+  requirementChips,
   senderLine,
   twinLabel,
   TAG_LABELS,
@@ -162,7 +162,7 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
   // call. It is also the chip most likely to be pushed into "+N" otherwise,
   // because it arrives on rows that already carry tags.
   const twin = twinLabel(job.dup_count);
-  const requirement = requirementChip(job.requirements);
+  const requirements = requirementChips(job.requirements);
   const chips: React.ReactNode[] = [];
   if (twin) {
     chips.push(
@@ -172,10 +172,13 @@ export function JobCard({ job, selected, hovered, now, onSelect, onHover }: JobC
     );
   }
   // Requirements next: they decide whether a driver can take the job at all.
-  if (requirement) {
+  // One chip per requirement the sender actually wrote (L03) -- a single
+  // compact badge could not say "DOT and HHG and insurance" without either
+  // dropping two of them or inventing a fourth.
+  for (const req of requirements) {
     chips.push(
-      <Chip key="req" title={requirement.title}>
-        {requirement.label}
+      <Chip key={`req-${req.label}`} title={req.title}>
+        {req.label}
       </Chip>,
     );
   }

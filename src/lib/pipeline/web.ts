@@ -211,10 +211,15 @@ export async function insertWebJob(
   const rateUsd = priceFlat ?? (pricePerCf != null ? pricePerCf * cubicFeet : null);
 
   // --- readiness ------------------------------------------------------------
+  // A body that says nothing about readiness is a body that says nothing: it
+  // stores `unknown`, not `now` (review L01). It used to store ready_now = true
+  // with ready_source = 'assumed' -- the same invention the WhatsApp path made,
+  // through the front door.
   const readyDate = optionalIsoDate(body.readyDate, "readyDate");
   const deliverBy = optionalIsoDate(body.deliverBy, "deliverBy");
-  const readyNow = body.readyNow === "on" || !readyDate;
-  const readySource = body.readyNow === "on" || readyDate ? "line" : "assumed";
+  const readyNow = body.readyNow === "on";
+  const readyState = readyNow ? "now" : readyDate ? "date" : "unknown";
+  const readySource = readyNow || readyDate ? "line" : null;
 
   // --- contact --------------------------------------------------------------
   const contactName = (body.contactName ?? "").trim() || user.name;
@@ -244,7 +249,7 @@ export async function insertWebJob(
        delivery_lat, delivery_lng, delivery_precision,
        trip_miles,
        cubic_feet, price_per_cf, price_flat, rate_usd,
-       ready_now, ready_date, ready_source, deliver_by, pickup_date,
+       ready_now, ready_date, ready_source, ready_state, deliver_by, pickup_date,
        tags, flags, job_notes, requirements,
        contact_name, contact_phone, contact_phone_raw, contact_mode,
        sender_key, job_key, ordinal,
@@ -258,7 +263,7 @@ export async function insertWebJob(
        $9,$10,$11,$12,$13,$14,$15,
        $16,
        $17,$18,$19,$20,
-       $21,$22,$23,$24,$25,
+       $21,$22,$23,$34,$24,$25,
        $26::text[],'{}',$27,$28,
        $29,$30,$31,'public',
        NULL, NULL, 1,
@@ -282,6 +287,7 @@ export async function insertWebJob(
       contactName, contactPhone, rawPhone || null,
       computeExpiry(readyDate, now),
       user.isDemo,
+      readyState,
     ],
   );
 

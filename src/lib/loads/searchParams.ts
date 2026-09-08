@@ -118,6 +118,9 @@ export async function parseSearchParams(
 
     readyOnly: sp.get("readyOnly") === "1",
     readyBy: isoDate(sp, "readyBy"),
+    // Opt-in, never a default: a readiness filter that silently included jobs
+    // with no stated date is review L01. The URL has to say so out loud.
+    includeUnknownReady: sp.get("readyUnknown") === "1",
     deliverBy: isoDate(sp, "deliverBy"),
     seenDays,
 
@@ -201,6 +204,7 @@ export function toQueryString(p: Partial<LoadSearchParams>): string {
   if (p.includeUnsized === false) set("unsized", "0");
   if (p.readyOnly) set("readyOnly", "1");
   set("readyBy", p.readyBy);
+  if (p.includeUnknownReady) set("readyUnknown", "1");
   set("deliverBy", p.deliverBy);
   set("seenDays", p.seenDays);
   if (p.hasPrice) set("hasPrice", "1");

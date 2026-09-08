@@ -14,7 +14,18 @@ export type LoadStatus = "available" | "delisted" | "pending" | "taken" | "expir
  */
 export type MapEnd = "pickup" | "delivery";
 export type StatusSource = "derived" | "manual";
-export type ReadySource = "line" | "header" | "footer" | "title" | "assumed";
+/** WHERE the readiness marker was found. The absence of a marker is not a source. */
+export type ReadySource = "line" | "header" | "footer" | "title";
+/**
+ * WHAT the post said about readiness -- the whole vocabulary, stored on the row.
+ *
+ * 'unknown' is not a synonym for either neighbour. A post with no readiness
+ * marker used to be stored as ready_now = true / ready_source = 'assumed', so
+ * the card wore a green "Ready now" and `?readyOnly=1` returned it; the tooltip
+ * even admitted the assumption. Unknown now stays unknown through the card, the
+ * detail, the filter, the sort and the count (review L01).
+ */
+export type ReadyState = "now" | "date" | "not_ready" | "unknown";
 export type ContactMode = "public" | "dm";
 
 export interface LoadRow {
@@ -46,9 +57,12 @@ export interface LoadRow {
   price_flat: number | null;
   /** COALESCE(price_flat, price_per_cf * cubic_feet); null when neither is known. */
   rate_usd: number | null;
+  /** The post SAID ready now. Never true because nothing was said. */
   ready_now: boolean;
   ready_date: string | null;            // ISO date
   ready_source: ReadySource | null;
+  /** 'now' | 'date' | 'not_ready' | 'unknown' -- written at ingest, never inferred at render. */
+  ready_state: ReadyState;
   deliver_by: string | null;            // ISO date
   tags: string[];
   flags: string[];
@@ -166,6 +180,13 @@ export interface LoadSearchParams {
   /** Readiness / deadline. */
   readyOnly?: boolean;                  // (ready_now OR ready_date <= CURRENT_DATE)
   readyBy?: string | null;              // ISO date: (ready_now OR ready_date <= $d)
+  /**
+   * Widen `readyOnly` / `readyBy` to jobs whose post never stated a readiness
+   * date. Off by default, and deliberately so: a date filter that quietly
+   * returned undated jobs is the whole of L01. The board offers it as
+   * "Include unknown dates", so a driver who wants the wider net asks for it.
+   */
+  includeUnknownReady?: boolean;
   deliverBy?: string | null;            // ISO date: (deliver_by IS NULL OR deliver_by <= $d)
 
   /** Freshness: last_seen_at > now() - N days (1..30). */
@@ -215,7 +236,7 @@ export interface LoadSummary {
   count: number;                 // rows matching the full WHERE (not the page)
   totalCf: number;               // sum(cubic_feet)
   withCf: number;                // rows with cubic_feet
-  readyNow: number;              // rows where ready_now OR ready_date <= CURRENT_DATE
+  readyNow: number;              // rows where ready_now OR ready_date <= CURRENT_DATE (never the undated)
   freshToday: number;            // rows where last_seen_at > now() - 24h
   priced: number;                // rows with price_per_cf or price_flat
   medianPricePerCf: number | null;

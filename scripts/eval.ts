@@ -176,6 +176,7 @@ function main() {
         check("priceFlat", want.priceFlat, got.price_flat);
         check("ready", want.ready, got.ready_now);
         check("readySource", want.readySource, got.ready_source);
+        check("readyState", want.readyState, got.ready_state);
         if (want.readyDate !== undefined) check("readyDate", want.readyDate, resolveDatePhrase(got.ready_date_text, sentAt));
         if (want.tags) for (const t of want.tags) if (!got.tags.includes(t)) { fail(`${line(idx)}: missing tag ${t} (got ${got.tags.join(",") || "none"})`); ok = false; }
         if (want.notesIncludes !== undefined && !(got.notes ?? "").includes(want.notesIncludes)) { fail(`${line(idx)}: notes "${got.notes}" lack "${want.notesIncludes}"`); ok = false; }

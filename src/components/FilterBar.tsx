@@ -71,6 +71,12 @@ export interface Filters {
   unsized: boolean;
   ready: "any" | "now" | "by";
   readyBy: string;
+  /**
+   * Widen a readiness filter to jobs whose post never gave a date (review L01).
+   * Off by default and only ever on because a driver ticked it: the bug this
+   * replaces was a date filter that returned undated jobs without saying so.
+   */
+  readyUnknown: boolean;
   seenDays: "" | "1" | "3" | "7";
   q: string;
   deliverBy: string;
@@ -100,6 +106,7 @@ export const EMPTY_FILTERS: Filters = {
   unsized: true,
   ready: "any",
   readyBy: "",
+  readyUnknown: false,
   seenDays: "",
   q: "",
   deliverBy: "",
@@ -206,6 +213,7 @@ export function filtersToQuery(
   if (!f.unsized) sp.set("unsized", "0");
   if (f.ready === "now") sp.set("readyOnly", "1");
   if (f.ready === "by" && f.readyBy) sp.set("readyBy", f.readyBy);
+  if (f.ready !== "any" && f.readyUnknown) sp.set("readyUnknown", "1");
   if (f.seenDays) sp.set("seenDays", f.seenDays);
   if (f.q.trim()) sp.set("q", f.q.trim());
   if (f.deliverBy) sp.set("deliverBy", f.deliverBy);
@@ -334,6 +342,7 @@ export function hydrate(qs: string): Filters {
     unsized: sp.get("unsized") !== "0",
     ready: sp.get("readyOnly") === "1" ? "now" : sp.get("readyBy") ? "by" : "any",
     readyBy: sp.get("readyBy") ?? "",
+    readyUnknown: sp.get("readyUnknown") === "1",
     seenDays: seen === "1" || seen === "3" || seen === "7" ? seen : "",
     q: sp.get("q") ?? "",
     deliverBy: sp.get("deliverBy") ?? "",
@@ -555,7 +564,14 @@ export function activeFilterChips(
     add("unsized", "Sized jobs only", { ...f, unsized: true }, "Jobs whose post never stated a size are hidden");
   }
   if (f.ready !== "any") {
-    add("ready", `Ready ${readyTriggerLabel(f)}`, { ...f, ready: "any", readyBy: "" });
+    add(
+      "ready",
+      `Ready ${readyTriggerLabel(f)}`,
+      { ...f, ready: "any", readyBy: "", readyUnknown: false },
+      f.readyUnknown
+        ? "Includes jobs whose post never stated a ready date"
+        : "Jobs whose post never stated a ready date are hidden",
+    );
   }
   if (f.seenDays) {
     add("seen", `Listed ${seenTriggerLabel(f).toLowerCase()}`, { ...f, seenDays: "" });
@@ -1315,8 +1331,9 @@ function SizePanel({ filters, set }: { filters: Filters; set(p: Partial<Filters>
 }
 
 function readyTriggerLabel(f: Filters): string {
-  if (f.ready === "now") return "now";
-  if (f.ready === "by" && f.readyBy) return `by ${f.readyBy.slice(5).replace("-", "/")}`;
+  const suffix = f.readyUnknown ? " + unknown" : "";
+  if (f.ready === "now") return `now${suffix}`;
+  if (f.ready === "by" && f.readyBy) return `by ${f.readyBy.slice(5).replace("-", "/")}${suffix}`;
   return "Any";
 }
 
@@ -1342,6 +1359,22 @@ function ReadyPanel({ filters, set }: { filters: Filters; set(p: Partial<Filters
         value={filters.readyBy}
         onChange={(e) => set({ ready: "by", readyBy: e.target.value })}
       />
+      {/* The opt-in, and it names what it lets in rather than widening quietly.
+          Most posts say nothing about readiness; "Ready now" used to return
+          them anyway (review L01). A driver who would rather ring and ask can
+          have them back, deliberately. */}
+      <label className="check-row" style={{ opacity: filters.ready === "any" ? 0.5 : 1 }}>
+        <input
+          type="checkbox"
+          checked={filters.readyUnknown}
+          disabled={filters.ready === "any"}
+          onChange={(e) => set({ readyUnknown: e.target.checked })}
+        />
+        Include unknown dates
+      </label>
+      <p className="text-(length:--fs-sm)" style={{ color: "var(--muted)" }}>
+        Jobs whose post never stated a ready date are left out unless you ask for them.
+      </p>
     </div>
   );
 }
@@ -2147,7 +2180,12 @@ export function emptyStateSuggestions(
       });
     }
   }
-  if (f.ready !== "any") out.push({ label: "Any ready date", next: { ...f, ready: "any", readyBy: "" } });
+  if (f.ready !== "any" && !f.readyUnknown) {
+    out.push({ label: "Include unknown dates", next: { ...f, readyUnknown: true } });
+  }
+  if (f.ready !== "any") {
+    out.push({ label: "Any ready date", next: { ...f, ready: "any", readyBy: "", readyUnknown: false } });
+  }
   if (f.minCf || f.maxCf || !f.unsized) {
     out.push({ label: "Any size", next: { ...f, minCf: "", maxCf: "", unsized: true } });
   }

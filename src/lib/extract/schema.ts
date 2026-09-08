@@ -42,7 +42,17 @@ export interface MessageContext {
 }
 
 export type CfSource = "unit" | "bare" | "next_line";
-export type ReadySource = "line" | "header" | "footer" | "title" | "assumed";
+/** WHERE the readiness marker was found. Absence of a marker is not a source. */
+export type ReadySource = "line" | "header" | "footer" | "title";
+/**
+ * WHAT the post said about readiness -- the four states, and no fifth.
+ *
+ * 'unknown' is the one that matters (review L01): a post with no marker used to
+ * be written down as ready, which is the product inventing a fact it does not
+ * have. Unknown stays unknown all the way to the card, the filter and the
+ * count.
+ */
+export type ReadyState = "now" | "date" | "not_ready" | "unknown";
 
 export interface ExtractedJob {
   /** Kept under these names because scripts/score-fixture.ts reads them. */
@@ -60,9 +70,12 @@ export interface ExtractedJob {
   price_flat: number | null;
   price_basis: "marker" | "threshold" | "ambiguous" | null;
 
+  /** True ONLY when the post said so. Never a stand-in for "nothing was said". */
   ready_now: boolean;
   ready_date_text: string | null;
   ready_source: ReadySource | null;
+  /** What the post said about readiness; 'date' before the phrase is resolved. */
+  ready_state: ReadyState;
   deliver_by_text: string | null;
 
   tags: string[];
@@ -90,6 +103,29 @@ export interface ExtractedJob {
   rate_usd?: number | null;
 }
 export type ExtractedLoad = ExtractedJob;
+
+/**
+ * The readiness state a row is STORED with, given the extraction and the date
+ * phrase once it has been resolved against the send time.
+ *
+ * One function because three writers store the same fact -- the batch pipeline,
+ * the reconciler and the website form -- and the day two of them disagreed, the
+ * board and the admin console would say different things about one job.
+ *
+ * A date phrase nobody could resolve ("ready end of month") is stored as
+ * `unknown`, not as `date`: we know the sender said something, but we do not
+ * know which day, and a state called 'date' with no date in `ready_date` would
+ * be a promise the row cannot keep. The phrase itself survives in
+ * `ready_date_text` for the admin queue.
+ */
+export function readyStateOf(
+  job: Pick<ExtractedJob, "ready_now" | "ready_state">,
+  resolvedReadyDate: string | null,
+): ReadyState {
+  if (job.ready_now) return "now";
+  if (resolvedReadyDate) return "date";
+  return job.ready_state === "not_ready" ? "not_ready" : "unknown";
+}
 
 export type LineClass =
   | "BLANK"

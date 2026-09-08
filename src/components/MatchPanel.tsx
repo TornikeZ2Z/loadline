@@ -33,7 +33,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/basePath";
 import { formatCf } from "@/lib/moving/cubicFeet";
-import { boardDay, formatPrice, laneLabel, requirementChip } from "@/lib/loads/present";
+import { boardDay, formatPrice, laneLabel, requirementChips } from "@/lib/loads/present";
 import { freeSpaceLabel, truckLaneLabel } from "@/lib/loads/truckPresent";
 import type { PublicLoadRow, PublicTruckRow } from "@/lib/loads/publicView";
 import type { MatchOk, MatchResult } from "@/lib/match/types";
@@ -98,7 +98,7 @@ function summaryOf(item: Listing, today: string): string {
 
 function MatchRow({ item, verdict, today }: { item: Listing; verdict: MatchOk; today: string }) {
   const href = isTruck(item) ? `/trucks/${item.id}` : `/jobs/${item.id}`;
-  const requirement = requirementChip(verdict.requirements);
+  const requirements = requirementChips(verdict.requirements);
   return (
     <li className="border-t border-border py-[var(--sp-2)] first:border-t-0" data-match-id={item.id}>
       <Link
@@ -114,11 +114,13 @@ function MatchRow({ item, verdict, today }: { item: Listing; verdict: MatchOk; t
           {verdict.reasons.join(" · ")}
         </span>
       </Link>
-      {requirement && (
-        <div className="mt-[var(--sp-1)]">
-          <Chip tone="warn" title={requirement.title}>
-            {requirement.label}
-          </Chip>
+      {requirements.length > 0 && (
+        <div className="mt-[var(--sp-1)] flex flex-wrap gap-[var(--sp-1)]">
+          {requirements.map((req) => (
+            <Chip key={req.label} tone="warn" title={req.title}>
+              {req.label}
+            </Chip>
+          ))}
         </div>
       )}
     </li>
