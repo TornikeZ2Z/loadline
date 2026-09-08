@@ -4,13 +4,18 @@ import { getCurrentUser } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Note, Section, SitePage } from "@/components/SitePage";
 import { reportProblemHref } from "@/lib/support";
+// The two sentences the board itself prints when a post said nothing. Imported
+// rather than retyped: a page that promises "where a post is silent, so is the
+// load" has to quote the board verbatim, or it is describing a board that does
+// not exist. See src/lib/loads/present.ts.
+import { PRICE_NOT_PROVIDED, READY_NOT_STATED } from "@/lib/loads/present";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "Search, inspect, contact, confirm — and behind that, how a WhatsApp group post becomes a job on the map without anything being invented along the way.",
+    "Search, inspect, contact, confirm — and behind that, how a WhatsApp group post becomes a load on the map without anything being invented along the way.",
 };
 
 /**
@@ -33,7 +38,7 @@ export const metadata: Metadata = {
  * What was taken out: the words "regression suite", "signature" and "line
  * shapes", and the billing detail behind the routing decision. All three are
  * true, but they describe the implementation, and they belong in README.md,
- * which has them. What stayed: the six posts and the 94 jobs (a checkable
+ * which has them. What stayed: the six posts and the 94 loads (a checkable
  * fact, not a mechanism), and every sentence about what the rules cannot do.
  * The honesty on this page is the selling point; it is not the part to trim.
  */
@@ -45,7 +50,7 @@ export default async function HowItWorksPage() {
       <SitePage
         eyebrow="Product"
         title="How it works"
-        lead="Four steps to find a load and reach the person offering it — and then, in detail, how a message in a group chat becomes a job on the map, including the parts that fail."
+        lead="Four steps to find a load and reach the person offering it — and then, in detail, how a group post becomes a load on the map, including the parts that fail."
       >
         <Section title="Using the board">
           <p>
@@ -55,62 +60,86 @@ export default async function HowItWorksPage() {
           <ol>
             <li>
               <strong>Search.</strong> Say where you will be when your trailer goes empty. The board
-              orders every job by how far its pickup is from there, and you can narrow it by lane,
-              by cubic feet, by price per cubic foot, and by how recently the sender posted it.
+              orders every load by how far its pickup is from there, and you can narrow it by lane, by
+              cubic feet, by price per cubic foot, and by how fresh the post is. Truck space other
+              movers have offered is on the same board and searched the same way.
             </li>
             <li>
-              <strong>Inspect the details.</strong> Open a job for the road route between its two
-              ends, the miles and the drive time, the size, and the price if the post carried one —
-              next to the original group message it was read out of, so you can check the reading
-              yourself.
+              <strong>Inspect the details.</strong> Open a load for the road route between its two
+              ends, the miles and an estimated drive time, the size, and the price if the post
+              carried one. Where it came out of a group message, that message is on the page beside
+              those fields, so you can check the reading yourself.
             </li>
             <li>
               <strong>Contact the poster.</strong> Press <strong>Show contact</strong> and sign in.
-              The number is the one the sender wrote in their own post. The deal is between the two
-              of you: MoverMesh is not in it and takes nothing from it.
+              The number is the one the poster gave. The deal is between the two of you: MoverMesh
+              is not in it and takes nothing from it.
             </li>
             <li>
-              <strong>Confirm it is still going.</strong> Ask them. The board shows you the job&rsquo;s
-              status and when the sender last posted it, but only the sender knows whether this
-              morning&rsquo;s load has already gone. Nothing here reserves or holds a job.
+              <strong>Confirm it is still going.</strong> Ask them. The board shows you the load&rsquo;s
+              status and when the poster last posted it, but only the poster knows whether this
+              morning&rsquo;s load has already gone. Nothing here reserves or holds a load.
             </li>
           </ol>
           <p>
-            The rest of this page is what happens before step 1 — how a job gets onto the board at
+            The rest of this page is what happens before step 1 — how a load gets onto the board at
             all, and why you can trust what it says.
           </p>
         </Section>
 
-        <Section title="1. A message arrives">
+        {/* L05. This page described one provenance and the rest of the site
+            advertised two. The difference matters to the reader more than any
+            other line on the page: everything in sections 2 to 5 is about
+            reading somebody else's text, and none of it applies to a listing
+            whose author typed it in here. Say which is which, first. */}
+        <Section title="1. Where a listing comes from">
           <p>
-            There are two ways in and one door. A connected group delivers messages through the
-            WhatsApp Cloud API; an admin can also paste a message or a chat export straight into the
-            console. Both call the same intake, so the demo data and live traffic take an identical
-            path through the code.
+            Two provenances, and a listing is one or the other.
+          </p>
+          <p>
+            <strong>Read out of a group post.</strong> A connected group delivers messages through
+            the WhatsApp Cloud API; an admin can also paste a message or a chat export straight into
+            the console. Both call the same intake, so sample data and live traffic take an identical
+            path through the code. The message is stored once, exactly as it arrived, and every load
+            in it is read from that stored copy — which is also the copy shown to you on the
+            load&rsquo;s page, with the phone number masked.
           </p>
           <p>
             Intake is idempotent on the provider&rsquo;s message id. WhatsApp retries a delivery it
             did not get a prompt answer for, and a retry must not turn into a second copy of the
-            same job.
+            same load.
+          </p>
+          <p>
+            <strong>Posted here directly.</strong> A signed-in account fills in the form at{" "}
+            <Link href="/post">Post a listing</Link> — a load, or space on a truck. There is no
+            message to read, so sections 2 to 5 below do not apply to it: nothing was extracted,
+            nothing can be misread, and there is no original post on its page because there was
+            never one. What it has instead is the poster&rsquo;s own word, entered field by field.
           </p>
         </Section>
 
-        <Section title="2. Rules read it, not a model">
+        {/* Titled for what the reader gets, not for the implementation. Review
+            01 names "Rules read it, not a model" as the shape to stop writing:
+            it answers a question about our stack when the reader is asking a
+            question about their morning. The mechanism did not change and it is
+            still the first sentence of the section -- it is the REASON for the
+            title, which is what a reason should be. */}
+        <Section title="2. The same post always reads the same way">
           <p>
-            The jobs are read by rules that were written down, not by a language model. Nothing
+            The loads are read by rules that were written down, not by a language model. Nothing
             about a post is guessed, nothing is sent away to be interpreted, and nothing is read a
-            second way on a second day. The same message always produces the same jobs.
+            second way on a second day. The same message always produces the same loads.
           </p>
           <p>That is not a purity argument. It buys three concrete things:</p>
           <ul>
             <li>
-              <strong>It can be checked.</strong> Six real group posts, with all 94 jobs in them
+              <strong>It can be checked.</strong> Six real group posts, with all 94 loads in them
               written out by hand, are read again before any change goes live. A change that drops a
-              job, shifts a ZIP, or produces a job that is not in the text does not reach the board.
+              load, shifts a ZIP, or produces a load that is not in the text does not reach the board.
             </li>
             <li>
-              <strong>It can be explained.</strong> Every field on a job traces back to the line of
-              the post it came from — and the job page shows you that post, so the reading is yours
+              <strong>It can be explained.</strong> Every field on a load traces back to the line of
+              the post it came from — and the load's page shows you that post, so the reading is yours
               to check rather than ours to assert.
             </li>
             <li>
@@ -122,12 +151,18 @@ export default async function HowItWorksPage() {
 
         <Section title="3. Nothing is invented">
           <p>
-            The rules only ever report what a post says. Where a post is silent, so is the job.
+            The rules only ever report what a post says. Where a post is silent, so is the load.
           </p>
           <ul>
             <li>
-              No price in the post means no price on the job. Not an estimate, not a market rate —
-              nothing.
+              No price in the post means no price on the load. Not an estimate, not a market rate —
+              it reads <em>{PRICE_NOT_PROVIDED}</em>.
+            </li>
+            <li>
+              No ready marker in the post means <em>{READY_NOT_STATED}</em>. Not <em>Ready now</em>,
+              which is what a missing date is least likely to mean, and not a date nobody wrote down.
+              A post that marks some of its loads ready and not others is read that way too: the
+              unmarked ones say <em>Not ready yet</em>, because the poster distinguished them.
             </li>
             <li>
               A destination given only as a state is placed at the state and labelled{" "}
@@ -139,7 +174,7 @@ export default async function HowItWorksPage() {
             </li>
             <li>
               A cubic-feet figure that reads as a revision of an earlier one is paired with it, not
-              added as a second job.
+              added as a second load.
             </li>
           </ul>
           <p>
@@ -150,29 +185,29 @@ export default async function HowItWorksPage() {
 
         <Section title="4. The latest post wins">
           <p>
-            A batch post is not a stream of new jobs — it is the sender&rsquo;s current inventory,
+            A batch post is not a stream of new loads — it is the poster&rsquo;s current inventory,
             republished. Reading it any other way leaves yesterday&rsquo;s work on the board
             forever. So:
           </p>
           <ul>
             <li>
-              A job in the sender&rsquo;s newest full post is <strong>available</strong>.
+              A load in the poster&rsquo;s newest full post is <strong>available</strong>.
             </li>
             <li>
-              A job their newest full post no longer lists is <strong>delisted</strong>: still
+              A load their newest full post no longer lists is <strong>delisted</strong>: still
               readable, plainly marked, not deleted. Delisted usually means it went, and that is
               worth being able to see.
             </li>
             <li>
-              Two posts from the same sender inside six hours are read as one list, not as a list
+              Two posts from the same poster inside six hours are read as one list, not as a list
               and a correction. Movers routinely finish a post in a second message.
             </li>
             <li>A repost bumps &ldquo;last seen&rdquo; instead of creating a duplicate.</li>
             <li>
-              A sender who has gone quiet for four days has their jobs <strong>expired</strong>.
+              A poster who has gone quiet for four days has their loads <strong>expired</strong>.
             </li>
             <li>
-              A job someone has marked <strong>taken</strong> stays taken, even if the next post
+              A load someone has marked <strong>taken</strong> stays taken, even if the next post
               lists it again. A human decision outranks a re-read of the text.
             </li>
           </ul>
@@ -186,7 +221,7 @@ export default async function HowItWorksPage() {
             corrects it.
           </p>
           <p>
-            The correction is remembered against that sender, so their next post in the same shape
+            The correction is remembered against that poster, so their next post in the same shape
             is read properly. The layouts that fail most often are the ones that get fixed first.
           </p>
         </Section>
@@ -199,23 +234,25 @@ export default async function HowItWorksPage() {
             &ldquo;philly&rdquo; is looked up once and not once per post.
           </p>
           <p>
-            The board draws every job as its two ends, pickup and delivery. Select one and the map
-            draws the actual road route between them, and the job shows that route&rsquo;s miles and
-            drive time. The list itself is ranked on straight-line distance, because working out
-            road routes for fifty jobs to answer a question nobody has asked yet would make the
-            board slow for everyone — the road number is worked out for the job you opened.
+            The board draws every load as its two ends, pickup and delivery. Select one and the map
+            draws the actual road route between them, and the load shows that route&rsquo;s miles and
+            an estimated drive time — an estimate of the driving, not a delivery promise, and it
+            knows nothing about your hours, your loading or the weather. The list itself is ranked
+            on straight-line distance, because working out
+            road routes for fifty loads to answer a question nobody has asked yet would make the
+            board slow for everyone — the road number is worked out for the load you opened.
           </p>
         </Section>
 
         <Section title="7. The contact stays behind one door">
           <p>
-            Everything else about a job is public: the route, the cubic feet, the price, how fresh
+            Everything else about a load is public: the route, the cubic feet, the price, how fresh
             the post is, the status, and the original message with every number replaced by{" "}
             <code>[phone hidden]</code>. Browsing needs no account and never will.
           </p>
           <p>
             The number itself is handed out in one place only, it needs an account, and each reveal
-            is recorded — which account, which job, when. Nothing goes live until every public
+            is recorded — which account, which load, when. Nothing goes live until every public
             response has been read back and checked that no number survived in it, in any format.
           </p>
           <p>
@@ -225,9 +262,9 @@ export default async function HowItWorksPage() {
         </Section>
 
         <Note title="It still gets things wrong">
-          Rules read a format they have seen. A sender who changes how they write will be misread
-          until somebody notices, and the somebody is usually a driver. If a job does not match its
-          post, send us the job&rsquo;s link and what the post actually said — that becomes a rule
+          Rules read a format they have seen. A poster who changes how they write will be misread
+          until somebody notices, and the somebody is usually a driver. If a load does not match its
+          post, send us the load&rsquo;s link and what the post actually said — that becomes a rule
           and a test case, not a one-off correction.{" "}
           <Link href={reportProblemHref()} className="underline">
             Report a problem

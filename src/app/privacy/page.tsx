@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Privacy",
   description:
-    "What MoverMesh stores: the group messages jobs are derived from, what the rules pull out of them, account details for the few who sign in, and contact reveals. Your location stays in your browser.",
+    "What MoverMesh stores: the group messages loads are derived from, what the rules pull out of them, account details for the few who sign in, and contact reveals. Your location stays in your browser.",
 };
 
 /**
@@ -52,10 +52,13 @@ export default async function PrivacyPage() {
               One cookie, set only when you sign in. No analytics, no advertising, no third-party
               trackers.
             </li>
-            <li>The location you pick stays in your browser. It is never written to our database.</li>
+            <li>
+              The location you pick is stored only in your browser. Its coordinates travel with each
+              search so the board can sort by distance, and are never written to our database.
+            </li>
             <li>
               Phone numbers are removed from everything an anonymous visitor can see, and revealed
-              only to a signed-in account, one job at a time, on the record.
+              only to a signed-in account, one listing at a time, on the record.
             </li>
             <li>Nothing here is sold, rented, or handed to an advertiser.</li>
           </ul>
@@ -64,11 +67,11 @@ export default async function PrivacyPage() {
         <Section title="What is stored">
           <p>
             <strong>Messages from connected groups.</strong> For a group that has been connected by
-            its administrator: the text of each message, the sender&rsquo;s display name and
+            its administrator: the text of each message, the poster&rsquo;s display name and
             WhatsApp number as the provider supplies them, when it was sent, which group it came
             from, and the delivery envelope around it. The message is the source of truth — every
-            job is derived from it, and can be re-derived when a rule improves — and it is what a
-            driver reads when they want to see the post in the sender&rsquo;s own words.
+            load is derived from it, and can be re-derived when a rule improves — and it is what a
+            driver reads when they want to see the post in the poster&rsquo;s own words.
           </p>
           <p>
             <strong>What the rules take out of a message.</strong> Origin, destinations, cubic feet,
@@ -82,14 +85,14 @@ export default async function PrivacyPage() {
           </p>
           <p>
             <strong>Contact reveals.</strong> When a signed-in account presses{" "}
-            <strong>Show contact</strong>, we record which account, which job, and when. That is the
+            <strong>Show contact</strong>, we record which account, which listing, and when. That is the
             accountability behind the gate: a number handed out anonymously is a number sold to a
             scraper.
           </p>
           <p>
-            <strong>Listings posted on the site.</strong> If you put a job or space on a truck up
-            through <Link href="/post">Post to the board</Link>, that listing and its contact
-            details are stored the same way.
+            <strong>Listings posted on the site.</strong> If you put a load or space on a truck up
+            through <Link href="/post">Post a listing</Link>, that listing and its contact details
+            are stored the same way.
           </p>
         </Section>
 
@@ -102,7 +105,7 @@ export default async function PrivacyPage() {
           </p>
           <p>
             Coordinates do travel with each search, as ordinary parameters, so the server can sort
-            jobs by how far the pickup is from you and work out a drive time. They are used to
+            loads by how far the pickup is from you and work out a drive time. They are used to
             answer that request and are not written to any table.{" "}
             <Link href="/cookies">Cookies</Link> lists every key, and offers a button that clears
             them.
@@ -144,7 +147,7 @@ export default async function PrivacyPage() {
 
         <Section title="How long it is kept">
           <p>
-            There is no automatic deletion schedule in this software today: messages, jobs, accounts
+            There is no automatic deletion schedule in this software today: messages, listings, accounts
             and reveal records stay in the database until an operator removes them. So removal is
             something you ask for, and the next section says exactly how and what can be done. When
             a retention period is implemented, the period will be printed here.
@@ -158,10 +161,10 @@ export default async function PrivacyPage() {
           <ul>
             <li>Delete your account and the reveal records attached to it.</li>
             <li>
-              Remove a group&rsquo;s stored messages and every job derived from them — including at
-              the request of a sender who does not want their posts republished here.
+              Remove a group&rsquo;s stored messages and every load derived from them — including at
+              the request of a poster who does not want their posts republished here.
             </li>
-            <li>Tell you what is held about a particular sender or account.</li>
+            <li>Tell you what is held about a particular poster or account.</li>
           </ul>
           <p>
             <Link href="/contact">Contact</Link> sets out what to put in the message for each of

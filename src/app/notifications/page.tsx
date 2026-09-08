@@ -36,7 +36,7 @@ export default async function NotificationsPage() {
           <div>
             <h1 className="big text-(length:--fs-2xl)">Notifications</h1>
             <p className="mt-[var(--sp-1)] text-(length:--fs-base)" style={{ color: "var(--muted)" }}>
-              Loads that match your trucks, and trucks that could take your jobs. Nothing is sent
+              Loads that match your trucks, and trucks that could take your loads. Nothing is sent
               anywhere else — these live here.
             </p>
           </div>
