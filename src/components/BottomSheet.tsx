@@ -51,6 +51,12 @@ export interface BottomSheetProps {
   topInset?: number;
   /** The list pads its own cards; the job detail is full-bleed. */
   padded?: boolean;
+  /**
+   * An id for the scrolling body, so something outside the sheet can send focus
+   * into it -- the board's "Skip the map" link (V15). The body takes
+   * `tabIndex={-1}` with it: a landing place, never a tab stop of its own.
+   */
+  bodyId?: string;
   children: React.ReactNode;
 }
 
@@ -62,6 +68,7 @@ export function BottomSheet({
   handle,
   topInset = 0,
   padded = true,
+  bodyId,
   children,
 }: BottomSheetProps) {
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -181,6 +188,9 @@ export function BottomSheet({
           the list's, not the sheet's: the job detail brings its own, and with
           both it was inset 28 px from a 390 px screen. */}
       <div
+        id={bodyId}
+        data-results={bodyId ? "" : undefined}
+        tabIndex={bodyId ? -1 : undefined}
         className={`overflow-y-auto overscroll-contain${padded ? " px-[var(--sp-3)] pb-[var(--sp-6)]" : ""}`}
         style={{ height: `calc(100% - var(--sheet-handle-h))` }}
       >

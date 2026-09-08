@@ -1599,7 +1599,66 @@ export function LoadMap({
       }
       if (!placed) l.el.style.visibility = "hidden";
     }
+
+    /* ONE TAB STOP FOR THE WHOLE SET OF STATE PILLS (V15 residual).
+     *
+     * Sixteen state totals are sixteen buttons, and every one of them used to
+     * be its own tab stop -- so a keyboard walking the board crossed fifteen
+     * map marks before it reached the first job. They are a group of peers, and
+     * a group of peers is one stop with the arrow keys inside it (the roving
+     * tabindex, the same contract a toolbar or a radio group has). Nothing
+     * loses its focusability: every pill can still be focused, still announces
+     * its own state and freight, and Home/End reach the ends of the group.
+     *
+     * IT IS DECIDED HERE, at the end of the placement pass, and not where the
+     * markers are built, because the placer hides whatever will not fit. A pill
+     * with `visibility: hidden` is not focusable, so a stop parked on one is no
+     * stop at all -- the whole group would silently drop out of the tab order
+     * at some zooms and not others. Choosing among the pills that were actually
+     * placed, on every pass, is what makes that impossible.
+     *
+     * The pill that already holds the stop keeps it, so panning the map does
+     * not send a walk that is halfway through the group back to the start.
+     */
+    const pills: HTMLElement[] = [];
+    for (const l of labels.current) {
+      if (l.kind !== "state" || !l.el.isConnected) continue;
+      if (l.el.style.visibility === "hidden") l.el.tabIndex = -1;
+      else pills.push(l.el);
+    }
+    if (pills.length) {
+      const stop = pills.find((el) => el.tabIndex === 0) ?? pills[0];
+      for (const el of pills) el.tabIndex = el === stop ? 0 : -1;
+    }
   }, [sizeOf]);
+
+  /** The state pills the placer actually put on screen, in build order. */
+  const placedStatePills = useCallback(
+    (): HTMLElement[] =>
+      labels.current
+        .filter((l) => l.kind === "state" && l.el.isConnected && l.el.style.visibility !== "hidden")
+        .map((l) => l.el),
+    [],
+  );
+
+  /** Move the group's single tab stop, and the focus with it. */
+  const walkStatePills = useCallback(
+    (from: HTMLElement, step: number | "first" | "last") => {
+      const pills = placedStatePills();
+      if (!pills.length) return;
+      const at = pills.indexOf(from);
+      const to =
+        step === "first"
+          ? 0
+          : step === "last"
+            ? pills.length - 1
+            : (Math.max(at, 0) + step + pills.length) % pills.length;
+      const target = pills[to];
+      for (const el of pills) el.tabIndex = el === target ? 0 : -1;
+      target.focus();
+    },
+    [placedStatePills],
+  );
 
   /** Replace one group's labels, keeping the other groups' entries. */
   const setLabels = useCallback(
@@ -3676,6 +3735,50 @@ export function LoadMap({
         (trucksHere > 0
           ? `. ${trucksHere} truck${trucksHere === 1 ? " is" : "s are"} standing here as well; that is a separate count and the two are never added.`
           : "");
+      /* THE NAME, SET BEFORE `addTo`, AND THAT ORDER IS THE WHOLE POINT.
+       *
+       * `Marker.addTo` does `this._element.hasAttribute("aria-label") ||
+       * this._element.setAttribute("aria-label", "Map marker")`
+       * (maplibre-gl 5, Marker.addTo). A custom element with no aria-label
+       * therefore comes out of the library called "Map marker" -- and an
+       * aria-label overrides the text inside it, so all sixteen state pills
+       * announced the same three syllables and none of them said which state
+       * or how much freight. Naming it here is what makes `hasAttribute` true
+       * and leaves our own name standing.
+       *
+       * The name is the LOUD form on purpose. The pill's face shows the count
+       * and reveals the cubic feet on hover or focus (see `show`/`hide`
+       * above); a screen reader has neither, so it is told the whole fact.
+       */
+      el.setAttribute("aria-label", `${full} — filter ${noun} to ${st}`);
+      /* A member of the group, not a stop of its own: the placement pass hands
+         the one stop out (see `declutter`). `-1` here rather than nothing at
+         all, so a pill is never tabbable before it has been placed. */
+      el.tabIndex = -1;
+      el.addEventListener("keydown", (e) => {
+        const step =
+          e.key === "ArrowRight" || e.key === "ArrowDown"
+            ? 1
+            : e.key === "ArrowLeft" || e.key === "ArrowUp"
+              ? -1
+              : e.key === "Home"
+                ? ("first" as const)
+                : e.key === "End"
+                  ? ("last" as const)
+                  : null;
+        if (step === null) return;
+        e.preventDefault();
+        // MapLibre's own keyboard handler is bound to the canvas container,
+        // which is this button's parent, and it pans on the arrow keys. Without
+        // this the map would slide out from under the group being walked.
+        e.stopPropagation();
+        walkStatePills(el, step);
+      });
+      // A pointer or a programmatic focus makes this the group's stop, so
+      // shift-tabbing out and tabbing back in returns to where the walk was.
+      el.addEventListener("focus", () => {
+        for (const p of placedStatePills()) p.tabIndex = p === el ? 0 : -1;
+      });
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         cb.current.onStateClick(st);
@@ -3695,7 +3798,18 @@ export function LoadMap({
       });
     }
     setLabels("state", next);
-  }, [jobs, end, detailed, focused, ready, setLabels, truckBuilt, fadeLabel]);
+  }, [
+    jobs,
+    end,
+    detailed,
+    focused,
+    ready,
+    setLabels,
+    truckBuilt,
+    fadeLabel,
+    walkStatePills,
+    placedStatePills,
+  ]);
 
   // --- re-place the labels whenever the viewport moves ---------------------
   // On `move`, not `moveend`: markers follow the camera every frame, so waiting
